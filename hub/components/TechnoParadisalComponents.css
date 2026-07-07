@@ -1,0 +1,194 @@
+/* Reusable cyber component styles. Load alongside /components/TechnoParadisalTheme.css. */
+
+:root {
+  --panel: #16161d;
+  --panel-hover: #1e1e27;
+  --panel-dark: #0f0f14;
+}
+
+/* cyber-ul: category label with LED */
+.category-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.9rem;
+}
+
+.category-title {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--white);
+}
+
+.led {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--lavender);
+  box-shadow: 0 0 6px var(--lavender), 0 0 12px var(--lavender);
+}
+
+/* Shared content parts */
+.cyber-link__heading,
+.cyber-button__heading {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--white);
+  transition: color 0.12s ease;
+}
+
+.cyber-link__heading {
+  font-size: 0.95rem;
+}
+
+.cyber-button__heading {
+  font-size: 1.1rem;
+}
+
+/* cyber-link: cut-corner flat link */
+.cyber-link {
+  --accent: var(--lavender);
+  position: relative;
+  display: block;
+  width: 260px;
+  height: 70px;
+  text-decoration: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.cyber-link__bg {
+  position: absolute;
+  inset: 0;
+  background: var(--component);
+  clip-path: polygon(
+    0 0,
+    100% 0,
+    100% 100%,
+    16px 100%,
+    0 calc(100% - 16px)
+  );
+  pointer-events: none;
+}
+
+.cyber-link__content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 1rem 1.25rem;
+  text-align: center;
+}
+
+.cyber-link:hover .cyber-link__heading {
+  color: var(--lavender);
+}
+
+.cyber-link[data-status]::after {
+  content: "";
+  position: absolute;
+  top: 0.6rem;
+  right: 0.8rem;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 4px var(--red);
+  z-index: 2;
+}
+
+.cyber-link[data-status="active"]::after {
+  background: var(--green);
+  box-shadow: 0 0 4px var(--green);
+}
+
+/* cyber-button: mechanical keyboard key */
+.cyber-button {
+  --accent: var(--mint);
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.cyber-button__face {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1rem 1.25rem;
+  border-radius: 8px;
+  background: var(--panel);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 8px 0 var(--panel-dark),
+    0 10px 16px rgba(0, 0, 0, 0.5);
+  transform: translateY(0);
+  transition: transform 0.1s ease, box-shadow 0.1s ease, background 0.1s ease;
+}
+
+.cyber-button:hover .cyber-button__face {
+  background: var(--panel-hover);
+}
+
+.cyber-button:active .cyber-button__face,
+.cyber-button.pressed .cyber-button__face {
+  transform: translateY(8px);
+  box-shadow:
+    0 0 0 var(--panel-dark),
+    0 2px 4px rgba(0, 0, 0, 0.35);
+}
+
+.cyber-button:hover .cyber-button__heading {
+  color: var(--accent);
+}
+
+/* Small nav links */
+.cyber-link--nav {
+  display: inline-block;
+  width: 2.5rem;
+  height: 2.5rem;
+  vertical-align: middle;
+}
+
+.cyber-link--nav .cyber-link__content {
+  height: 100%;
+  padding: 0;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  color: var(--white);
+}
+
+.cyber-link--nav .cyber-link__content svg {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+.cyber-link--nav:hover .cyber-link__content {
+  color: var(--lavender);
+}
+
+/* Fixed page nav */
+.page-nav {
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  display: flex;
+  gap: 0.5rem;
+  z-index: 100;
+}

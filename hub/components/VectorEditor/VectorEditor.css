@@ -1,0 +1,12 @@
+.vector-editor {
+  display: inline-block;
+  border: 1px solid var(--component);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.vector-editor canvas {
+  display: block;
+  background: var(--background);
+  cursor: crosshair;
+}

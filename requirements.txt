@@ -1,0 +1,11 @@
+torch
+torch vision
+
+transformers
+
+matplotlib
+
+textual
+
+fastapi
+uvicorn

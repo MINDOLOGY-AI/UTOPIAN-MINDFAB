@@ -1,3 +1,17 @@
+# big files  
+data/
+weights/
+
+# python
 venv
 *.pyc
 *.pt
+pyrightconfig.json
+
+# notes and implementations just for myself while reading. will put into thoughtgrvph / svnapse after reading  
+VERSIONS.md  
+paper-notes/ 
+paper-implementations/
+
+#temporarily ignored. WIP. 
+writing/

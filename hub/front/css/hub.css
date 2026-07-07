@@ -1,0 +1,76 @@
+/* Hub-specific styles. Load alongside /components/TechnoParadisalTheme.css and /components/TechnoParadisalComponents.css. */
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  min-height: 100vh;
+  background-color: var(--background);
+  background-image: url('/orbital.png');
+  background-size: 100% auto;
+  background-position: center top;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  color: var(--white);
+  display: flex;
+  flex-direction: column;
+}
+
+.chassis {
+  flex: 1;
+  max-width: 900px;
+  width: 100%;
+  margin: 2rem auto;
+  padding: 1.5rem;
+}
+
+/* Header */
+.site-header {
+  margin-bottom: 2rem;
+}
+
+.site-title {
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--white);
+}
+
+.site-tagline {
+  margin-top: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--lavender);
+  white-space: nowrap;
+}
+
+/* Repo note */
+.repo-note {
+  margin-bottom: 1.5rem;
+  font-size: 0.75rem;
+  color: var(--white);
+}
+
+/* Link rows */
+.link-row {
+  display: grid;
+  grid-template-columns: repeat(3, 260px);
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.link-row .cyber-link__content {
+  height: 100%;
+  padding: 0.5rem;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .chassis {
+    margin: 1rem;
+    padding: 1rem;
+  }
+  .site-title {
+    font-size: 1.3rem;
+  }
+}

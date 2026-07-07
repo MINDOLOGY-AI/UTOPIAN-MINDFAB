@@ -1,0 +1,12 @@
+# honestly just delete simple train after this  
+# whats needed not in simple train:  
+# eval! eval 1 batch per log.  
+# scheduler  
+# save load dataset skips
+# accumulation steps  
+# clip grad norm  
+
+# things not included: curriculum train, continual train, sae train  
+
+
+

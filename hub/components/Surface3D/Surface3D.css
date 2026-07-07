@@ -1,0 +1,11 @@
+.surface-3d {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.surface-3d canvas {
+  background: var(--background);
+  border: 1px solid var(--component);
+  border-radius: 8px;
+}
