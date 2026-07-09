@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>intvrface</title>
+    <base href="/intvrface/">
+    <link rel="stylesheet" href="/components/TechnoParadisalTheme.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Left sidebar: agent list -->
+        <aside class="sidebar">
+            <h2>agents</h2>
+            <div class="agent-controls">
+                <input type="text" id="new-agent-name" placeholder="agent name">
+                <button id="create-btn">create</button>
+            </div>
+            <ul id="agent-list"></ul>
+        </aside>
+
+        <!-- Middle: screen + controls -->
+        <div class="mid-panel">
+            <div class="vnc-container">
+                <div id="vnc-placeholder">select an agent to view</div>
+                <iframe id="vnc-frame" style="display:none;"></iframe>
+            </div>
+            <div class="footer">
+                <button id="start-btn" disabled>start</button>
+                <button id="pause-btn" disabled>pause</button>
+                <button id="delete-btn" disabled>delete</button>
+                <button id="chat-mode-btn">chat</button>
+                <button id="prompt-btn">prompt</button>
+            </div>
+        </div>
+
+        <!-- Right: context + chat input -->
+        <div class="right-panel">
+            <div id="context-messages"></div>
+            <div id="prompt-popup" style="display:none;">
+                <textarea id="prompt-input" placeholder="task prompt for agent (injected into system prompt every turn)..."></textarea>
+            </div>
+            <textarea id="chat-input" placeholder="type message to agent..."></textarea>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,148 @@
+{
+  "nodes": {
+    "3af092fa": {
+      "id": "3af092fa",
+      "title": "mindology",
+      "type": "folder",
+      "x": 600,
+      "y": 200,
+      "parent": null,
+      "expanded": false,
+      "width": 560,
+      "height": 360
+    },
+    "442a03cb": {
+      "id": "442a03cb",
+      "title": "AI",
+      "type": "folder",
+      "x": 200,
+      "y": 200,
+      "parent": null,
+      "expanded": false,
+      "width": 560,
+      "height": 360
+    },
+    "7a51c188": {
+      "id": "7a51c188",
+      "title": "probes",
+      "type": "folder",
+      "x": 800,
+      "y": 400,
+      "parent": "442a03cb",
+      "expanded": false,
+      "width": 560,
+      "height": 360
+    },
+    "0fc7ed3d": {
+      "id": "0fc7ed3d",
+      "title": "algorithms",
+      "type": "folder",
+      "x": 400,
+      "y": 400,
+      "parent": "442a03cb",
+      "expanded": false,
+      "width": 560,
+      "height": 360
+    },
+    "3c650a36": {
+      "id": "3c650a36",
+      "title": "peripherals",
+      "type": "folder",
+      "x": 600,
+      "y": 400,
+      "parent": "442a03cb",
+      "expanded": false,
+      "width": 560,
+      "height": 360
+    },
+    "19bb2736": {
+      "id": "19bb2736",
+      "title": "train",
+      "type": "folder",
+      "x": 600,
+      "y": 600,
+      "parent": "442a03cb",
+      "expanded": false,
+      "width": 560,
+      "height": 360
+    },
+    "443ed636": {
+      "id": "443ed636",
+      "title": "MEMIT.md",
+      "type": "file",
+      "x": 200,
+      "y": 200,
+      "parent": "7a51c188",
+      "expanded": false,
+      "width": 560,
+      "height": 360
+    },
+    "5956c367": {
+      "id": "5956c367",
+      "title": "math",
+      "type": "folder",
+      "x": -600,
+      "y": 200,
+      "parent": null,
+      "expanded": false,
+      "width": 560,
+      "height": 360
+    },
+    "d96e5ae0": {
+      "id": "d96e5ae0",
+      "title": "physics",
+      "type": "folder",
+      "x": -600,
+      "y": 400,
+      "parent": null,
+      "expanded": false,
+      "width": 560,
+      "height": 360
+    },
+    "e50db86d": {
+      "id": "e50db86d",
+      "title": "software",
+      "type": "folder",
+      "x": -200,
+      "y": 200,
+      "parent": null,
+      "expanded": false,
+      "width": 560,
+      "height": 360
+    },
+    "12841321": {
+      "id": "12841321",
+      "title": "neuroscience",
+      "type": "folder",
+      "x": 200,
+      "y": 400,
+      "parent": null,
+      "expanded": false,
+      "width": 560,
+      "height": 360
+    },
+    "2c6d131f": {
+      "id": "2c6d131f",
+      "title": "engineering",
+      "type": "folder",
+      "x": -200,
+      "y": 400,
+      "parent": null,
+      "expanded": false,
+      "width": 560,
+      "height": 360
+    },
+    "1c52cb9e": {
+      "id": "1c52cb9e",
+      "title": "compute",
+      "type": "folder",
+      "x": -200,
+      "y": 600,
+      "parent": null,
+      "expanded": false,
+      "width": 560,
+      "height": 360
+    }
+  },
+  "edges": {}
+}

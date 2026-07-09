@@ -1,10 +1,12 @@
+# secrets
+.env
+
 # big files  
 data/
 weights/
-thoughts/thoughtgrvph/
 
 # private thoughts
-thoughts/life
+thoughts/thoughtgrvph/life
 
 # notes and implementations just for myself while reading. will put into thoughtgrvph / svnapse after reading 
 VERSIONS.md  
@@ -13,9 +15,6 @@ paper-implementations/
 
 #temporarily ignored. WIP. 
 writing/
-
-
-
 
 # python
 venv

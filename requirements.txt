@@ -9,3 +9,5 @@ textual
 
 fastapi
 uvicorn
+httpx
+websockets
