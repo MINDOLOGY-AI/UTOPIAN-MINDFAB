@@ -1,17 +1,24 @@
 # big files  
 data/
 weights/
+thoughts/thoughtgrvph/
 
-# python
-venv
-*.pyc
-*.pt
-pyrightconfig.json
+# private thoughts
+thoughts/life
 
-# notes and implementations just for myself while reading. will put into thoughtgrvph / svnapse after reading  
+# notes and implementations just for myself while reading. will put into thoughtgrvph / svnapse after reading 
 VERSIONS.md  
 paper-notes/ 
 paper-implementations/
 
 #temporarily ignored. WIP. 
 writing/
+
+
+
+
+# python
+venv
+*.pyc
+*.pt
+pyrightconfig.json
