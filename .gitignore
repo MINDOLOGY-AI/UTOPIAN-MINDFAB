@@ -1,14 +1,16 @@
 # secrets
 .env
+fab/INT3RF4CE/secrets
 
 # big files  
-data/
-weights/
+fab/data/
+mind/data/
+mind/weights/
 
 # private thoughts
-thoughts/thoughtgrvph/life
+fab/thoughts/thoughtgrvph/life
 
-# notes and implementations just for myself while reading. will put into thoughtgrvph / svnapse after reading 
+# notes and implementations just for myself while reading. will put into TH0UGHTGR4PH / SYN4P5E after reading 
 VERSIONS.md  
 paper-notes/ 
 paper-implementations/
@@ -16,8 +18,22 @@ paper-implementations/
 #temporarily ignored. WIP. 
 writing/
 
+# code agent stuff 
+.claude
+
 # python
 venv
 *.pyc
 *.pt
 pyrightconfig.json
+
+# runtime logs
+fab/logs/
+
+# INT3RF4CE docker build artifacts
+fab/INT3RF4CE/docker_build/last_build
+fab/INT3RF4CE/docker_build/build.log
+
+
+# draw-io
+fab/drawio

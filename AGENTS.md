@@ -5,8 +5,15 @@ all code here is absolutely sacred, write them nicely, quality > dev speed, abso
 
 all code here should be within 10% range worse than the theoretical optimal speed (some leeway for code simplicity). all code here should follow DRY (don't repeat yourself). coding this is a process of compression into reusable things, this is a monorepo after all.  
 
+all code here should be as simple as possible.  
+
 # for AI agents specifically
 DO NOT CODE or change files UNLESS I TELL YOU TO  
+A question about code is never a request to change code.  
+NEVER delete the user's comments or docstrings when editing their files.  
+
+NEVER, EVER START OR STOP big scripts. like training, downloading, builds, etc.  
+
 when i tell you to "check if my code is correct" and didnt tell you to write tests, DO NOT CODE just answer  
 when i tell you to discuss ideas DO NOT CODE  
 if my prompt ends with a question, im clearly asking you something, DO NOT CODE  
@@ -26,7 +33,7 @@ if my prompt ends with a question, im clearly asking you something, DO NOT CODE
 
 - break up code into seperate files and functions.  
 
-- when possible, import code from this monorepo rather than rewriting similar logic. for example, many ml research code will import the svnapse repo's algorithms, utils, probes. phvsicsim will import from svmbolcore. websites will import from webasy for convention.  
+- when possible, import code from this monorepo rather than rewriting similar logic. for example, many ml research code will import the SYN4P5E repo's algorithms, utils, probes. phvsicsim will import from svmbolcore. websites will import from webasy for convention.  
 
 - use this tech stack:  
 
@@ -58,7 +65,7 @@ put reusable stuff into web components. never use react. web components belong i
 
 # web design principles  
 
-do not run your own serve on my port im already running it just check it. UNLESS you are working in a isolated docker like in intvrface  
+do not run your own serve on my port im already running it just check it. UNLESS you are working in a isolated docker like in INT3RF4CE  
 
 we want the website to be as simple as possible. nothing more pathetic than a bunch of text and buttons no one will read or press. the goal is to convey the very real repos and research we want to convey and nothing else. i mean it should look pretty right but not at the cost of wasting viewers attention.  
 
@@ -66,7 +73,7 @@ if you don't have to put it in the website, don't.
 if you have to put it in the website, think: could this be a component: graph, table, etc.  
 if you HAVE to use text, use text. do NOT add random headers and footers and useless decorations. do not add random lights or symbol decorations that doesnt mean anything but look cool.  
 
-don't forget what a website main purpose is: a visual interface to use the programs in this repo. could be visualizations for research could be actual software like intvrface could be blog readings  
+don't forget what a website main purpose is: a visual interface to use the programs in this repo. could be visualizations for research could be actual software like INT3RF4CE could be blog readings  
 
 # later to do web  
 

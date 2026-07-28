@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Chromium
+Exec=/usr/local/bin/chromium
+Icon=/usr/share/pixmaps/INT3RF4CE-chromium.png
+Terminal=false
+Categories=Network;

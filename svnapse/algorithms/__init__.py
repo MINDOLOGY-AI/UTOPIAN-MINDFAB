@@ -1,1 +1,0 @@
-# svnapse algorithms package

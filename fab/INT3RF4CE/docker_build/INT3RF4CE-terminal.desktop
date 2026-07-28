@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Terminal
+Comment=xterm logging to /home/agent/term.log
+Exec=xterm -title INT3RF4CE-terminal -geometry 100x30+56+8 -fg white -bg black -fa Monospace -fs 12 +bdc -e script -f -a /home/agent/term.log
+Icon=/usr/share/pixmaps/INT3RF4CE-terminal.png
+Terminal=false
+Categories=Utility;

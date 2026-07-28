@@ -1,0 +1,50 @@
+# tint2 sidebar for INT3RF4CE — terminal + chromium launchers, icon-only taskbar
+# background ids: 1 = panel, 2 = active task highlight
+
+rounded = 0
+border_width = 0
+background_color = #101010 100
+border_color = #000000 0
+
+rounded = 4
+border_width = 0
+background_color = #ffffff 22
+border_color = #000000 0
+
+panel_monitor = all
+# tint2 17.0.1 has the orientation token inverted: "vertical" renders a horizontal panel, "horizontal" renders vertical
+panel_position = bottom center vertical
+panel_items = LT
+panel_size = 48 100%
+panel_margin = 0 0
+panel_padding = 4 4 4
+panel_background_id = 1
+panel_layer = top
+panel_dock = 0
+panel_window_name = tint2
+panel_autohide = 0
+strut_policy = follow_size
+
+launcher_icon_size = 40
+launcher_padding = 2 6 4
+launcher_background_id = 0
+launcher_tooltip = 1
+launcher_item_app = /usr/share/applications/INT3RF4CE-terminal.desktop
+launcher_item_app = /usr/share/applications/INT3RF4CE-chromium.desktop
+
+# multi_desktop: every open window stays visible/clickable even after a desktop switch
+taskbar_mode = multi_desktop
+taskbar_padding = 2 2 4
+taskbar_background_id = 0
+taskbar_active_background_id = 2
+taskbar_name = 0
+task_icon = 1
+task_text = 0
+task_maximum_size = 40 40
+task_padding = 2 2 2
+task_background_id = 0
+task_active_background_id = 2
+# right-click a task to close its window
+mouse_right = close
+
+urgent_nb_of_blink = 100000

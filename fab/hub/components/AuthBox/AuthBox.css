@@ -1,0 +1,187 @@
+/* <auth-box> styles. Load alongside /components/TechnoParadisalTheme.css. */
+
+.auth-box {
+  position: fixed;
+  top: 0.5rem;
+  right: 0.75rem;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
+  font-size: 0.7rem;
+}
+
+/* inline variant: embedded in page flow (e.g. sidebar bottom) instead of fixed */
+auth-box[inline] .auth-box {
+  position: relative;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  font-size: 0.75rem;
+}
+
+.auth-user {
+  color: var(--mint);
+  letter-spacing: 0.05em;
+  cursor: default;
+}
+
+/* popup wrapper: its padding is the hover bridge, so moving from the name
+   into the popup never crosses dead space (popup stays open once shown) */
+.auth-pop {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  padding-top: 0.3rem; /* bridge for the fixed top-right (dropdown) variant */
+}
+
+.auth-user:hover ~ .auth-pop,
+.auth-pop:hover,
+.auth-pop:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+/* inline variant: embedded in page flow (e.g. sidebar bottom) instead of fixed */
+auth-box[inline] .auth-box {
+  position: relative;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  font-size: 0.75rem;
+}
+
+auth-box[inline] .auth-user {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* inline popup opens UPWARD above the name */
+auth-box[inline] .auth-pop {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  padding-top: 0;
+  padding-bottom: 0.4rem; /* bridge: hoverable area reaching down to the name */
+  transform: translateY(4px);
+}
+
+auth-box[inline] .auth-user:hover ~ .auth-pop,
+auth-box[inline] .auth-pop:hover,
+auth-box[inline] .auth-pop:focus-within {
+  transform: translateY(0);
+}
+
+/* mechanical key, same language as .cyber-button */
+.auth-btn,
+.auth-submit {
+  background: var(--panel, #16161d);
+  color: var(--white);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  padding: 0.35rem 0.9rem;
+  font: inherit;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  box-shadow: 0 4px 0 var(--panel-dark, #0f0f14), 0 6px 10px rgba(0, 0, 0, 0.5);
+  transform: translateY(0);
+  transition: transform 0.1s ease, box-shadow 0.1s ease, color 0.1s ease;
+}
+
+.auth-btn:hover,
+.auth-submit:hover {
+  color: var(--mint);
+}
+
+.auth-btn:active,
+.auth-submit:active {
+  transform: translateY(4px);
+  box-shadow: 0 0 0 var(--panel-dark, #0f0f14), 0 2px 4px rgba(0, 0, 0, 0.35);
+}
+
+.auth-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+}
+
+.auth-modal {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  width: 420px;
+  padding: 1.5rem;
+  background: var(--panel, #16161d);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+
+.auth-close {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.7rem;
+  background: none;
+  border: none;
+  color: var(--light-gray);
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.auth-close:hover {
+  color: var(--red);
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.auth-tab {
+  flex: 1;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--light-gray);
+  padding: 0.3rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.auth-tab.active {
+  color: var(--lavender);
+  border-bottom-color: var(--lavender);
+}
+
+.auth-modal input {
+  background: var(--background);
+  border: 1px solid var(--mid-gray);
+  border-radius: 6px;
+  color: var(--white);
+  padding: 0.5rem 0.7rem;
+  font: inherit;
+  font-size: 0.8rem;
+}
+
+.auth-modal input:focus {
+  outline: none;
+  border-color: var(--lavender);
+}
+
+.auth-error {
+  color: var(--red);
+  font-size: 0.65rem;
+  min-height: 0.8rem;
+}

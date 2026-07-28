@@ -1,0 +1,115 @@
+# see theory at thoughts/AI/probes/gatedSAE.md  
+
+
+import torch
+import torch.nn as nn
+
+# Gated sparse autoencoder with:
+#   - JumpReLU-style slab gates (lower/upper bounds on feature pre-activations)
+#   - Cone gate via angle between input and encoder directions
+#   - Straight-through estimator so backprop flows through hard gates
+
+class SlabConeSAE(nn.Module):
+    def __init__(self, embed_dim, expansion_factor):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.feature_dim = embed_dim * expansion_factor
+        self.band_eps = 0.001
+
+        # dictionary weights
+        self.encoder_weight = nn.Parameter(torch.randn(self.feature_dim, self.embed_dim) / self.embed_dim ** 0.5)  # (out, in) format
+        self.encoder_bias = nn.Parameter(torch.randn(self.feature_dim) / self.embed_dim ** 0.5)
+        self.decoder_weight = nn.Parameter(torch.randn(self.embed_dim, self.feature_dim) / self.embed_dim ** 0.5)
+        self.decoder_bias = nn.Parameter(torch.randn(self.embed_dim) / self.embed_dim ** 0.5)
+
+        # gate weights
+        self.slab_gate_lower_bound = nn.Parameter(torch.zeros(self.feature_dim))
+        self.slab_gate_upper_bound = nn.Parameter(torch.full((self.feature_dim,), 10.0))
+        self.cone_gate_upper_bound = nn.Parameter(torch.full((self.feature_dim,), 1.57))  # initialize to right angle
+
+    # straight through estimator
+    # we want to use hard for forward but use soft estimator for backprop
+    def ste_gate(self, arg, threshold, lower_bound):
+        dtype = arg.dtype
+        if lower_bound:
+            hard = (arg >= threshold).to(dtype)
+            smooth = torch.sigmoid((arg - threshold) / self.band_eps)
+        else:
+            hard = (arg < threshold).to(dtype)
+            smooth = torch.sigmoid((threshold - arg) / self.band_eps)
+        # forward value = hard, backward due to detach gradient uses soft
+        return smooth + (hard - smooth).detach()
+
+    def encode(self, input):
+        input = input.to(self.encoder_weight.dtype)
+
+        # feature pre-activations: project centered input onto encoder directions
+        pre_gate_features = (input - self.decoder_bias) @ self.encoder_weight.T + self.encoder_bias
+
+        # slab gates: keep features inside [lower_bound, upper_bound]
+        slab_lower_gate = self.ste_gate(pre_gate_features, self.slab_gate_lower_bound, True)
+        slab_upper_gate = self.ste_gate(pre_gate_features, self.slab_gate_upper_bound, False)
+
+        # cone gate: only keep features whose encoder direction is close to the input direction
+        angles = torch.acos(
+            ((input - self.decoder_bias) @ self.encoder_weight.T
+             / (input - self.decoder_bias).norm(dim=-1, keepdim=True)
+             / self.encoder_weight.norm(dim=-1))
+            .clamp(-1 + 1e-5, 1 - 1e-5)
+        )
+        cone_upper_gate = self.ste_gate(angles, self.cone_gate_upper_bound, False)
+
+        # all three gates must be on for a feature to fire
+        combined_gate = slab_lower_gate * slab_upper_gate * cone_upper_gate
+        features = pre_gate_features * combined_gate
+        return features, combined_gate
+
+    def decode(self, features):
+        return features @ self.decoder_weight.T
+
+
+# trains GatedSAE from streaming activations of the model
+# assumes a sparsity_coeff is initialized at 1e-3
+# returns: (updated_sparsity_coeff, total_loss, l0_loss, recon_loss, unweighted_l0_loss, recon_pct, active_count)
+def train_SlabConeSAE(
+    sae: SlabConeSAE,
+    activation,
+    optimizer,
+    target_active,
+    sparsity_coeff,
+    clip_grad_norm=None,
+    clip_grad_value=None,
+):
+    features, combined_gate = sae.encode(activation)
+
+    # avg number of active features per token minus the target
+    active_count = combined_gate.sum(-1).mean()
+    error = active_count - target_active
+    # adapt the sparsity coefficient: increase if too many features fire, decrease if too few
+    sparsity_coeff *= (1 + 0.01 * (1 if error.item() > 0 else -1))
+    # unweighted loss = how far over target we are (zero if under target)
+    unweighted_l0_loss = torch.clamp(error, min=0)
+    # weighted loss = what actually gets added to the total loss
+    l0_loss = unweighted_l0_loss * sparsity_coeff
+
+    pred = sae.decode(features)
+    # average squared error over both tokens and embedding dimensions (per-coordinate MSE)
+    recon_loss = (pred - activation).pow(2).mean()
+    # percentage of activation energy not reconstructed
+    activation_energy = activation.pow(2).mean()
+    recon_pct = (recon_loss / activation_energy) * 100.0
+    loss = l0_loss + recon_loss
+
+    optimizer.zero_grad()
+    loss.backward()
+    if clip_grad_norm is not None:
+        torch.nn.utils.clip_grad_norm_(sae.parameters(), max_norm=clip_grad_norm)
+    if clip_grad_value is not None:
+        torch.nn.utils.clip_grad_value_(sae.parameters(), clip_value=clip_grad_value)
+    optimizer.step()
+
+    # keep decoder feature columns uniform
+    with torch.no_grad():
+        sae.decoder_weight /= sae.decoder_weight.norm(dim=0, keepdim=True)
+    return sparsity_coeff, loss.item(), l0_loss.item(), recon_loss.item(), unweighted_l0_loss.item(), recon_pct.item(), active_count.item()
+

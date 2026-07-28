@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>INT3RF4CE</title>
+    <base href="/INT3RF4CE/">
+    <link rel="stylesheet" href="/components/TechnoParadisalTheme.css">
+    <link rel="stylesheet" href="/components/AuthBox/AuthBox.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Left: 10% -->
+        <aside class="left-panel">
+            <div class="left-top">
+                <a href="/F4B/" class="board-link" title="return to the F4B board">← board</a>
+                <div class="agent-controls">
+                    <input type="text" id="new-agent-name" placeholder="agent name">
+                    <button id="create-btn">create</button>
+                </div>
+            </div>
+            <div class="left-bottom">
+                <ul id="agent-list"></ul>
+            </div>
+        </aside>
+
+        <!-- Middle: 50% -->
+        <div class="mid-panel">
+            <div class="mid-mid" id="vnc-area">
+                <div id="vnc-placeholder">select an agent to view</div>
+                <iframe id="vnc-frame" style="display:none;"></iframe>
+            </div>
+            <div class="mid-bot">
+                <div class="mid-bot-row">
+                    <button id="start-btn" disabled>start</button>
+                    <button id="pause-btn" disabled>pause</button>
+                </div>
+                <div class="mid-bot-row">
+                    <button id="docker-save-btn" disabled>docker save</button>
+                    <button id="prompt-btn">prompt</button>
+                    <button id="chat-mode-btn">chat</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right: 40% -->
+        <div class="right-panel">
+            <div id="context-messages"></div>
+            <div id="status-bar" style="display:none;">generating...</div>
+            <div class="right-bot">
+                <select id="model-select">
+                    <option value="kimi-k3">kimi-k3</option>
+                    <option value="kimi-k2.7-fast">kimi-k2.7-fast</option>
+                </select>
+                <textarea id="chat-input" placeholder="shift+enter to send, enter for newline"></textarea>
+            </div>
+        </div>
+    </div>
+
+    <!-- Agent action popup -->
+    <div id="agent-menu" style="display:none;">
+        <button id="agent-menu-rename">rename</button>
+        <button id="agent-menu-delete">delete</button>
+    </div>
+
+    <!-- Prompt popup -->
+    <div id="prompt-popup" style="display:none;">
+        <div class="prompt-popup-content">
+            <button id="prompt-exit-btn" class="prompt-exit">×</button>
+            <div class="prompt-library">
+                <h3>prompt blocks</h3>
+                <div id="prompt-list"></div>
+                <div class="prompt-add">
+                    <input type="text" id="new-prompt-name" placeholder="new prompt name">
+                    <button id="add-prompt-btn">add</button>
+                </div>
+            </div>
+            <div class="prompt-selected">
+                <h3>selected for agent</h3>
+                <div id="selected-prompt-list"></div>
+            </div>
+            <div class="prompt-editor" style="display:none;">
+                <textarea id="prompt-editor-text"></textarea>
+                <button id="save-prompt-editor-btn">save</button>
+                <button id="close-prompt-editor-btn">close</button>
+            </div>
+        </div>
+    </div>
+
+    <auth-box></auth-box>
+
+    <!-- full-page gate shown when logged out -->
+    <div id="auth-overlay" style="display:none;">
+        <div class="auth-overlay-msg">please log in — top right</div>
+    </div>
+
+    <script type="module" src="/components/AuthBox/AuthBox.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
