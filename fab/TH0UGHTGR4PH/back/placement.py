@@ -1,4 +1,4 @@
-from fab.F4B.back.config import GRID_SIZE
+from fab.TH0UGHTGR4PH.back.config import GRID_SIZE
 
 # autoplacement for MODEL-created nodes only (graph actions without explicit x/y).
 # left-to-right DAG style: a node goes one column right of the deepest node it

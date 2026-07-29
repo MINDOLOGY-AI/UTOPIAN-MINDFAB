@@ -19,6 +19,7 @@ class Kimi(Model):
 
     name = "kimi"
     adapter = KimiAdapter()
+    base_url = KIMI_BASE_URL
     models = {
         "kimi-k3": "kimi-k3",
         "kimi-k2.7-fast": "kimi-k2.7-fast",
@@ -52,7 +53,7 @@ class Kimi(Model):
         )
 
         response = await asyncio.wait_for(
-            self.client.post(KIMI_BASE_URL, headers=self._headers(), json=payload, timeout=API_TIMEOUT),
+            self.client.post(self.base_url, headers=self._headers(), json=payload, timeout=API_TIMEOUT),
             timeout=API_TIMEOUT,
         )
         self._check_response(response, payload)
@@ -69,7 +70,7 @@ class Kimi(Model):
         )
 
         response = await asyncio.wait_for(
-            self.client.post(KIMI_BASE_URL, headers=self._headers(), json=payload, timeout=API_TIMEOUT),
+            self.client.post(self.base_url, headers=self._headers(), json=payload, timeout=API_TIMEOUT),
             timeout=API_TIMEOUT,
         )
         self._check_response(response, payload)

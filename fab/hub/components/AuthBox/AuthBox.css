@@ -2,40 +2,62 @@
 
 .auth-box {
   position: fixed;
-  top: 0.5rem;
-  right: 0.75rem;
+  bottom: 0.75rem;
+  left: 0.75rem;
   z-index: 1000;
-  display: flex;
+  display: inline-flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: 0.2rem;
+  align-items: stretch;
   font-size: 0.7rem;
-}
-
-/* inline variant: embedded in page flow (e.g. sidebar bottom) instead of fixed */
-auth-box[inline] .auth-box {
-  position: relative;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  font-size: 0.75rem;
+  min-width: 120px;
 }
 
 .auth-user {
   color: var(--mint);
   letter-spacing: 0.05em;
   cursor: default;
+  padding: 0.5rem 1rem;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: #1a1a1a;
 }
 
-/* popup wrapper: its padding is the hover bridge, so moving from the name
-   into the popup never crosses dead space (popup stays open once shown) */
+/* popup: a menu rectangle directly ABOVE the name, same width.
+   overlaps the name by 2px so the hover zone is continuous */
 .auth-pop {
+  position: absolute;
+  bottom: calc(100% - 2px);
+  left: 0;
+  right: 0;
   opacity: 0;
   pointer-events: none;
-  transform: translateY(-4px);
+  transform: translateY(4px);
   transition: opacity 0.15s ease, transform 0.15s ease;
-  padding-top: 0.3rem; /* bridge for the fixed top-right (dropdown) variant */
+  background: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  overflow: hidden;
+  z-index: 1001;
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.6);
+}
+
+.auth-pop .auth-logout {
+  display: block;
+  width: 100%;
+  text-align: center;
+  background: none;
+  border: none;
+  color: var(--white);
+  font: inherit;
+  letter-spacing: 0.04em;
+  padding: 0.5rem 0.8rem;
+  cursor: pointer;
+}
+
+.auth-pop .auth-logout:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--mint);
 }
 
 .auth-user:hover ~ .auth-pop,
@@ -43,38 +65,6 @@ auth-box[inline] .auth-box {
 .auth-pop:focus-within {
   opacity: 1;
   pointer-events: auto;
-  transform: translateY(0);
-}
-
-/* inline variant: embedded in page flow (e.g. sidebar bottom) instead of fixed */
-auth-box[inline] .auth-box {
-  position: relative;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  font-size: 0.75rem;
-}
-
-auth-box[inline] .auth-user {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* inline popup opens UPWARD above the name */
-auth-box[inline] .auth-pop {
-  position: absolute;
-  bottom: 100%;
-  right: 0;
-  padding-top: 0;
-  padding-bottom: 0.4rem; /* bridge: hoverable area reaching down to the name */
-  transform: translateY(4px);
-}
-
-auth-box[inline] .auth-user:hover ~ .auth-pop,
-auth-box[inline] .auth-pop:hover,
-auth-box[inline] .auth-pop:focus-within {
   transform: translateY(0);
 }
 

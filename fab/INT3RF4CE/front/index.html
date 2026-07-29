@@ -6,18 +6,18 @@
     <title>INT3RF4CE</title>
     <base href="/INT3RF4CE/">
     <link rel="stylesheet" href="/components/TechnoParadisalTheme.css">
-    <link rel="stylesheet" href="/components/AuthBox/AuthBox.css">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="/components/AuthBox/AuthBox.css?v=1">
+    <link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
     <div class="container">
-        <!-- Left: 10% -->
+        <!-- Left -->
         <aside class="left-panel">
             <div class="left-top">
-                <a href="/F4B/" class="board-link" title="return to the F4B board">← board</a>
                 <div class="agent-controls">
                     <input type="text" id="new-agent-name" placeholder="agent name">
                     <button id="create-btn">create</button>
+                    <a href="/" class="hub-link" title="back to hub">hub</a>
                 </div>
             </div>
             <div class="left-bottom">
@@ -32,15 +32,11 @@
                 <iframe id="vnc-frame" style="display:none;"></iframe>
             </div>
             <div class="mid-bot">
-                <div class="mid-bot-row">
-                    <button id="start-btn" disabled>start</button>
-                    <button id="pause-btn" disabled>pause</button>
-                </div>
-                <div class="mid-bot-row">
-                    <button id="docker-save-btn" disabled>docker save</button>
-                    <button id="prompt-btn">prompt</button>
-                    <button id="chat-mode-btn">chat</button>
-                </div>
+                <button id="start-btn" disabled>start</button>
+                <button id="pause-btn" disabled>pause</button>
+                <button id="docker-save-btn" disabled>docker save</button>
+                <button id="settings-btn">settings</button>
+                <button id="chat-mode-btn">chat</button>
             </div>
         </div>
 
@@ -64,30 +60,6 @@
         <button id="agent-menu-delete">delete</button>
     </div>
 
-    <!-- Prompt popup -->
-    <div id="prompt-popup" style="display:none;">
-        <div class="prompt-popup-content">
-            <button id="prompt-exit-btn" class="prompt-exit">×</button>
-            <div class="prompt-library">
-                <h3>prompt blocks</h3>
-                <div id="prompt-list"></div>
-                <div class="prompt-add">
-                    <input type="text" id="new-prompt-name" placeholder="new prompt name">
-                    <button id="add-prompt-btn">add</button>
-                </div>
-            </div>
-            <div class="prompt-selected">
-                <h3>selected for agent</h3>
-                <div id="selected-prompt-list"></div>
-            </div>
-            <div class="prompt-editor" style="display:none;">
-                <textarea id="prompt-editor-text"></textarea>
-                <button id="save-prompt-editor-btn">save</button>
-                <button id="close-prompt-editor-btn">close</button>
-            </div>
-        </div>
-    </div>
-
     <auth-box></auth-box>
 
     <!-- full-page gate shown when logged out -->
@@ -96,6 +68,6 @@
     </div>
 
     <script type="module" src="/components/AuthBox/AuthBox.js"></script>
-    <script src="app.js"></script>
+    <script src="app.js?v=6"></script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-DATA_DIR = PROJECT_ROOT / "fab" / "data" / "F4B"
+PROJECT_ROOT = Path.cwd()
+DATA_DIR = PROJECT_ROOT / "fab" / "data" / "TH0UGHTGR4PH"
 
 # per-user layout: DATA_DIR / {username} / {types.json, templates.json, {board}/}
 # per-board layout: {board}/{meta.json, content/{node_id}.md, versions/}
@@ -31,7 +31,6 @@ DEFAULT_OBJ_TYPES = {
     "world_state": {"color": _ORANGE},
     "aesthetics": {"color": _ORANGE},
     "prompt": {"color": "#FF0055"},
-    "agent": {"color": "#00FF41"},
 }
 
 DEFAULT_FUNC_TYPES = {

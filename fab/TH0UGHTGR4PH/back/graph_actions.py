@@ -4,18 +4,16 @@ Host-side direct calls (no HTTP): agent.py dispatches G* commands here.
 All functions raise ValueError on bad input; the agent turns that into a tool_result error.
 """
 
-from fab.F4B.back.config import GRID_SIZE
-from fab.F4B.back.placement import next_position
-from fab.F4B.back import storage
+from fab.TH0UGHTGR4PH.back.config import GRID_SIZE
+from fab.TH0UGHTGR4PH.back.placement import next_position
+from fab.TH0UGHTGR4PH.back import storage
 
-KINDS = ("obj", "func", "folder", "agent")
+KINDS = ("obj", "func", "folder")
 STATES = ("todo", "doing", "done")
 MAX_CONTENT_CHARS = 100_000
 
 
 def _validate_type(user: str, kind: str, node_type: str):
-    if kind == "agent":
-        return  # agent nodes always have node_type "agent"; no registry entry needed
     types = storage.load_types(user)
     registry = types["obj_types"] if kind == "obj" else types["func_types"]
     if kind != "folder" and node_type not in registry:
@@ -53,8 +51,6 @@ def create_node(user: str, board: str, title: str, kind: str, node_type: str,
         raise ValueError(f"kind must be one of {KINDS}")
     if not title or not title.strip():
         raise ValueError("title cannot be empty")
-    if kind == "agent":
-        node_type = "agent"  # agent is its own kind; type is fixed
     _validate_type(user, kind, node_type)
     _validate_state(state)
     meta = storage.load_meta(user, board)
@@ -66,6 +62,13 @@ def create_node(user: str, board: str, title: str, kind: str, node_type: str,
         pos = next_position(meta, resolve_node(meta, near) if near else None)
         x, y = pos["x"], pos["y"]
     nid = storage.new_id(meta["nodes"])
+    # root nodes snap to the grid; child coordinates are relative to their folder
+    if parent is None:
+        x = round(float(x) / GRID_SIZE) * GRID_SIZE
+        y = round(float(y) / GRID_SIZE) * GRID_SIZE
+    else:
+        x = int(round(float(x)))
+        y = int(round(float(y)))
     node = {
         "id": nid,
         "title": title.strip(),
@@ -73,14 +76,13 @@ def create_node(user: str, board: str, title: str, kind: str, node_type: str,
         "node_type": node_type,
         "state": state,
         "ref": ref,
-        "x": round(float(x) / GRID_SIZE) * GRID_SIZE,
-        "y": round(float(y) / GRID_SIZE) * GRID_SIZE,
+        "x": x,
+        "y": y,
         "width": 560,
         "height": 360,
         "parent": parent,
         "expanded": False,
         "color": None,
-        "settings": None,
     }
     meta["nodes"][nid] = node
     storage.save_meta(user, board, meta)
@@ -117,7 +119,7 @@ def read_node(user: str, board: str, ref: str) -> dict:
 
 def update_node(user: str, board: str, ref: str, title: str | None = None,
                 node_type: str | None = None, state: str | None = ...,  # ... = leave unchanged
-                content: str | None = None, settings: dict | None = None) -> dict:
+                content: str | None = None) -> dict:
     _require_board(user, board)
     meta = storage.load_meta(user, board)
     nid = resolve_node(meta, ref)
@@ -132,10 +134,6 @@ def update_node(user: str, board: str, ref: str, title: str | None = None,
     if state is not ...:
         _validate_state(state)
         node["state"] = state
-    if settings is not None:
-        if node["node_type"] != "agent":
-            raise ValueError("settings only apply to agent nodes")
-        node["settings"] = settings
     if content is not None:
         if len(content) > MAX_CONTENT_CHARS:
             raise ValueError(f"content too large (max {MAX_CONTENT_CHARS} chars)")
@@ -174,9 +172,16 @@ def move_node(user: str, board: str, ref: str, x: float | None = None,
     nid = resolve_node(meta, ref)
     node = meta["nodes"][nid]
     if x is not None:
-        node["x"] = round(float(x) / GRID_SIZE) * GRID_SIZE
+        # root nodes snap to grid; children use relative coords inside the folder
+        if node["parent"] is None:
+            node["x"] = round(float(x) / GRID_SIZE) * GRID_SIZE
+        else:
+            node["x"] = int(round(float(x)))
     if y is not None:
-        node["y"] = round(float(y) / GRID_SIZE) * GRID_SIZE
+        if node["parent"] is None:
+            node["y"] = round(float(y) / GRID_SIZE) * GRID_SIZE
+        else:
+            node["y"] = int(round(float(y)))
     if parent is not ...:
         if parent is None:
             node["parent"] = None

@@ -192,18 +192,8 @@ class Context:
         return migrated
 
     def get_prompt(self, chat_mode: bool = False) -> str:
-        # SYSTEM PROMPT built from selected prompt blocks
+        # SYSTEM PROMPT: global prompt + graph context (+ chat mode)
         return build_system_prompt(self.user, self.name, chat_mode=chat_mode)
-
-    def set_user_prompt(self, text: str):
-        # kept for backward compatibility: maps to a user prompt block named after the agent
-        from fab.INT3RF4CE.back.prompt import save_prompt_block, set_selected_prompts, get_selected_prompts
-        block_name = f"user_{self.name}"
-        save_prompt_block(self.user, block_name, text)
-        selected = get_selected_prompts(self.user, self.name)
-        if block_name not in selected:
-            selected.append(block_name)
-            set_selected_prompts(self.user, self.name, selected)
 
     def marshal(self) -> list[dict]:
         """Return internal-standard messages for the active adapter.

@@ -2,7 +2,7 @@ import logging
 import sys
 from pathlib import Path
 
-project_root = Path(__file__).parent.parent.parent.parent
+project_root = Path.cwd()
 sys.path.insert(0, str(project_root))
 
 LOG_DIR = project_root / "fab" / "logs"
@@ -58,9 +58,8 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from mind.interp_journey.function_approximator.back.router import router as function_approximator_router
-from fab.TH0UGHTGR4PH.back.api import app as TH0UGHTGR4PH_app
 from fab.INT3RF4CE.back.server import app as INT3RF4CE_app
-from fab.F4B.back.api import app as F4B_app
+from fab.TH0UGHTGR4PH.back.api import app as TH0UGHTGR4PH_app
 from fab.hub.auth.routes import router as auth_router
 
 HOST = "0.0.0.0"
@@ -96,7 +95,6 @@ app.include_router(auth_router)
 # more specific mounts must come before the catch-all root mount
 app.mount("/TH0UGHTGR4PH", TH0UGHTGR4PH_app, name="TH0UGHTGR4PH")
 app.mount("/INT3RF4CE", INT3RF4CE_app, name="INT3RF4CE")
-app.mount("/F4B", F4B_app, name="F4B")
 app.mount("/interp_journey/function_approximator/front", StaticFiles(directory=fa_front, html=True), name="fa_front")
 app.mount("/components", StaticFiles(directory=hub_components), name="hub_components")
 app.mount("/", StaticFiles(directory=hub_front, html=True), name="hub_front")

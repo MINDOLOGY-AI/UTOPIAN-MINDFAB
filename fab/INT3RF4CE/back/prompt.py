@@ -1,7 +1,7 @@
 from pathlib import Path
 import json
 
-from fab.F4B.back import storage
+from fab.TH0UGHTGR4PH.back import storage as tg_storage
 from fab.INT3RF4CE.back.config import DATA_DIR
 
 
@@ -76,7 +76,7 @@ perception: LOOK (screenshot), TERM (last 5000 chars of terminal)
 file (workspace files): READ file [start] [end], WRITE file content, EDIT file old new which
 special: WAIT secs
 docker: DOCKER_START (start your computer, switches to work mode), DOCKER_STOP (release it, back to chat mode)
-graph (F4B board, only if you are attached to one): GCREATE title kind node_type [parent] [state] [ref] [near], GREAD node, GUPDATE node [title] [node_type] [state] [content] [settings], GDESTROY node, GMOVE node [x] [y] [parent], GLINK source target, GUNLINK edge, GLIST
+graph (thoughtgraph docs, if the user configured access in your settings): CHECK_GRAPH_ACCESS (show your read/write access), GREAD node, GUPDATE node [title] [state], GEDIT node old new which. you can only read/write nodes you have access to — write access implies read access. when you finish a doc's task, GUPDATE its state to 'done' ('todo' -> 'doing' -> 'done')
 
 rules:
 - use tools whenever you need to act on the computer.
@@ -101,7 +101,7 @@ all tool_calls in your response are executed in order before you get back any to
 _DEFAULT_CHAT_MODE_PROMPT = """\
 you are now in chat mode: a conversation with the user, no computer use. you do NOT have a docker computer right now — that is fine, a docker is just a tool.
 if you genuinely need a computer (to run code, browse, or use a GUI), call DOCKER_START — it starts your container and switches you to work mode with computer tools. call DOCKER_STOP to release it when done.
-if you are attached to an F4B board, graph commands (GCREATE, GREAD, GUPDATE, GDESTROY, GMOVE, GLINK, GUNLINK, GLIST) still work in chat mode.
+if the user configured thoughtgraph access in your settings, graph commands (CHECK_GRAPH_ACCESS, GREAD, GUPDATE, GEDIT) still work in chat mode.
 """
 
 _DEFAULT_AUTO_TURN_PROMPT = """\
@@ -139,189 +139,54 @@ continue working. whether that is more thinking, terminal control, GUI control, 
 """
 
 
-# prompt blocks exposed in the UI. internal prompts are used by the system but not selectable.
-HIDDEN_PROMPTS = {"auto_turn_prompt", "chat_mode_prompt", "summarization_prompt"}
+# prompt system: global_prompt + prompt docs (from thoughtgraph) + chat mode.
+# (the old selectable prompt-block system was removed — prompts now come from
+# docs dragged into the agent's context-management panel.)
 
 
-def list_prompt_blocks(user: str) -> list[dict]:
-    """Return the user's selectable prompt blocks (global + user-defined)."""
-    _ensure_default_prompts(user)
-    blocks = []
-    for path in sorted(_prompts_dir(user).glob("*.md")):
-        if path.stem in HIDDEN_PROMPTS:
-            continue
-        blocks.append({
-            "name": path.stem,
-            "filename": path.name,
-            "text": path.read_text(),
-            "editable": path.stem != "global_prompt",
-        })
-    return blocks
-
-
-def save_prompt_block(user: str, name: str, text: str):
-    """Create or overwrite a user prompt block."""
-    _ensure_default_prompts(user)
-    if name == "global_prompt":
-        raise ValueError("global_prompt is not editable")
-    if name in HIDDEN_PROMPTS:
-        raise ValueError(f"{name} is a system prompt and cannot be edited")
-    path = _prompts_dir(user) / f"{name}.md"
-    path.write_text(text)
-
-
-def delete_prompt_block(user: str, name: str):
-    """Delete a user prompt block."""
-    _ensure_default_prompts(user)
-    if name == "global_prompt":
-        raise ValueError("global_prompt cannot be deleted")
-    if name in HIDDEN_PROMPTS:
-        raise ValueError(f"{name} is a system prompt and cannot be deleted")
-    path = _prompts_dir(user) / f"{name}.md"
-    if path.exists():
-        path.unlink()
-
-
-def get_selected_prompts(user: str, agent_name: str) -> list[str]:
-    """Return ordered list of selected prompt block names for an agent."""
-    _ensure_default_prompts(user)
-    path = _specific_dir(user) / agent_name / "prompts_selected.json"
+def _prompt_docs_block(user: str, agent_name: str) -> str | None:
+    """Append the agent's prompt docs: thoughtgraph docs dragged into its prompts
+    section, in order, content included. From config/specific/{agent}/graph.json
+    ({board, prompt_docs, read, write}). Read/write access is NOT injected — the
+    agent queries it with CHECK_GRAPH_ACCESS."""
+    path = _specific_dir(user) / agent_name / "graph.json"
     if not path.exists():
-        return ["global_prompt"]
-    import json
-    selected = json.loads(path.read_text()).get("selected", ["global_prompt"])
-    # global_prompt is always first and cannot be removed
-    selected = [n for n in selected if n != "global_prompt"]
-    return ["global_prompt"] + selected
-
-
-def set_selected_prompts(user: str, agent_name: str, selected: list[str]):
-    """Save ordered list of selected prompt block names for an agent."""
-    path = _specific_dir(user) / agent_name
-    path.mkdir(parents=True, exist_ok=True)
-    import json
-    # global_prompt is always first and cannot be removed
-    selected = [n for n in selected if n != "global_prompt"]
-    (path / "prompts_selected.json").write_text(json.dumps({"selected": ["global_prompt"] + selected}))
-
-
-def _graph_context_block(user: str, agent_name: str) -> str | None:
-    """Build the graph context block for an agent attached to an F4B board node.
-
-    The attached node is the agent's node. Context comes from:
-    - the func nodes the agent connects into (it is their DOER) + those funcs' inputs
-    - the agent's settings: prompt docs (content appended), read access (content
-      appended), write access (listed as writable) — all compiled into the prompt tail.
-    Rebuilt every call so board edits are seen next turn.
-    """
-    attach_path = _specific_dir(user) / agent_name / "graph.json"
-    if not attach_path.exists():
         return None
     try:
-        attach = json.loads(attach_path.read_text())
+        settings = json.loads(path.read_text())
     except Exception:
         return None
-    board, node_id = attach.get("board"), attach.get("node")
-    if not board or not node_id:
+    prompt_docs = settings.get("prompt_docs", [])
+    if not prompt_docs:
         return None
-    try:
-        meta = storage.load_meta(user, board)
-    except Exception:
-        return None
-    if node_id not in meta["nodes"]:
-        return None
-
-    agent_node = meta["nodes"][node_id]
-    settings = agent_node.get("settings") or {}
-    PER_NODE_CAP = 2000
-    TOTAL_CAP = 12000
-
-    parts = [
-        "## graph context",
-        f"you are the agent '{agent_node['title']}' (node id {node_id}) on F4B board '{board}'.",
-        "",
-    ]
+    PER_DOC_CAP = 2000
+    TOTAL_CAP = 8000
+    parts = ["## prompt docs (from thoughtgraph)"]
     total = 0
-
-    def add(text: str) -> bool:
-        nonlocal total
-        if total + len(text) > TOTAL_CAP:
-            return False
-        parts.append(text)
-        total += len(text)
-        return True
-
-    # funcs this agent does: edges agent <-> func
-    func_ids = set()
-    for e in meta["edges"].values():
-        if e["source"] == node_id and e["target"] in meta["nodes"] and meta["nodes"][e["target"]]["kind"] == "func":
-            func_ids.add(e["target"])
-        if e["target"] == node_id and e["source"] in meta["nodes"] and meta["nodes"][e["source"]]["kind"] == "func":
-            func_ids.add(e["source"])
-    if func_ids:
-        add("### you are the DOER of these funcs")
-        for fid in sorted(func_ids):
-            f = meta["nodes"][fid]
-            add(f"- {f['title']} ({f['node_type']}, id {fid})")
-        # inbound objs of those funcs (excluding the agent itself)
-        input_ids = set()
-        for e in meta["edges"].values():
-            if e["target"] in func_ids and e["source"] != node_id and e["source"] in meta["nodes"]:
-                input_ids.add(e["source"])
-        for oid in sorted(input_ids):
-            o = meta["nodes"][oid]
-            header = f"#### input: [{o['node_type']}] {o['title']} (id {oid}, state {o['state']})"
-            content = storage.read_content(user, board, oid)[:PER_NODE_CAP]
-            if not add(header + ("\n" + content if content else "")):
-                break
-        parts.append("")
-
-    # prompt docs dropped into the agent's prompts section
-    prompt_docs = [pid for pid in settings.get("prompt_docs", []) if pid in meta["nodes"]]
-    if prompt_docs:
-        add("### prompts (from board docs)")
-        for pid in prompt_docs:
-            o = meta["nodes"][pid]
-            content = storage.read_content(user, board, pid)[:PER_NODE_CAP]
-            if not add(f"#### {o['title']}\n{content}"):
-                break
-        parts.append("")
-
-    # read access: content appended so the agent can actually read them
-    read_ids = [rid for rid in settings.get("read", []) if rid in meta["nodes"]]
-    if read_ids:
-        add("### you have READ access to these nodes")
-        for rid in read_ids:
-            o = meta["nodes"][rid]
-            header = f"#### [{o['node_type']}] {o['title']} (id {rid})"
-            content = storage.read_content(user, board, rid)[:PER_NODE_CAP]
-            if not add(header + ("\n" + content if content else "")):
-                break
-        parts.append("")
-
-    # write access: listed as writable targets
-    write_ids = [wid for wid in settings.get("write", []) if wid in meta["nodes"]]
-    if write_ids:
-        names = ", ".join(f"'{meta['nodes'][wid]['title']}' (id {wid})" for wid in write_ids)
-        add(f"### you have WRITE access to: {names}")
-        parts.append("")
-
-    parts.append("graph commands: GCREATE GREAD GUPDATE GDESTROY GMOVE GLINK GUNLINK GLIST — operate this board directly. nodes you create are auto-placed.")
-    return "\n".join(parts)
+    for entry in prompt_docs:
+        try:
+            meta = tg_storage.load_meta(user, entry["board"])
+        except Exception:
+            continue
+        node = meta["nodes"].get(entry["id"])
+        if not node:
+            continue
+        content = tg_storage.read_content(user, entry["board"], entry["id"])[:PER_DOC_CAP]
+        block = f"### {node['title']} (board: {entry['board']})\n{content}"
+        if total + len(block) > TOTAL_CAP:
+            break
+        parts.append(block)
+        total += len(block)
+    return "\n\n".join(parts) if len(parts) > 1 else None
 
 
 def build_system_prompt(user: str, agent_name: str, chat_mode: bool = False) -> str:
-    """Build the full system prompt from the user's selected blocks."""
+    """Build the system prompt: global prompt + graph context (+ chat mode prompt)."""
     _ensure_default_prompts(user)
-    selected = get_selected_prompts(user, agent_name)
-    parts = []
-    for name in selected:
-        path = _prompts_dir(user) / f"{name}.md"
-        if path.exists():
-            parts.append(path.read_text())
-    graph_block = _graph_context_block(user, agent_name)
-    if graph_block:
-        parts.append(graph_block)
+    parts = [(_prompts_dir(user) / "global_prompt.md").read_text()]
+    docs_block = _prompt_docs_block(user, agent_name)
+    if docs_block:
+        parts.append(docs_block)
     if chat_mode:
         parts.append((_prompts_dir(user) / "chat_mode_prompt.md").read_text())
     return "\n\n".join(parts)

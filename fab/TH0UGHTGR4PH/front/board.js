@@ -6,7 +6,6 @@ class FabBoard extends HTMLElement {
     this.store = null;
     this.nodeEls = {};
     this.edgeEls = {};
-    this.agentLink = new AgentLink();
     this.zoomIdx = FabStore.ZOOM_LEVELS.indexOf(1);
     this.wheelAccum = 0;
     this.wheelTimer = null;
@@ -23,21 +22,22 @@ class FabBoard extends HTMLElement {
     const listRes = await fetch("boards");
     const available = (await listRes.json()).boards || [];
     // restore the last board you were on, not always main
-    const requested = localStorage.getItem("F4B.boardId") || this.getAttribute("board-id") || "main";
+    const requested = localStorage.getItem("TH0UGHTGR4PH.boardId") || this.getAttribute("board-id") || "main";
     const boardId = available.includes(requested) ? requested
       : (available.includes("main") ? "main" : (available[0] || "main"));
     await this.initStore(boardId);
     this.attachEvents();
-    this.agentLink.onMessage((msg) => {
-      if (msg.type === "agents" || msg.type === "status") this.renderAgentNodes();
-    });
-    this.pollTimer = setInterval(() => this.pollGraph(), 5000);
+    this.pollTimer = setInterval(() => this.pollGraph(), 60000);
+
+    // context management: /TH0UGHTGR4PH/?agent=<name> opens the agent's settings panel
+    const agentName = new URLSearchParams(window.location.search).get("agent");
+    if (agentName) this.ctxPanel = new CtxPanel(this, agentName);
   }
 
   disconnectedCallback() { clearInterval(this.pollTimer); }
 
   async initStore(boardId) {
-    localStorage.setItem("F4B.boardId", boardId);
+    localStorage.setItem("TH0UGHTGR4PH.boardId", boardId);
     this.store = new FabStore(boardId);
     this.store.addEventListener("change", () => this.render());
     this.store.camera.zoom = FabStore.ZOOM_LEVELS[this.zoomIdx];
@@ -66,13 +66,13 @@ class FabBoard extends HTMLElement {
     this.innerHTML = `
       <div id="toolbar">
         <a href="/" class="home-link" title="back to main page">←</a>
-        <span class="brand">F4B</span>
+        <span class="brand">TH0UGHTGR4PH</span>
         <span class="sep"></span>
         <button id="add-obj">add obj</button>
         <button id="add-func">add func</button>
-        <button id="add-agent">add agent</button>
         <button id="add-folder">add folder</button>
         <button id="add-edge">add edge</button>
+        <button id="meta-btn" class="hidden">meta</button>
         <span class="sep"></span>
         <span id="state-picker" class="hidden">
           <button class="state-btn" data-state="todo">todo</button>
@@ -81,7 +81,6 @@ class FabBoard extends HTMLElement {
         </span>
         <button id="delete-btn" class="hidden">delete</button>
         <span class="sep"></span>
-        <button id="workflow-btn">workflow</button>
         <button id="versions-btn">versions</button>
         <span class="sep" style="margin-left:auto"></span>
         <button id="search-btn">search</button>
@@ -119,15 +118,6 @@ class FabBoard extends HTMLElement {
               </div>
             </div>
           </div>
-          <div class="side-section" id="workflow-section">
-            <div class="side-title collapsible" data-collapse="workflow-body">workflows <span class="caret">▸</span></div>
-            <div id="workflow-body" class="type-body collapsed">
-              <div id="workflow-list"></div>
-            </div>
-          </div>
-        </div>
-        <div class="sidebar-account">
-          <auth-box inline></auth-box>
         </div>
       </div>
       <div id="viewport">
@@ -137,6 +127,7 @@ class FabBoard extends HTMLElement {
           <div id="nodes-container"></div>
         </div>
       </div>
+      <div id="ctx-panel"></div>
       <div id="create-popup" class="popup hidden">
         <div class="popup-title" id="create-popup-title">new obj</div>
         <input id="create-title" placeholder="title" spellcheck="false" autocomplete="off">
@@ -146,29 +137,13 @@ class FabBoard extends HTMLElement {
           <button id="create-cancel">cancel</button>
         </div>
       </div>
-      <div id="agent-panel">
-        <div class="ap-header">
-          <span id="ap-name"></span>
-          <button id="ap-close" class="x-btn">×</button>
+      <div id="meta-popup" class="popup hidden">
+        <div class="popup-title">meta <button id="meta-close" class="x-btn">×</button></div>
+        <input id="meta-title" placeholder="title" spellcheck="false" autocomplete="off">
+        <div id="meta-types"></div>
+        <div class="popup-row">
+          <button id="meta-save">save</button>
         </div>
-        <div class="ap-status" id="ap-status"></div>
-        <div class="ap-section">
-          <div class="ap-subtitle">model</div>
-          <select id="ap-model"></select>
-        </div>
-        <div class="ap-section">
-          <div class="ap-subtitle">prompts — drag docs from the board here</div>
-          <div class="ap-drop" data-drop="prompt_docs"></div>
-        </div>
-        <div class="ap-section">
-          <div class="ap-subtitle">read access — drag nodes here</div>
-          <div class="ap-drop" data-drop="read"></div>
-        </div>
-        <div class="ap-section">
-          <div class="ap-subtitle">write access — drag nodes here</div>
-          <div class="ap-drop" data-drop="write"></div>
-        </div>
-        <button id="ap-open">open INT3RF4CE</button>
       </div>
       <div id="versions-panel" class="popup hidden">
         <div class="popup-title">versions <button id="versions-close" class="x-btn">×</button></div>
@@ -178,14 +153,6 @@ class FabBoard extends HTMLElement {
           <button id="ver-restore">restore</button>
         </div>
         <div id="version-list"></div>
-      </div>
-      <div id="workflow-panel" class="popup hidden">
-        <div class="popup-title">workflow <button id="workflow-close" class="x-btn">×</button></div>
-        <div id="workflow-info">save = capture selected nodes (with agent settings). insert = clone into this board.</div>
-        <div class="popup-row">
-          <button id="wf-save">save selection</button>
-        </div>
-        <div id="workflow-list-popup"></div>
       </div>
       <div id="search-panel" class="popup hidden">
         <input id="search-input" placeholder="search titles..." spellcheck="false" autocomplete="off">
@@ -202,7 +169,6 @@ class FabBoard extends HTMLElement {
     const $ = (s) => this.querySelector(s);
     $("#add-obj").addEventListener("click", () => this.openCreatePopup("obj"));
     $("#add-func").addEventListener("click", () => this.openCreatePopup("func"));
-    $("#add-agent").addEventListener("click", () => this.createAgentNode());
     $("#add-folder").addEventListener("click", () => this.createFolder());
     $("#add-edge").addEventListener("click", () => this.toggleEdgeMode());
     $("#zoom-in").addEventListener("click", () => this.zoomIn());
@@ -210,13 +176,6 @@ class FabBoard extends HTMLElement {
     $("#search-btn").addEventListener("click", () => this.openSearch());
     $("#versions-btn").addEventListener("click", () => this.togglePanel("versions-panel", () => this.renderVersions()));
     $("#versions-close").addEventListener("click", () => this.hidePanel("versions-panel"));
-    $("#workflow-btn").addEventListener("click", () => this.togglePanel("workflow-panel", () => this.renderWorkflows()));
-    $("#workflow-close").addEventListener("click", () => this.hidePanel("workflow-panel"));
-    $("#ap-close").addEventListener("click", () => this.closeAgentPanel());
-    $("#ap-open").addEventListener("click", () => {
-      if (this.panelAgent) window.open(`/INT3RF4CE/?agent=${encodeURIComponent(this.panelAgent.ref || this.panelAgent.title)}`, "_blank");
-    });
-    $("#ap-model").addEventListener("change", () => this.onAgentModelChange());
     $("#ver-save").addEventListener("click", () => this.saveVersion());
     $("#ver-delete").addEventListener("click", () => this.deleteVersion());
     $("#ver-restore").addEventListener("click", () => this.restoreVersion());
@@ -224,10 +183,13 @@ class FabBoard extends HTMLElement {
     $("#rename-board").addEventListener("click", () => this.renameBoard());
     $("#delete-board").addEventListener("click", () => this.deleteBoard());
     $("#board-select").addEventListener("change", (e) => this.initStore(e.target.value));
-    $("#wf-save").addEventListener("click", () => this.saveWorkflow());
     $("#create-ok").addEventListener("click", () => this.confirmCreate());
     $("#create-cancel").addEventListener("click", () => this.hidePanel("create-popup"));
     $("#create-title").addEventListener("keydown", (e) => { if (e.key === "Enter") this.confirmCreate(); });
+    $("#meta-btn").addEventListener("click", () => this.openMeta());
+    $("#meta-save").addEventListener("click", () => this.saveMeta());
+    $("#meta-close").addEventListener("click", () => this.hidePanel("meta-popup"));
+    $("#meta-title").addEventListener("keydown", (e) => { if (e.key === "Enter") this.saveMeta(); });
     $("#delete-btn").addEventListener("click", () => this.deleteSelected());
     $("#obj-type-add").addEventListener("click", () => this.addType("obj"));
     $("#func-type-add").addEventListener("click", () => this.addType("func"));
@@ -263,14 +225,14 @@ class FabBoard extends HTMLElement {
       if (el && el.node) this.onDocContentChange(el.node.id, e.detail);
     });
     this.nodesContainer.addEventListener("wikilink-click", (e) => this.onWikiLinkClick(e.detail));
-    this.nodesContainer.addEventListener("agent-settings", (e) => this.openAgentPanel(e.detail.node));
   }
 
   // ---- rendering ----
 
   render() {
     this.applyCamera();
-    this.store.computeTempOffsets();
+    this.store.computeFolderContentOffsets();
+    this.store.resolveCollisions();
     this.syncNodes();
     this.syncEdges();
     this.renderSidebar();
@@ -281,6 +243,7 @@ class FabBoard extends HTMLElement {
   renderDeleteButton() {
     const hasSelection = !!this.store.selectedEdgeId || this.store.selectedNodeIds.size > 0;
     this.querySelector("#delete-btn").classList.toggle("hidden", !hasSelection);
+    this.querySelector("#meta-btn").classList.toggle("hidden", !this.primarySelection());
   }
 
   applyCamera() {
@@ -295,7 +258,6 @@ class FabBoard extends HTMLElement {
       seen.add(node.id);
       if (!this.nodeEls[node.id]) {
         const tag = node.kind === "folder" ? "folder-node"
-          : node.kind === "agent" || node.node_type === "agent" ? "agent-node"
           : node.kind === "func" ? "func-node" : "obj-node";
         const el = document.createElement(tag);
         el.store = store;
@@ -306,22 +268,12 @@ class FabBoard extends HTMLElement {
       el.node = node;
       el.rect = store.nodeRect(node);
       el.selected = store.selectedNodeIds.has(node.id);
+      el.active = node.id === store.activeFolderId;
     }
     for (const id in this.nodeEls) {
       if (!seen.has(id)) {
         this.nodeEls[id].remove();
         delete this.nodeEls[id];
-      }
-    }
-    this.renderAgentNodes();
-  }
-
-  renderAgentNodes() {
-    for (const id in this.nodeEls) {
-      const el = this.nodeEls[id];
-      if (el.tagName === "AGENT-NODE") {
-        el.agentInfo = this.agentLink.agents;
-        el.render();
       }
     }
   }
@@ -348,6 +300,9 @@ class FabBoard extends HTMLElement {
   // ---- selection ----
 
   selectNode(id, additive = false) {
+    // selection only — folder ACTIVATION happens on click (mouseup without
+    // drag), so dragging a folder keeps the previous folder active as the
+    // drop target. that's what makes folder-into-folder drags possible.
     if (!additive) this.store.selectedNodeIds.clear();
     if (additive && this.store.selectedNodeIds.has(id)) this.store.selectedNodeIds.delete(id);
     else this.store.selectedNodeIds.add(id);
@@ -357,15 +312,21 @@ class FabBoard extends HTMLElement {
 
   selectEdge(id) {
     this.store.selectedNodeIds.clear();
+    // selecting an edge does NOT deactivate the folder — only empty ground does
     this.store.selectedEdgeId = id;
     this.store.emit();
   }
 
   clearSelection() {
     this.store.selectedNodeIds.clear();
+    this.store.activeFolderId = null;
     this.store.selectedEdgeId = null;
-    this.closeAgentPanel(); // deselecting closes the agent side panel
     this.store.emit();
+  }
+
+  activeFolder() {
+    const id = this.store.activeFolderId;
+    return id && this.store.nodes[id]?.kind === "folder" ? id : null;
   }
 
   primarySelection() {
@@ -377,7 +338,7 @@ class FabBoard extends HTMLElement {
     const picker = this.querySelector("#state-picker");
     const id = this.primarySelection();
     const node = id && this.store.nodes[id];
-    const show = node && node.kind === "obj" && node.node_type !== "agent";
+    const show = node && node.kind === "obj";
     picker.classList.toggle("hidden", !show);
     if (show) {
       for (const btn of picker.querySelectorAll(".state-btn")) {
@@ -403,7 +364,11 @@ class FabBoard extends HTMLElement {
     };
   }
 
-  createPosition() {
+  createPosition(parentId = null) {
+    const parent = parentId && this.store.nodes[parentId];
+    if (parent && parent.kind === "folder") {
+      return this.store.freeChildPosition(parent);
+    }
     const c = this.viewportCenterWorld();
     return this.store.freePositionNear(c.x, c.y);
   }
@@ -421,7 +386,6 @@ class FabBoard extends HTMLElement {
     typesDiv.innerHTML = "";
     const registry = kind === "func" ? this.store.types.func_types : this.store.types.obj_types;
     for (const [name, spec] of Object.entries(registry)) {
-      if (kind === "obj" && name === "agent") continue; // agents are made via "add agent"
       const chip = document.createElement("button");
       chip.className = "type-chip";
       chip.textContent = name;
@@ -447,16 +411,21 @@ class FabBoard extends HTMLElement {
     // funcs are nameless: the type IS the title
     const title = this.createKind === "func" ? nodeType : this.querySelector("#create-title").value.trim();
     if (!title || !this.createKind) return;
-    const pos = this.createPosition();
-    const sel = this.primarySelection();
-    const selNode = sel && this.store.nodes[sel];
-    const parent = selNode && selNode.kind === "folder" ? sel : null;
+    const parent = this.activeFolder();
+    let pos = this.createPosition(parent);
+    const candidate = {
+      kind: this.createKind, node_type: nodeType, parent,
+      x: pos.x, y: pos.y, expanded: false,
+      width: FabStore.EXPANDED_W, height: FabStore.EXPANDED_H,
+    };
+    this.store.resolveOverlap([candidate]);
+    pos = {x: candidate.x, y: candidate.y};
     try {
       const node = await this.store.createNode({
         title, kind: this.createKind, node_type: nodeType,
         parent, x: pos.x, y: pos.y,
       });
-      if (parent && !selNode.expanded) await this.store.updateNode(parent, {expanded: true});
+      if (parent && !this.store.nodes[parent].expanded) await this.store.updateNode(parent, {expanded: true});
       this.hidePanel("create-popup");
       this.selectNode(node.id);
     } catch (err) {
@@ -467,37 +436,87 @@ class FabBoard extends HTMLElement {
   async createFolder() {
     const title = prompt("folder name:");
     if (!title) return;
-    const pos = this.createPosition();
+    const parent = this.activeFolder();
+    let pos = this.createPosition(parent);
+    const candidate = {
+      kind: "folder", node_type: "folder", parent,
+      x: pos.x, y: pos.y, expanded: false,
+      width: FabStore.EXPANDED_W, height: FabStore.EXPANDED_H,
+    };
+    this.store.resolveOverlap([candidate]);
+    pos = {x: candidate.x, y: candidate.y};
     try {
-      const node = await this.store.createNode({title, kind: "folder", node_type: "folder", x: pos.x, y: pos.y});
+      const node = await this.store.createNode({title, kind: "folder", node_type: "folder", parent, x: pos.x, y: pos.y});
+      if (parent && !this.store.nodes[parent].expanded) await this.store.updateNode(parent, {expanded: true});
       this.selectNode(node.id);
     } catch (err) {
       alert(`could not create folder: ${err.message}`);
     }
   }
 
-  async createAgentNode() {
-    const name = prompt("agent name (letters, digits, _ -):");
-    if (!name) return;
-    const res = await this.agentLink.createAgent(name);
-    if (!res.ok) {
-      alert(`could not create agent: ${res.msg}`);
-      return;
+  // ---- meta popup: rename + retype the selected node ----
+
+  openMeta() {
+    const id = this.primarySelection();
+    const node = id && this.store.nodes[id];
+    if (!node) return;
+    this.metaId = id;
+    this.metaType = node.node_type;
+    const popup = this.querySelector("#meta-popup");
+    const titleInput = this.querySelector("#meta-title");
+    // funcs are nameless — only a type. folders have a title but no type.
+    titleInput.value = node.kind === "func" ? "" : node.title;
+    titleInput.classList.toggle("hidden", node.kind === "func");
+    const typesDiv = this.querySelector("#meta-types");
+    typesDiv.innerHTML = "";
+    typesDiv.classList.toggle("hidden", node.kind === "folder");
+    if (node.kind !== "folder") {
+      const registry = node.kind === "func" ? this.store.types.func_types : this.store.types.obj_types;
+      for (const [name, spec] of Object.entries(registry)) {
+        const chip = document.createElement("button");
+        chip.className = "type-chip" + (name === node.node_type ? " active" : "");
+        chip.textContent = name;
+        chip.style.setProperty("--nc", spec.color || "#E2E8F0");
+        chip.addEventListener("click", () => {
+          this.metaType = name;
+          typesDiv.querySelectorAll(".type-chip").forEach(c => c.classList.toggle("active", c === chip));
+        });
+        typesDiv.appendChild(chip);
+      }
     }
-    const pos = this.createPosition();
-    try {
-      const node = await this.store.createNode({
-        title: name, kind: "agent", node_type: "agent", ref: name,
-        x: pos.x, y: pos.y,
-      });
-      await this.store.updateNode(node.id, {
-        settings: {model: "kimi-k3", prompt_docs: [], read: [], write: [], computer: "local-docker"},
-      });
-      this.agentLink.attachGraph(name, this.store.boardId, node.id);
-      this.selectNode(node.id);
-    } catch (err) {
-      alert(`could not create agent node: ${err.message}`);
+    for (const p of this.querySelectorAll(".popup")) p.classList.add("hidden");
+    popup.classList.remove("hidden");
+    if (node.kind !== "func") {
+      titleInput.focus();
+      titleInput.select();
     }
+  }
+
+  async saveMeta() {
+    const node = this.store.nodes[this.metaId];
+    if (!node) return;
+    const updates = {};
+    if (node.kind === "func") {
+      // funcs are nameless: the type IS the title
+      if (this.metaType && this.metaType !== node.node_type) {
+        updates.node_type = this.metaType;
+        updates.title = this.metaType;
+      }
+    } else {
+      const title = this.querySelector("#meta-title").value.trim();
+      if (title && title !== node.title) updates.title = title;
+      if (node.kind === "obj" && this.metaType && this.metaType !== node.node_type) {
+        updates.node_type = this.metaType;
+      }
+    }
+    if (Object.keys(updates).length) {
+      try {
+        await this.store.updateNode(node.id, updates);
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+    this.hidePanel("meta-popup");
   }
 
   // ---- edges ----
@@ -533,21 +552,14 @@ class FabBoard extends HTMLElement {
       this.edgeModePick(id);
       return;
     }
-    if (e.target.closest(".gear-btn")) return;
     const node = this.store.nodes[id];
     const wasSelected = this.store.selectedNodeIds.has(id);
     if (!e.shiftKey && !wasSelected) this.selectNode(id);
     else if (e.shiftKey) this.selectNode(id, true);
 
-    // clicking an agent node opens its side panel (stays open for drag-drop)
-    if (node.kind === "agent" || node.node_type === "agent") this.openAgentPanel(node);
-
-    const descendantOrigs = {};
-    if (node.kind === "folder") {
-      for (const did of this.store.descendants(id)) {
-        const d = this.store.nodes[did];
-        descendantOrigs[did] = {x: d.x, y: d.y};
-      }
+    let parentBoundsAtStart = null;
+    if (node.parent && node.parent === this.store.activeFolderId) {
+      parentBoundsAtStart = this.store.folderBounds(this.store.nodes[node.parent]);
     }
     this.store.dragging = {
       nodeId: id,
@@ -555,7 +567,8 @@ class FabBoard extends HTMLElement {
       startMouseY: e.clientY,
       origX: node.x,
       origY: node.y,
-      descendantOrigs,
+      origParent: node.parent,
+      parentBoundsAtStart,
       moved: false,
     };
   }
@@ -563,21 +576,34 @@ class FabBoard extends HTMLElement {
   async onNodeDblClick(id) {
     const node = this.store.nodes[id];
     if (node.kind === "folder") {
-      await this.store.updateNode(id, {expanded: !node.expanded});
-      return;
-    }
-    if (node.node_type === "agent") {
-      window.open(`/INT3RF4CE/?agent=${encodeURIComponent(node.ref || node.title)}`, "_blank");
-      return;
-    }
-    if (node.kind === "obj") {
-      const updates = {expanded: !node.expanded};
-      if (updates.expanded) {
-        updates.width = FabStore.EXPANDED_W;
-        updates.height = FabStore.EXPANDED_H;
+      const wasExpanded = node.expanded;
+      if (!wasExpanded) this.expandAncestors(id);
+      node.expanded = !wasExpanded;
+      await this.store.updateNode(id, {expanded: node.expanded});
+      if (wasExpanded) {
+        for (const n of Object.values(this.store.nodes)) {
+          if (this.store.isDescendantOf(n.id, id) && n.expanded) {
+            n.expanded = false;
+            this.store.updateNode(n.id, {expanded: false});
+          }
+        }
       }
-      await this.store.updateNode(id, updates);
+      this.render();
+      return;
     }
+    if (node.kind !== "obj") return; // funcs never expand
+    const wasExpanded = node.expanded;
+    if (!wasExpanded) this.expandAncestors(id);
+    node.expanded = !wasExpanded;
+    const updates = {expanded: node.expanded};
+    if (node.expanded) {
+      updates.width = FabStore.EXPANDED_W;
+      updates.height = FabStore.EXPANDED_H;
+      node.width = updates.width;
+      node.height = updates.height;
+    }
+    await this.store.updateNode(id, updates);
+    this.render();
   }
 
   async onDocExpand(id, editor) {
@@ -652,18 +678,12 @@ class FabBoard extends HTMLElement {
       return;
     }
     if (!drag.moved) return;
-    // highlight agent-panel drop zones while dragging a node
-    if (this.panelAgent) this.setDropZonesActive(true);
+    if (this.ctxPanel) this.ctxPanel.setDropActive(true);
     const wdx = dx / this.store.camera.zoom, wdy = dy / this.store.camera.zoom;
     const node = this.store.nodes[drag.nodeId];
     node.x = drag.origX + wdx;
     node.y = drag.origY + wdy;
-    for (const did in drag.descendantOrigs) {
-      const o = drag.descendantOrigs[did];
-      this.store.nodes[did].x = o.x + wdx;
-      this.store.nodes[did].y = o.y + wdy;
-    }
-    this.store.computeTempOffsets();
+    // children of a dragged folder follow automatically (relative coords)
     this.syncNodes();
     this.syncEdges();
   }
@@ -671,44 +691,108 @@ class FabBoard extends HTMLElement {
   async onMouseUp(e) {
     const drag = this.store?.dragging;
     if (!drag) return;
-    this.store.dragging = null;
     this.viewport.classList.remove("panning");
-    this.setDropZonesActive(false);
-    if (drag.pan || !drag.moved) return;
+    if (this.ctxPanel) this.ctxPanel.setDropActive(false);
+    if (drag.pan) {
+      this.store.dragging = null;
+      return;
+    }
     const node = this.store.nodes[drag.nodeId];
+    if (!drag.moved) {
+      this.store.dragging = null;
+      this.selectNode(drag.nodeId);
+      // a click (no drag) on a folder makes it the active folder
+      if (node.kind === "folder") {
+        this.store.activeFolderId = node.id;
+        this.store.emit();
+      }
+      return;
+    }
+    // snap to the grid before deciding parent / saving
+    node.x = FabStore.snap(node.x);
+    node.y = FabStore.snap(node.y);
 
-    // dropped onto an agent-panel section? -> add to that list, restore position
-    const zone = document.elementFromPoint(e.clientX, e.clientY)?.closest(".ap-drop");
-    if (zone && this.panelAgent) {
+    // dropped onto a ctx panel section? -> add to that access list, restore position
+    const zone = document.elementFromPoint(e.clientX, e.clientY)?.closest(".ctx-drop");
+    if (zone && this.ctxPanel) {
       node.x = drag.origX;
       node.y = drag.origY;
-      for (const did in drag.descendantOrigs) {
-        this.store.nodes[did].x = drag.descendantOrigs[did].x;
-        this.store.nodes[did].y = drag.descendantOrigs[did].y;
-      }
-      await this.dropIntoAgentSection(node.id, zone.dataset.drop);
+      this.store.dragging = null;
       this.render();
+      this.ctxPanel.addEntry(zone.dataset.key, this.store.boardId, node.id);
       return;
     }
 
-    node.x = FabStore.snap(node.x);
-    node.y = FabStore.snap(node.y);
-    await this.store.updateNode(drag.nodeId, {x: node.x, y: node.y});
-    const posUpdates = [];
-    for (const did in drag.descendantOrigs) {
-      const d = this.store.nodes[did];
-      d.x = FabStore.snap(d.x);
-      d.y = FabStore.snap(d.y);
-      posUpdates.push(this.store.updateNode(did, {x: d.x, y: d.y}));
-    }
-    await Promise.all(posUpdates);
-    this.render();
-  }
+    // world position as displayed at drop time (content offsets are still
+    // computed from the pre-drag layout, so this is where the user sees it)
+    const wc = this.store.renderPos(node);
 
-  setDropZonesActive(active) {
-    for (const z of this.querySelectorAll(".ap-drop")) {
-      z.classList.toggle("drag-active", active);
+    let newParent = node.parent;
+    let rel = null; // explicit new coords (folder-relative or root-absolute)
+
+    const draggedEl = this.nodeEls[drag.nodeId];
+    if (draggedEl) draggedEl.style.pointerEvents = "none";
+    // scan the whole stack under the cursor: edge lines and sibling nodes
+    // sitting on top of the folder must not swallow the drop
+    const stack = document.elementsFromPoint(e.clientX, e.clientY);
+    if (draggedEl) draggedEl.style.pointerEvents = "";
+    let fid = null;
+    for (const el of stack) {
+      const f = el.closest?.(".fab-node.kind-folder");
+      if (!f) continue;
+      const id = f.dataset.id;
+      if (id === drag.nodeId) continue;
+      if (this.store.isDescendantOf(id, drag.nodeId)) continue;
+      fid = id;
+      break;
     }
+    if (fid && fid === this.store.activeFolderId && fid !== drag.nodeId &&
+        fid !== node.parent && !this.store.isDescendantOf(fid, drag.nodeId)) {
+      // dropped onto the active folder -> becomes a child at a free spot
+      newParent = fid;
+      const folderNode = this.store.nodes[fid];
+      if (!folderNode.expanded) {
+        folderNode.expanded = true;
+        await this.store.updateNode(fid, {expanded: true});
+      }
+      rel = this.store.freeChildPosition(folderNode);
+    } else if (drag.parentBoundsAtStart) {
+      // dragged far outside its active parent folder -> escapes one level up
+      const b = drag.parentBoundsAtStart;
+      const c = this.store.nodeCenter(node);
+      if (c.x < b.x - FabStore.ESCAPE_MARGIN || c.x > b.x + b.w + FabStore.ESCAPE_MARGIN ||
+          c.y < b.y - FabStore.ESCAPE_MARGIN || c.y > b.y + b.h + FabStore.ESCAPE_MARGIN) {
+        newParent = this.store.nodes[node.parent].parent || null;
+        if (newParent) {
+          const gp = this.store.nodes[newParent];
+          const gwc = this.store.renderPos(gp);
+          const gcoff = this.store.folderContentOffsets[gp.id] || {dx: 0, dy: 0};
+          rel = {
+            x: Math.round(wc.x - gwc.x - gcoff.dx),
+            y: Math.round(wc.y - gwc.y - gcoff.dy),
+          };
+        } else {
+          rel = {x: FabStore.snap(wc.x), y: FabStore.snap(wc.y)};
+        }
+      }
+    }
+
+    const fx = rel ? rel.x : node.x;
+    const fy = rel ? rel.y : node.y;
+    this.store.dragging = null;
+    if (this.store.wouldOverlap(drag.nodeId, fx, fy, newParent)) {
+      // dropped on top of a sibling -> reject the move, back to pre-drag spot
+      node.x = drag.origX;
+      node.y = drag.origY;
+      this.render();
+      return;
+    }
+    node.x = fx;
+    node.y = fy;
+    const updates = {x: node.x, y: node.y};
+    if (newParent !== node.parent) updates.parent = newParent;
+    await this.store.updateNode(drag.nodeId, updates);
+    this.render();
   }
 
   onWheel(e) {
@@ -771,7 +855,11 @@ class FabBoard extends HTMLElement {
       const node = this.store.nodes[id];
       const dx = e.key === "ArrowRight" ? FabStore.GRID : e.key === "ArrowLeft" ? -FabStore.GRID : 0;
       const dy = e.key === "ArrowDown" ? FabStore.GRID : e.key === "ArrowUp" ? -FabStore.GRID : 0;
-      this.store.updateNode(id, {x: node.x + dx, y: node.y + dy});
+      // children of a folder follow automatically (relative coords);
+      // stacking on a sibling is rejected
+      if (!this.store.wouldOverlap(id, node.x + dx, node.y + dy, node.parent)) {
+        this.store.updateNode(id, {x: node.x + dx, y: node.y + dy});
+      }
     }
   }
 
@@ -950,217 +1038,6 @@ class FabBoard extends HTMLElement {
     await fetch(`boards/${this.store.boardId}/versions/${this.selectedVersion}/restore`, {method: "POST"});
     await this.store.loadGraph();
     this.selectedVersion = null;
-  }
-
-  // ---- workflows ----
-
-  async saveWorkflow() {
-    const ids = [...this.store.selectedNodeIds];
-    if (!ids.length) return alert("select nodes first (shift+click for multi-select)");
-    const name = prompt("workflow name:");
-    if (!name) return;
-    const minX = Math.min(...ids.map(id => this.store.nodes[id].x));
-    const minY = Math.min(...ids.map(id => this.store.nodes[id].y));
-    const nodes = ids.map(id => {
-      const n = this.store.nodes[id];
-      return {
-        key: id, title: n.title, kind: n.kind, node_type: n.node_type,
-        state: n.state, ref: n.ref, settings: n.settings,
-        rel_x: n.x - minX, rel_y: n.y - minY,
-        width: n.width, height: n.height,
-        parent_key: ids.includes(n.parent) ? n.parent : null,
-      };
-    });
-    const edges = Object.values(this.store.edges)
-      .filter(e => ids.includes(e.source) && ids.includes(e.target))
-      .map(e => ({source_key: e.source, target_key: e.target}));
-    const r = await fetch("templates", {
-      method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({name, nodes, edges}),
-    });
-    if (!r.ok) return alert("could not save workflow");
-    this.renderWorkflows();
-  }
-
-  async renderWorkflows() {
-    const r = await fetch("templates");
-    const templates = (await r.json()).templates || {};
-    for (const listId of ["#workflow-list", "#workflow-list-popup"]) {
-      const list = this.querySelector(listId);
-      list.innerHTML = "";
-      for (const name of Object.keys(templates)) {
-        const row = document.createElement("div");
-        row.className = "workflow-row";
-        const label = document.createElement("span");
-        label.className = "type-name";
-        label.textContent = name;
-        row.appendChild(label);
-        const insert = document.createElement("button");
-        insert.textContent = "insert";
-        insert.addEventListener("click", () => this.insertWorkflow(name, templates[name]));
-        row.appendChild(insert);
-        const del = document.createElement("button");
-        del.className = "x-btn";
-        del.textContent = "×";
-        del.addEventListener("click", async () => {
-          await fetch(`templates/${encodeURIComponent(name)}`, {method: "DELETE"});
-          this.renderWorkflows();
-        });
-        row.appendChild(del);
-        list.appendChild(row);
-      }
-    }
-  }
-
-  async insertWorkflow(name, template) {
-    const center = this.createPosition();
-    const idMap = {};
-    try {
-      for (const tn of template.nodes) {
-        const node = await this.store.createNode({
-          title: tn.title, kind: tn.kind, node_type: tn.node_type,
-          state: tn.state, ref: tn.ref,
-          x: center.x + tn.rel_x, y: center.y + tn.rel_y,
-        });
-        idMap[tn.key] = node.id;
-        if (tn.settings) await this.store.updateNode(node.id, {settings: tn.settings});
-        if (tn.width) await this.store.updateNode(node.id, {width: tn.width, height: tn.height});
-      }
-      for (const tn of template.nodes) {
-        if (tn.parent_key && idMap[tn.parent_key]) {
-          await this.store.updateNode(idMap[tn.key], {parent: idMap[tn.parent_key]});
-        }
-      }
-      for (const te of template.edges) {
-        if (idMap[te.source_key] && idMap[te.target_key]) {
-          await this.store.createEdge(idMap[te.source_key], idMap[te.target_key]);
-        }
-      }
-      // attach live agents for agent nodes created from the template
-      for (const tn of template.nodes) {
-        if (tn.node_type === "agent" && tn.ref) {
-          this.agentLink.attachGraph(tn.ref, this.store.boardId, idMap[tn.key]);
-        }
-      }
-    } catch (err) {
-      alert(`workflow insert failed: ${err.message}`);
-    }
-  }
-
-  // ---- agent side panel ----
-
-  openAgentPanel(node) {
-    this.panelAgent = node;
-    this.querySelector("#agent-panel").classList.add("open");
-    this.renderAgentPanel();
-  }
-
-  closeAgentPanel() {
-    this.panelAgent = null;
-    this.querySelector("#agent-panel").classList.remove("open");
-  }
-
-  agentSettings(node) {
-    return Object.assign({model: "kimi-k3", prompt_docs: [], read: [], write: [], computer: "local-docker"}, node.settings || {});
-  }
-
-  async renderAgentPanel() {
-    const node = this.panelAgent;
-    if (!node) return;
-    // node may have been deleted while the panel is open
-    if (!this.store.nodes[node.id]) return this.closeAgentPanel();
-    const settings = this.agentSettings(node);
-    const agentName = node.ref || node.title;
-    const info = this.agentLink.agentInfo(agentName);
-
-    this.querySelector("#ap-name").textContent = agentName;
-    const status = this.querySelector("#ap-status");
-    const containerOn = info && info.container_on;
-    const working = info && info.working;
-    status.innerHTML = "";
-    for (const [on, label, cls] of [[containerOn, `container ${containerOn ? "on" : "off"}`, "led-on"], [working, working ? "working" : "idle", "led-working"]]) {
-      const led = document.createElement("span");
-      led.className = "led" + (on ? ` ${cls}` : "");
-      status.appendChild(led);
-      status.appendChild(document.createTextNode(" " + label + "  "));
-    }
-
-    // model dropdown
-    const modelSelect = this.querySelector("#ap-model");
-    modelSelect.innerHTML = "";
-    let models = {};
-    try { models = await this.agentLink.listModels(); } catch (e) {}
-    if (this.panelAgent !== node) return; // panel switched while loading
-    const currentModel = (info && info.model) || settings.model;
-    const names = Object.keys(models).length ? Object.keys(models) : [currentModel];
-    for (const display of names) {
-      const opt = document.createElement("option");
-      opt.value = display;
-      opt.textContent = display;
-      if (display === currentModel || models[display] === currentModel) opt.selected = true;
-      modelSelect.appendChild(opt);
-    }
-
-    // drop zones
-    for (const zone of this.querySelectorAll(".ap-drop")) {
-      const key = zone.dataset.drop;
-      zone.innerHTML = "";
-      for (const nid of settings[key] || []) {
-        const n = this.store.nodes[nid];
-        if (!n) continue;
-        const chip = document.createElement("span");
-        chip.className = "ap-chip";
-        chip.textContent = n.title;
-        chip.title = `${n.kind}/${n.node_type} — click × to remove`;
-        const x = document.createElement("button");
-        x.className = "x-btn";
-        x.textContent = "×";
-        x.addEventListener("click", async () => {
-          const s = this.agentSettings(node);
-          s[key] = (s[key] || []).filter(id => id !== nid);
-          node.settings = s;
-          await this.store.updateNode(node.id, {settings: s});
-          this.renderAgentPanel();
-        });
-        chip.appendChild(x);
-        zone.appendChild(chip);
-      }
-      if (!(settings[key] || []).length) {
-        const hint = document.createElement("span");
-        hint.className = "ap-hint";
-        hint.textContent = "empty — drag nodes here";
-        zone.appendChild(hint);
-      }
-    }
-  }
-
-  async onAgentModelChange() {
-    const node = this.panelAgent;
-    if (!node) return;
-    const modelSelect = this.querySelector("#ap-model");
-    const display = modelSelect.value;
-    let models = {};
-    try { models = await this.agentLink.listModels(); } catch (e) {}
-    const model = models[display] || display;
-    const agentName = node.ref || node.title;
-    if (this.agentLink.agentInfo(agentName)) this.agentLink.setModel(agentName, model);
-    const s = this.agentSettings(node);
-    s.model = model;
-    node.settings = s;
-    await this.store.updateNode(node.id, {settings: s});
-  }
-
-  async dropIntoAgentSection(nodeId, key) {
-    const agentNode = this.panelAgent;
-    if (!agentNode || nodeId === agentNode.id) return false;
-    const s = this.agentSettings(agentNode);
-    s[key] = s[key] || [];
-    if (s[key].includes(nodeId)) return true;
-    s[key].push(nodeId);
-    agentNode.settings = s;
-    await this.store.updateNode(agentNode.id, {settings: s});
-    this.renderAgentPanel();
-    return true;
   }
 
   // ---- search ----

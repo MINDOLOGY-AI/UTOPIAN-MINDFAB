@@ -1,64 +1,91 @@
 import json
+import secrets
 import shutil
 from pathlib import Path
 
-# fab root is two levels above this file: .../UTOPIAN-MINDFAB/fab
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-# per-user layout: fab/data/TH0UGHTGR4PH/{user}/{board}/ — each board is a self-contained directory
-DATA_DIR = PROJECT_ROOT / "data" / "TH0UGHTGR4PH"
-GRID_SIZE = 200
+from fab.TH0UGHTGR4PH.back.config import (
+    DATA_DIR,
+    DEFAULT_FUNC_TYPES,
+    DEFAULT_OBJ_TYPES,
+    DEFAULT_STATE_COLORS,
+)
+
+# per-user layout: fab/data/TH0UGHTGR4PH/{user}/{types.json, templates.json, {board}/}
+# each board is a self-contained directory: meta.json + content/ + versions/
 
 
-def _boards_dir(user: str) -> Path:
+def _user_dir(user: str) -> Path:
     return DATA_DIR / user
 
 
 def _board_dir(user: str, board_id: str) -> Path:
-    return _boards_dir(user) / board_id
+    return _user_dir(user) / board_id
 
 
 def _meta_file(user: str, board_id: str) -> Path:
     return _board_dir(user, board_id) / "meta.json"
 
 
+def _content_dir(user: str, board_id: str) -> Path:
+    return _board_dir(user, board_id) / "content"
+
+
 def _versions_dir(user: str, board_id: str) -> Path:
     return _board_dir(user, board_id) / "versions"
 
 
+def _types_file(user: str) -> Path:
+    return _user_dir(user) / "types.json"
+
+
+def _write_json(path: Path, data):
+    # atomic write so concurrent reads never see a half-written file
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    tmp.replace(path)
+
+
+def _read_json(path: Path, default):
+    if not path.exists():
+        return default
+    return json.loads(path.read_text())
+
+
+def new_id(existing) -> str:
+    nid = secrets.token_hex(4)
+    while nid in existing:
+        nid = secrets.token_hex(4)
+    return nid
+
+
+# ---- user / board init ----
+
+
 def init_user_storage(user: str):
-    """Ensure the user's data dir exists. Create a default 'main' board only on first use."""
-    d = _boards_dir(user)
+    """Ensure the user's data dir exists. Seed types/templates and a 'main' board on first use."""
+    d = _user_dir(user)
     first_time = not d.exists()
     d.mkdir(parents=True, exist_ok=True)
     if first_time:
+        _write_json(_types_file(user), {
+            "obj_types": DEFAULT_OBJ_TYPES,
+            "func_types": DEFAULT_FUNC_TYPES,
+            "state_colors": DEFAULT_STATE_COLORS,
+        })
         init_board(user, "main")
 
 
 def init_board(user: str, board_id: str):
     d = _board_dir(user, board_id)
     d.mkdir(parents=True, exist_ok=True)
+    _content_dir(user, board_id).mkdir(exist_ok=True)
     if not _meta_file(user, board_id).exists():
         save_meta(user, board_id, {"nodes": {}, "edges": {}})
-    else:
-        migrate_to_grid(user, board_id)
-
-
-def migrate_to_grid(user: str, board_id: str):
-    meta = load_meta(user, board_id)
-    changed = False
-    for n in meta["nodes"].values():
-        sx = round(n["x"] / GRID_SIZE) * GRID_SIZE
-        sy = round(n["y"] / GRID_SIZE) * GRID_SIZE
-        if n["x"] != sx or n["y"] != sy:
-            n["x"] = sx
-            n["y"] = sy
-            changed = True
-    if changed:
-        save_meta(user, board_id, meta)
 
 
 def list_boards(user: str):
-    d = _boards_dir(user)
+    d = _user_dir(user)
     if not d.exists():
         return []
     return sorted(p.name for p in d.iterdir() if p.is_dir())
@@ -78,16 +105,64 @@ def delete_board(user: str, board_id: str):
         shutil.rmtree(d)
 
 
+# ---- meta ----
+
+
 def load_meta(user: str, board_id: str):
-    return json.loads(_meta_file(user, board_id).read_text())
+    return _read_json(_meta_file(user, board_id), {"nodes": {}, "edges": {}})
 
 
 def save_meta(user: str, board_id: str, meta):
-    # atomic write so concurrent reads never see a half-written empty file
-    p = _meta_file(user, board_id)
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(meta, indent=2))
-    tmp.replace(p)
+    _write_json(_meta_file(user, board_id), meta)
+
+
+# ---- content ----
+
+
+def read_content(user: str, board_id: str, node_id: str) -> str:
+    p = _content_dir(user, board_id) / f"{node_id}.md"
+    if not p.exists():
+        return ""
+    return p.read_text()
+
+
+def write_content(user: str, board_id: str, node_id: str, content: str):
+    p = _content_dir(user, board_id) / f"{node_id}.md"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(content)
+
+
+def delete_content(user: str, board_id: str, node_id: str):
+    p = _content_dir(user, board_id) / f"{node_id}.md"
+    if p.exists():
+        p.unlink()
+
+
+# ---- types registry ----
+
+
+def load_types(user: str):
+    types = _read_json(_types_file(user), None)
+    if not isinstance(types, dict):
+        types = {}
+    # backfill presets: default types can be recolored but never permanently
+    # deleted — an emptied registry breaks node creation board-wide.
+    # custom (user-added) types are kept as-is.
+    for section, defaults in (
+        ("obj_types", DEFAULT_OBJ_TYPES),
+        ("func_types", DEFAULT_FUNC_TYPES),
+        ("state_colors", DEFAULT_STATE_COLORS),
+    ):
+        disk = types.get(section) or {}
+        types[section] = {**defaults, **disk}
+    return types
+
+
+def save_types(user: str, types):
+    _write_json(_types_file(user), types)
+
+
+# ---- versions ----
 
 
 def list_versions(user: str, board_id: str):
@@ -96,7 +171,7 @@ def list_versions(user: str, board_id: str):
     return sorted(p.name for p in d.iterdir() if p.is_dir())
 
 
-def copy_data_tree(src_dir: Path, dst_dir: Path):
+def _copy_data_tree(src_dir: Path, dst_dir: Path):
     # copy everything except the versions folder itself (no recursive snapshots)
     versions_dir = src_dir / "versions"
     for p in src_dir.iterdir():
@@ -115,19 +190,17 @@ def save_version(user: str, board_id: str):
     name = f"version_{max(nums) + 1 if nums else 0}"
     dst = d / name
     dst.mkdir()
-    copy_data_tree(_board_dir(user, board_id), dst)
+    _copy_data_tree(_board_dir(user, board_id), dst)
     return name
 
 
 def delete_version(user: str, board_id: str, name: str):
-    # cybersec: unknown version names are user error, not a crash — ValueError surfaces as HTTP 400
     if name not in list_versions(user, board_id):
         raise ValueError("version not found")
     shutil.rmtree(_versions_dir(user, board_id) / name)
 
 
 def restore_version(user: str, board_id: str, name: str):
-    # cybersec: unknown version names are user error, not a crash — ValueError surfaces as HTTP 400
     if name not in list_versions(user, board_id):
         raise ValueError("version not found")
     board_dir = _board_dir(user, board_id)
@@ -139,46 +212,4 @@ def restore_version(user: str, board_id: str, name: str):
             shutil.rmtree(p)
         else:
             p.unlink()
-    copy_data_tree(versions_dir / name, board_dir)
-
-
-def node_path(user: str, meta, node_id: str, board_id: str) -> Path:
-    # {user}/{board}/<ancestor folder titles...>/<title>[.md]
-    node = meta["nodes"][node_id]
-    parts = [node["title"]]
-    cur = node
-    while True:
-        if cur["parent"] is None:
-            break
-        cur = meta["nodes"][cur["parent"]]
-        parts.append(cur["title"])
-    parts.reverse()
-    p = _board_dir(user, board_id).joinpath(*parts)
-    return p.with_suffix(".md") if node["type"] == "file" else p
-
-
-def create_on_disk(user: str, meta, node_id: str, board_id: str):
-    p = node_path(user, meta, node_id, board_id)
-    assert not p.exists()
-    if meta["nodes"][node_id]["type"] == "folder":
-        p.mkdir(parents=True)
-    else:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text("")
-
-
-def move_on_disk(old_path: Path, new_path: Path):
-    assert old_path.exists()
-    assert not new_path.exists()
-    new_path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(old_path), str(new_path))
-
-
-def delete_on_disk(user: str, meta, node_id: str, board_id: str):
-    p = node_path(user, meta, node_id, board_id)
-    if meta["nodes"][node_id]["type"] == "folder":
-        if p.exists():
-            shutil.rmtree(p)
-    else:
-        if p.exists():
-            p.unlink()
+    _copy_data_tree(versions_dir / name, board_dir)

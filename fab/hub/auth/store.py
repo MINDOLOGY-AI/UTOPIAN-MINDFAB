@@ -10,7 +10,7 @@ import secrets
 import time
 from pathlib import Path
 
-AUTH_DIR = Path(__file__).resolve().parents[2] / "data" / "auth"
+AUTH_DIR = Path.cwd() / "fab" / "data" / "auth"
 USERS_PATH = AUTH_DIR / "users.json"
 SESSIONS_PATH = AUTH_DIR / "sessions.json"
 

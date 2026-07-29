@@ -1,4 +1,4 @@
-// === fab-nodes: obj / func / agent / folder node elements ===
+// === fab-nodes: obj / func / folder node elements ===
 
 class FabNode extends HTMLElement {
   constructor() {
@@ -7,17 +7,19 @@ class FabNode extends HTMLElement {
     this._rect = null;
   }
 
-  static get observedAttributes() { return ["selected"]; }
+  static get observedAttributes() { return ["selected", "active"]; }
 
   set node(v) { this._node = v; this.render(); }
   get node() { return this._node; }
   set rect(v) { this._rect = v; this.render(); }
   get rect() { return this._rect; }
 
-  attributeChangedCallback(name, oldV, newV) { if (name === "selected") this.render(); }
+  attributeChangedCallback(name, oldV, newV) { if (name === "selected" || name === "active") this.render(); }
 
   get selected() { return this.hasAttribute("selected"); }
   set selected(v) { v ? this.setAttribute("selected", "") : this.removeAttribute("selected"); }
+  get active() { return this.hasAttribute("active"); }
+  set active(v) { v ? this.setAttribute("active", "") : this.removeAttribute("active"); }
 
   connectedCallback() {
     this.addEventListener("mousedown", (e) => this.onMouseDown(e));
@@ -31,6 +33,7 @@ class FabNode extends HTMLElement {
     this.className = `fab-node kind-${node.kind}`;
     this.dataset.id = node.id;
     if (this.selected) this.classList.add("selected");
+    if (this.active) this.classList.add("active");
     if (node.expanded) this.classList.add("expanded");
     this.style.left = r.x + "px";
     this.style.top = r.y + "px";
@@ -138,58 +141,11 @@ class FuncNode extends FabNode {
   }
 }
 
-// ---- agent node: obj rectangle + live status LEDs + settings button ----
-
-class AgentNode extends FabNode {
-  updateContent(node) {
-    this.style.setProperty("--nc", this.store?.typeColor(node) || "#00FF41");
-    const info = (this.agentInfo || {})[node.ref] || {};
-    const containerOn = !!info.container_on;
-    const working = !!info.working;
-    const key = `${node.title}|${containerOn}|${working}|${info.model || ""}`;
-    if (this.__key === key) return;
-    this.__key = key;
-    this.innerHTML = "";
-    const title = document.createElement("div");
-    title.className = "title";
-    title.textContent = node.title;
-    this.appendChild(title);
-    const leds = document.createElement("div");
-    leds.className = "led-row";
-    const cLed = document.createElement("span");
-    cLed.className = "led" + (containerOn ? " led-on" : "");
-    cLed.title = containerOn ? "container on" : "container off";
-    leds.appendChild(cLed);
-    const wLed = document.createElement("span");
-    wLed.className = "led" + (working ? " led-working" : "");
-    wLed.title = working ? "working" : "idle";
-    leds.appendChild(wLed);
-    this.appendChild(leds);
-    const model = document.createElement("div");
-    model.className = "type-label";
-    model.textContent = info.model || (node.settings && node.settings.model) || "agent";
-    this.appendChild(model);
-    const gear = document.createElement("button");
-    gear.className = "gear-btn";
-    gear.textContent = "⚙";
-    gear.title = "agent settings";
-    gear.addEventListener("mousedown", (e) => e.stopPropagation());
-    gear.addEventListener("dblclick", (e) => e.stopPropagation());
-    gear.addEventListener("click", (e) => {
-      e.stopPropagation();
-      this.dispatchEvent(new CustomEvent("agent-settings", {
-        detail: {node}, bubbles: true,
-      }));
-    });
-    this.appendChild(gear);
-  }
-}
-
 // ---- folder node: collapsed dashed square / expanded container ----
 
 class FolderNode extends FabNode {
   updateContent(node) {
-    this.style.setProperty("--nc", node.color || "#B8A0FF");
+    this.style.setProperty("--nc", "var(--near-white, #C5C5C5)");
     if (this.querySelector(".title")) {
       this.querySelector(".title").textContent = node.title;
       return;
@@ -204,5 +160,4 @@ class FolderNode extends FabNode {
 
 customElements.define("obj-node", ObjNode);
 customElements.define("func-node", FuncNode);
-customElements.define("agent-node", AgentNode);
 customElements.define("folder-node", FolderNode);

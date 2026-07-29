@@ -3,11 +3,8 @@ let ws = null;
 let agents = {};
 let selectedAgent = null;
 let chatMode = false;
-let promptOpen = false;
 let apiStatus = {};
-let promptBlocks = [];
-let selectedPrompts = [];
-let editingPrompt = null;
+let lastModelUsed = {};
 let menuAgent = null;
 
 // DOM elements
@@ -21,19 +18,8 @@ const chatModeBtn = document.getElementById('chat-mode-btn');
 const contextMessages = document.getElementById('context-messages');
 const vncPlaceholder = document.getElementById('vnc-placeholder');
 const vncFrame = document.getElementById('vnc-frame');
-const promptBtn = document.getElementById('prompt-btn');
-const promptPopup = document.getElementById('prompt-popup');
 const statusBar = document.getElementById('status-bar');
 const modelSelect = document.getElementById('model-select');
-const promptList = document.getElementById('prompt-list');
-const selectedPromptList = document.getElementById('selected-prompt-list');
-const promptEditor = document.querySelector('.prompt-editor');
-const promptEditorText = document.getElementById('prompt-editor-text');
-const savePromptEditorBtn = document.getElementById('save-prompt-editor-btn');
-const closePromptEditorBtn = document.getElementById('close-prompt-editor-btn');
-const newPromptName = document.getElementById('new-prompt-name');
-const addPromptBtn = document.getElementById('add-prompt-btn');
-const promptExitBtn = document.getElementById('prompt-exit-btn');
 const agentMenu = document.getElementById('agent-menu');
 const agentMenuRename = document.getElementById('agent-menu-rename');
 const agentMenuDelete = document.getElementById('agent-menu-delete');
@@ -51,7 +37,7 @@ function connect() {
 
     ws.onopen = () => {
         console.log('Connected to server');
-        send({ cmd: 'list_prompts' });
+        send({ cmd: 'list_models' });
     };
 
     ws.onmessage = (event) => {
@@ -78,6 +64,23 @@ function send(cmd) {
 
 function handleMessage(msg) {
     switch (msg.type) {
+        case 'models':
+            // populate the model dropdown from the server registry (kimi, glm, hierarchy, ...)
+            {
+                const current = selectedAgent && agents[selectedAgent]
+                    ? (agents[selectedAgent].model || modelSelect.value)
+                    : modelSelect.value;
+                modelSelect.innerHTML = '';
+                for (const [display, id] of Object.entries(msg.models || {})) {
+                    const opt = document.createElement('option');
+                    opt.value = id;
+                    opt.textContent = display;
+                    if (id === current) opt.selected = true;
+                    modelSelect.appendChild(opt);
+                }
+            }
+            break;
+
         case 'agents':
             agents = msg.agents;
             // preselect agent from ?agent= query param (used by F4B teleport links)
@@ -107,24 +110,17 @@ function handleMessage(msg) {
                 apiStatus[msg.name] = msg.state;
                 updateStatusBar();
             }
+            // hierarchy: which provider actually answered
+            if (msg.name && msg.phase === 'model_used') {
+                lastModelUsed[msg.name] = msg.state;
+                updateStatusBar();
+            }
             // agent started/stopped its own docker (DOCKER_START/DOCKER_STOP)
             if (msg.name && msg.phase === 'container' && agents[msg.name]) {
                 agents[msg.name].container_on = msg.state === 'started';
                 renderAgentList();
                 updateButtons();
                 updateVnc();
-            }
-            break;
-
-        case 'prompts':
-            promptBlocks = msg.prompts;
-            renderPromptPopup();
-            break;
-
-        case 'selected_prompts':
-            if (msg.name === selectedAgent) {
-                selectedPrompts = msg.selected || [];
-                renderPromptPopup();
             }
             break;
 
@@ -143,24 +139,17 @@ function renderAgentList() {
     agentList.innerHTML = '';
     for (const [name, info] of Object.entries(agents)) {
         const li = document.createElement('li');
-        const status = info.working ? 'working' : info.container_on ? 'paused' : 'stopped';
-        const statusClass = info.working ? 'working' : info.container_on ? 'paused' : '';
         // cybersec: build the row with textContent instead of innerHTML — agent names come from the server, and innerHTML would let a crafted name inject script into the page (XSS)
         const row = document.createElement('div');
         row.className = 'agent-row';
-        const infoDiv = document.createElement('div');
         const nameDiv = document.createElement('div');
+        nameDiv.className = 'agent-name';
         nameDiv.textContent = name;
-        const statusDiv = document.createElement('div');
-        statusDiv.className = `status ${statusClass}`;
-        statusDiv.textContent = `${status} | port ${info.novnc_port} | ${info.model || 'kimi-k3'}`;
-        infoDiv.appendChild(nameDiv);
-        infoDiv.appendChild(statusDiv);
+        row.appendChild(nameDiv);
         const menuBtn = document.createElement('button');
         menuBtn.className = 'agent-menu-btn';
         menuBtn.dataset.name = name;
         menuBtn.textContent = '⋮';
-        row.appendChild(infoDiv);
         row.appendChild(menuBtn);
         li.appendChild(row);
         if (name === selectedAgent) {
@@ -197,7 +186,6 @@ function selectAgent(name) {
     updateButtons();
     updateVnc();
     send({ cmd: 'get_context', name: name });
-    send({ cmd: 'get_selected_prompts', name: name });
     if (agents[name]) {
         modelSelect.value = agents[name].model || 'kimi-k3';
         chatMode = !!agents[name].chat_mode;
@@ -260,7 +248,16 @@ function updateButtons() {
 
 function updateStatusBar() {
     const isGenerating = selectedAgent && apiStatus[selectedAgent] === 'started';
-    statusBar.style.display = isGenerating ? 'block' : 'none';
+    if (isGenerating) {
+        statusBar.textContent = 'generating...';
+        statusBar.style.display = 'block';
+    } else if (selectedAgent && lastModelUsed[selectedAgent]) {
+        // hierarchy: show which provider actually answered last
+        statusBar.textContent = `answered by ${lastModelUsed[selectedAgent]}`;
+        statusBar.style.display = 'block';
+    } else {
+        statusBar.style.display = 'none';
+    }
 }
 
 function addThinBlock(cssClass, label, content) {
@@ -336,7 +333,13 @@ function renderContext(messages) {
         } else if (role === 'assistant') {
             blocks.forEach(b => {
                 if (b.type === 'text') {
-                    addTextBlock('assistant', 'assistant', b.text || '');
+                    const text = b.text || '';
+                    // reasoning content arrives as a text block prefixed [reasoning] — collapse it
+                    if (text.startsWith('[reasoning]')) {
+                        addThinBlock('reasoning', 'reasoning', text.slice('[reasoning]'.length).trim());
+                    } else {
+                        addTextBlock('assistant', 'assistant', text);
+                    }
                 } else if (b.type === 'tool_use') {
                     const name = b.name || 'tool';
                     const args = JSON.stringify(b.arguments || {});
@@ -349,100 +352,20 @@ function renderContext(messages) {
     contextMessages.scrollTop = contextMessages.scrollHeight;
 }
 
-// Prompt popup rendering
-function renderPromptPopup() {
-    if (!promptOpen) return;
-
-    promptList.innerHTML = '';
-    // only show global prompt and user-defined prompts
-    const visibleBlocks = promptBlocks.filter(b => b.name === 'global_prompt' || b.editable);
-
-    visibleBlocks.forEach(block => {
-        const div = document.createElement('div');
-        div.className = 'prompt-item' + (selectedPrompts.includes(block.name) ? ' selected' : '');
-        // cybersec: build the item with textContent instead of innerHTML — prompt names come from the server, and innerHTML would let a crafted name inject script into the page (XSS)
-        const nameSpan = document.createElement('span');
-        nameSpan.textContent = block.name;
-        div.appendChild(nameSpan);
-        if (block.editable) {
-            const delBtn = document.createElement('button');
-            delBtn.className = 'delete-prompt-btn';
-            delBtn.textContent = '×';
-            div.appendChild(delBtn);
-        }
-        div.onclick = (e) => {
-            if (e.target.classList.contains('delete-prompt-btn')) {
-                if (confirm(`Delete prompt "${block.name}"?`)) {
-                    send({ cmd: 'delete_prompt', name: block.name });
-                }
-                return;
-            }
-            // single click: add to selected (if editable and not global) and open editor
-            if (block.editable && !selectedPrompts.includes(block.name)) {
-                const updated = [...selectedPrompts, block.name];
-                selectedPrompts = updated;
-                send({ cmd: 'set_selected_prompts', name: selectedAgent, selected: updated });
-            }
-            editingPrompt = block.name;
-            promptEditorText.value = block.text;
-            promptEditor.style.display = 'flex';
-        };
-        promptList.appendChild(div);
-    });
-
-    selectedPromptList.innerHTML = '';
-    selectedPrompts.forEach((name, idx) => {
-        const div = document.createElement('div');
-        div.className = 'prompt-item selected-item';
-        div.draggable = true;
-        div.textContent = name;
-        div.ondragstart = (e) => {
-            e.dataTransfer.setData('text/plain', idx);
-        };
-        div.ondragover = (e) => e.preventDefault();
-        div.ondrop = (e) => {
-            e.preventDefault();
-            const fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
-            const toIdx = idx;
-            const item = selectedPrompts.splice(fromIdx, 1)[0];
-            selectedPrompts.splice(toIdx, 0, item);
-            send({ cmd: 'set_selected_prompts', name: selectedAgent, selected: selectedPrompts });
-        };
-        div.onclick = () => {
-            // global prompt cannot be deselected
-            if (name === 'global_prompt') return;
-            selectedPrompts = selectedPrompts.filter(n => n !== name);
-            send({ cmd: 'set_selected_prompts', name: selectedAgent, selected: selectedPrompts });
-        };
-        selectedPromptList.appendChild(div);
-    });
-}
-
-function openPromptPopup() {
-    if (!selectedAgent) return;
-    promptOpen = true;
-    promptPopup.style.display = 'block';
-    promptBtn.classList.add('active');
-    send({ cmd: 'list_prompts' });
-    send({ cmd: 'get_selected_prompts', name: selectedAgent });
-}
-
-function closePromptPopup() {
-    promptOpen = false;
-    promptPopup.style.display = 'none';
-    promptBtn.classList.remove('active');
-    editingPrompt = null;
-    promptEditor.style.display = 'none';
-}
 
 // Event listeners
+function createAgentFlow(name) {
+    if (!name) return;
+    send({ cmd: 'create', name: name, model: modelSelect.value });
+}
+
 createBtn.onclick = () => {
     const name = newAgentName.value.trim();
     if (!name) {
         alert('Please enter agent name');
         return;
     }
-    send({ cmd: 'create', name: name, model: modelSelect.value });
+    createAgentFlow(name);
     newAgentName.value = '';
 };
 
@@ -492,35 +415,6 @@ chatModeBtn.onclick = () => {
     send({ cmd: 'chat_mode', name: selectedAgent, enabled: chatMode });
 };
 
-promptBtn.onclick = () => {
-    if (promptOpen) {
-        closePromptPopup();
-    } else {
-        openPromptPopup();
-    }
-};
-
-promptExitBtn.onclick = closePromptPopup;
-
-addPromptBtn.onclick = () => {
-    const name = newPromptName.value.trim();
-    if (!name) return;
-    send({ cmd: 'save_prompt', name: name, text: '' });
-    newPromptName.value = '';
-};
-
-savePromptEditorBtn.onclick = () => {
-    if (editingPrompt) {
-        send({ cmd: 'save_prompt', name: editingPrompt, text: promptEditorText.value });
-        editingPrompt = null;
-        promptEditor.style.display = 'none';
-    }
-};
-
-closePromptEditorBtn.onclick = () => {
-    editingPrompt = null;
-    promptEditor.style.display = 'none';
-};
 
 modelSelect.onchange = () => {
     if (selectedAgent) {
@@ -561,3 +455,11 @@ fetch('/auth/me', { credentials: 'same-origin' }).then(res => {
         showAuthOverlay(true);
     }
 });
+
+
+// settings = transport to the thoughtgraph board with this agent's context panel
+const settingsBtn = document.getElementById('settings-btn');
+settingsBtn.onclick = () => {
+    if (!selectedAgent) return;
+    window.location.href = `/TH0UGHTGR4PH/?agent=${encodeURIComponent(selectedAgent)}`;
+};

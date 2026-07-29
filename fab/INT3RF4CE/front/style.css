@@ -21,7 +21,8 @@ body {
 
 /* Left panel: 10% */
 .left-panel {
-    width: 10%;
+    width: 17%;
+    min-width: 200px;
     background: var(--dark-gray);
     border-right: 1px solid var(--mid-gray);
     display: flex;
@@ -29,66 +30,62 @@ body {
 }
 
 .left-top {
-    height: 10%;
-    padding: 10px;
-    display: flex;
-    flex-direction: column;
+    padding: 8px;
     border-bottom: 1px solid var(--mid-gray);
 }
 
-.board-link {
-    display: flex;
+.hub-link {
+    display: inline-flex;
     align-items: center;
     justify-content: center;
     color: var(--mint, #7FFFD4);
     text-decoration: none;
-    font-size: 12px;
-    margin-bottom: 8px;
-    padding: 5px 0;
+    font-size: 11px;
+    padding: 6px 10px;
     border: 1px solid var(--mid-gray);
     border-radius: 3px;
     background: var(--panel, #16161d);
     box-shadow: 0 2px 0 #111;
+    white-space: nowrap;
 }
 
-.board-link:hover {
+.hub-link:hover {
     color: var(--neon-pink, #FF80BF);
     border-color: var(--neon-pink, #FF80BF);
 }
 
-.board-link:active {
+.hub-link:active {
     transform: translateY(2px);
     box-shadow: none;
 }
 
-.left-top h2 {
-    color: var(--lavender);
-    margin-bottom: 10px;
-    font-size: 1.1em;
-}
-
 .agent-controls {
     display: flex;
-    flex-direction: column;
-    gap: 6px;
+    gap: 4px;
+    align-items: center;
 }
 
 .agent-controls input {
-    padding: 6px 8px;
+    flex: 1;
+    min-width: 0;
+    padding: 5px 7px;
     background: var(--background);
     border: 1px solid var(--mid-gray);
     color: var(--white);
     border-radius: 3px;
+    font-size: 11px;
 }
 
 .agent-controls button {
-    padding: 6px;
+    padding: 5px 8px;
     background: var(--lavender);
     border: none;
     color: var(--background);
     cursor: pointer;
     border-radius: 3px;
     font-weight: bold;
+    font-size: 11px;
+    white-space: nowrap;
 }
 
 .agent-controls button:hover {
@@ -96,9 +93,9 @@ body {
 }
 
 .left-bottom {
-    height: 80%;
+    flex: 1;
     overflow-y: auto;
-    padding: 10px;
+    padding: 8px;
 }
 
 #agent-list {
@@ -106,13 +103,14 @@ body {
 }
 
 #agent-list li {
-    padding: 10px;
-    margin-bottom: 6px;
+    padding: 6px 8px;
+    margin-bottom: 4px;
     background: var(--component);
     border-radius: 3px;
     cursor: pointer;
     border: 1px solid transparent;
     transition: all 0.2s;
+    font-size: 12px;
 }
 
 #agent-list li:hover {
@@ -124,23 +122,17 @@ body {
     background: var(--mid-gray);
 }
 
-#agent-list li .status {
-    font-size: 0.7em;
-    color: var(--light-gray);
-}
-
-#agent-list li .status.working {
-    color: var(--green);
-}
-
-#agent-list li .status.paused {
-    color: var(--sky);
+#agent-list li .agent-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .agent-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 4px;
 }
 
 .agent-menu-btn {
@@ -191,18 +183,13 @@ body {
     border-top: 1px solid var(--mid-gray);
     padding: 6px 10px;
     display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 4px;
-}
-
-.mid-bot-row {
-    display: flex;
-    gap: 8px;
+    flex-direction: row;
     align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
 }
 
-.mid-bot-row button {
+.mid-bot button {
     padding: 4px 14px;
     border: none;
     cursor: pointer;
@@ -231,16 +218,16 @@ body {
     background: var(--lavender);
 }
 
-#prompt-btn, #chat-mode-btn, #docker-save-btn {
+#chat-mode-btn, #docker-save-btn {
     background: var(--mid-gray);
     color: var(--white);
 }
 
-#prompt-btn:hover, #chat-mode-btn:hover {
+#chat-mode-btn:hover {
     background: var(--light-gray);
 }
 
-#chat-mode-btn.active, #prompt-btn.active {
+#chat-mode-btn.active {
     background: var(--mint);
     color: var(--background);
 }
@@ -323,6 +310,18 @@ button:disabled {
 #context-messages .message.command {
     background: var(--component);
     border-left: 3px solid var(--lavender);
+}
+
+#context-messages .message.reasoning {
+    background: var(--component);
+    border-left: 3px solid var(--sky);
+    padding: 4px 10px;
+    margin-bottom: 4px;
+}
+
+#context-messages .message.reasoning .role {
+    color: var(--sky);
+    margin-bottom: 0;
 }
 
 #context-messages .message .role {
@@ -422,158 +421,6 @@ button:disabled {
     background: var(--component);
 }
 
-/* Prompt popup */
-#prompt-popup {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.85);
-    z-index: 100;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.prompt-popup-content {
-    position: relative;
-    width: 80%;
-    height: 80%;
-    background: var(--dark-gray);
-    border: 1px solid var(--mid-gray);
-    border-radius: 4px;
-    display: flex;
-    padding: 15px;
-    gap: 15px;
-}
-
-.prompt-exit {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    width: 32px;
-    height: 32px;
-    background: var(--red);
-    color: var(--white);
-    border: none;
-    border-radius: 3px;
-    cursor: pointer;
-    font-size: 1.2em;
-    font-weight: bold;
-    z-index: 10;
-}
-
-.prompt-exit:hover {
-    background: var(--neon-pink);
-}
-
-.prompt-library, .prompt-selected {
-    width: 30%;
-    display: flex;
-    flex-direction: column;
-}
-
-.prompt-library h3, .prompt-selected h3 {
-    color: var(--lavender);
-    margin-bottom: 10px;
-    font-size: 1em;
-}
-
-#prompt-list, #selected-prompt-list {
-    flex: 1;
-    overflow-y: auto;
-    background: var(--background);
-    padding: 10px;
-    border-radius: 3px;
-}
-
-.prompt-item {
-    padding: 8px;
-    margin-bottom: 6px;
-    background: var(--component);
-    border-radius: 3px;
-    cursor: pointer;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border: 1px solid transparent;
-}
-
-.prompt-item:hover {
-    border-color: var(--light-gray);
-}
-
-.prompt-item.selected {
-    border-color: var(--mint);
-}
-
-.prompt-item.selected-item {
-    border-color: var(--sky);
-}
-
-.delete-prompt-btn {
-    background: var(--red);
-    color: var(--white);
-    border: none;
-    border-radius: 3px;
-    padding: 2px 6px;
-    cursor: pointer;
-}
-
-.prompt-add {
-    margin-top: 10px;
-    display: flex;
-    gap: 6px;
-}
-
-.prompt-add input {
-    flex: 1;
-    padding: 6px;
-    background: var(--background);
-    border: 1px solid var(--mid-gray);
-    color: var(--white);
-    border-radius: 3px;
-}
-
-.prompt-add button {
-    padding: 6px 12px;
-    background: var(--lavender);
-    border: none;
-    color: var(--background);
-    border-radius: 3px;
-    cursor: pointer;
-    font-weight: bold;
-}
-
-.prompt-editor {
-    width: 40%;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-.prompt-editor textarea {
-    flex: 1;
-    padding: 10px;
-    background: var(--background);
-    border: 1px solid var(--mid-gray);
-    color: var(--white);
-    resize: none;
-    font-family: inherit;
-    font-size: 0.85em;
-}
-
-.prompt-editor button {
-    padding: 8px;
-    background: var(--lavender);
-    border: none;
-    color: var(--background);
-    border-radius: 3px;
-    cursor: pointer;
-    font-weight: bold;
-}
-
 /* Scrollbar */
 ::-webkit-scrollbar {
     width: 6px;
@@ -608,3 +455,4 @@ button:disabled {
   color: var(--lavender);
   letter-spacing: 0.08em;
 }
+

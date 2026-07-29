@@ -13,19 +13,12 @@ Commands (client -> server):
     {"cmd": "chat", "name": "agent_1", "text": "do this task"}
     {"cmd": "chat_mode", "name": "agent_1", "enabled": true}
     {"cmd": "get_context", "name": "agent_1"}
-    {"cmd": "list_prompts"}
-    {"cmd": "save_prompt", "name": "usr_task", "text": "..."}
-    {"cmd": "delete_prompt", "name": "usr_task"}
-    {"cmd": "get_selected_prompts", "name": "agent_1"}
-    {"cmd": "set_selected_prompts", "name": "agent_1", "selected": ["global_prompt", "usr_task"]}
     {"cmd": "list_models"}
     {"cmd": "set_model", "name": "agent_1", "model": "kimi-k3"}
 
 Responses (server -> client):
     {"type": "agents", "agents": {...}}
     {"type": "context", "name": "agent_1", "messages": [...]}
-    {"type": "prompts", "prompts": [...]}
-    {"type": "selected_prompts", "name": "agent_1", "selected": [...]}
     {"type": "models", "models": {...}}
     {"type": "status", "name": "agent_1", "phase": "api_call", "state": "started"}
     {"type": "error", "msg": "..."}
@@ -49,18 +42,13 @@ logger = logging.getLogger(__name__)
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from fab.F4B.back import storage as f4b_storage
+from fab.TH0UGHTGR4PH.back import storage as tg_storage
 from fab.INT3RF4CE.back.agent import Agent
 from fab.INT3RF4CE.back.model import Model, list_available_models, get_model_class
 from fab.INT3RF4CE.back.models.kimi import Kimi  # registers the kimi provider
+from fab.INT3RF4CE.back.models.glm import GLM  # registers the glm provider
+from fab.INT3RF4CE.back.model import HierarchyModel  # registers the hierarchy provider
 from fab.INT3RF4CE.back.config import DATA_DIR
-from fab.INT3RF4CE.back.prompt import (
-    list_prompt_blocks,
-    save_prompt_block,
-    delete_prompt_block,
-    get_selected_prompts,
-    set_selected_prompts,
-)
 from fab.hub.auth.store import COOKIE_NAME, user_for_token
 
 app = FastAPI()
@@ -98,7 +86,6 @@ def save_agents(user: str):
             "novnc_port": info["novnc_port"],
             "model": info.get("model", "kimi-k3"),
             "chat_mode": info["agent"].chat_mode,
-            **({"graph": info["graph"]} if info.get("graph") else {}),
         }
         for name, info in users.get(user, {}).items()
     }
@@ -188,7 +175,6 @@ def load_agents():
                 "container_on": container_on,
                 "working": False,
                 "pending_chat": [],
-                "graph": cfg.get("graph"),
             }
 
 
@@ -214,7 +200,6 @@ def get_agents_info(user: str) -> dict:
             "working": info["working"],
             "novnc_port": info["novnc_port"],
             "model": info.get("model", "kimi-k3"),
-            "graph": info.get("graph"),
             "chat_mode": info["agent"].chat_mode,
         }
         for name, info in users.get(user, {}).items()
@@ -540,63 +525,6 @@ async def websocket_endpoint(ws: WebSocket):
                 messages = user_agents[name]["agent"].context.messages
                 await ws.send_text(json.dumps({"type": "context", "name": name, "messages": messages}))
 
-            elif cmd == "list_prompts":
-                prompts = list_prompt_blocks(user)
-                await ws.send_text(json.dumps({"type": "prompts", "prompts": prompts}))
-
-            elif cmd == "save_prompt":
-                name = msg.get("name")
-                text = msg.get("text", "")
-                if not name:
-                    await ws.send_text(json.dumps({"type": "error", "msg": "prompt name required"}))
-                    continue
-                # cybersec: the prompt name becomes a .md file path — allowlist it so a save can never write files outside the prompts folder
-                try:
-                    validate_name(name)
-                    save_prompt_block(user, name, text)
-                    await ws.send_text(json.dumps({"type": "prompts", "prompts": list_prompt_blocks(user)}))
-                except Exception as e:
-                    msg_text = e.detail if isinstance(e, HTTPException) else str(e)
-                    await ws.send_text(json.dumps({"type": "error", "msg": msg_text}))
-
-            elif cmd == "delete_prompt":
-                name = msg.get("name")
-                if not name:
-                    await ws.send_text(json.dumps({"type": "error", "msg": "prompt name required"}))
-                    continue
-                # cybersec: the prompt name becomes a .md file path — allowlist it so a delete can never remove files outside the prompts folder
-                try:
-                    validate_name(name)
-                    delete_prompt_block(user, name)
-                    await ws.send_text(json.dumps({"type": "prompts", "prompts": list_prompt_blocks(user)}))
-                except Exception as e:
-                    msg_text = e.detail if isinstance(e, HTTPException) else str(e)
-                    await ws.send_text(json.dumps({"type": "error", "msg": msg_text}))
-
-            elif cmd == "get_selected_prompts":
-                name = msg.get("name")
-                if name not in user_agents:
-                    await ws.send_text(json.dumps({"type": "error", "msg": f"agent {name} not found"}))
-                    continue
-                selected = get_selected_prompts(user, name)
-                await ws.send_text(json.dumps({"type": "selected_prompts", "name": name, "selected": selected}))
-
-            elif cmd == "set_selected_prompts":
-                name = msg.get("name")
-                selected = msg.get("selected", [])
-                if name not in user_agents:
-                    await ws.send_text(json.dumps({"type": "error", "msg": f"agent {name} not found"}))
-                    continue
-                # cybersec: selected prompt names become .md read paths in build_system_prompt — allowlist them so they can't read files outside the prompts folder
-                try:
-                    for sel in selected:
-                        validate_name(sel)
-                except HTTPException as e:
-                    await ws.send_text(json.dumps({"type": "error", "msg": e.detail}))
-                    continue
-                set_selected_prompts(user, name, selected)
-                await ws.send_text(json.dumps({"type": "selected_prompts", "name": name, "selected": selected}))
-
             elif cmd == "list_models":
                 # flat {display_name: model_id} for frontend compatibility
                 flat_models = {}
@@ -618,47 +546,97 @@ async def websocket_endpoint(ws: WebSocket):
                 save_agents(user)
                 await broadcast(user, {"type": "agents", "agents": get_agents_info(user)})
 
-            elif cmd == "attach_graph":
+            elif cmd == "get_graph_settings":
                 name = msg.get("name")
-                board = msg.get("board")
-                node = msg.get("node")
                 if name not in user_agents:
                     await ws.send_text(json.dumps({"type": "error", "msg": f"agent {name} not found"}))
                     continue
-                if not board or not node:
-                    await ws.send_text(json.dumps({"type": "error", "msg": "board and node required"}))
+                path = DATA_DIR / user / "config" / "specific" / name / "graph.json"
+                settings = json.loads(path.read_text()) if path.exists() else None
+                await ws.send_text(json.dumps({"type": "graph_settings", "name": name, "settings": settings}))
+
+            elif cmd == "set_graph_settings":
+                name = msg.get("name")
+                settings = msg.get("settings")
+                if name not in user_agents:
+                    await ws.send_text(json.dumps({"type": "error", "msg": f"agent {name} not found"}))
                     continue
-                # validate the board + node exist and the node is an agent obj
-                try:
-                    f4b_meta = f4b_storage.load_meta(user, board)
-                except Exception as e:
-                    await ws.send_text(json.dumps({"type": "error", "msg": f"board error: {e}"}))
+                if not isinstance(settings, dict):
+                    await ws.send_text(json.dumps({"type": "error", "msg": "settings must be an object"}))
                     continue
-                if node not in f4b_meta["nodes"]:
-                    await ws.send_text(json.dumps({"type": "error", "msg": "node not found on that board"}))
+                # entries are {"board": b, "id": nid} — validate every board exists and every id is on it
+                bad = None
+                for key in ("prompt_docs", "read", "write"):
+                    for e in settings.get(key) or []:
+                        try:
+                            meta = tg_storage.load_meta(user, e["board"])
+                        except Exception:
+                            bad = f"board not found: {e.get('board')}"
+                            break
+                        if e.get("id") not in meta["nodes"]:
+                            bad = f"node {e.get('id')} not on board {e['board']}"
+                            break
+                    if bad:
+                        break
+                if bad:
+                    await ws.send_text(json.dumps({"type": "error", "msg": bad}))
                     continue
-                if f4b_meta["nodes"][node].get("node_type") != "agent":
-                    await ws.send_text(json.dumps({"type": "error", "msg": "node is not an agent node"}))
-                    continue
-                graph = {"board": board, "node": node}
                 specific = DATA_DIR / user / "config" / "specific" / name
                 specific.mkdir(parents=True, exist_ok=True)
-                (specific / "graph.json").write_text(json.dumps(graph))
-                user_agents[name]["graph"] = graph
-                save_agents(user)
-                await broadcast(user, {"type": "agents", "agents": get_agents_info(user)})
+                (specific / "graph.json").write_text(json.dumps({
+                    "prompt_docs": settings.get("prompt_docs", []),
+                    "read": settings.get("read", []),
+                    "write": settings.get("write", []),
+                }))
+                await ws.send_text(json.dumps({"type": "graph_settings", "name": name, "settings": settings}))
 
-            elif cmd == "detach_graph":
+            elif cmd == "list_settings_files":
+                files_dir = DATA_DIR / user / "config" / "settings_files"
+                files_dir.mkdir(parents=True, exist_ok=True)
+                files = sorted(p.stem for p in files_dir.glob("*.json"))
+                await ws.send_text(json.dumps({"type": "settings_files", "files": files}))
+
+            elif cmd == "save_settings_file":
                 name = msg.get("name")
+                file_name = msg.get("file_name")
                 if name not in user_agents:
                     await ws.send_text(json.dumps({"type": "error", "msg": f"agent {name} not found"}))
                     continue
-                graph_path = DATA_DIR / user / "config" / "specific" / name / "graph.json"
-                if graph_path.exists():
-                    graph_path.unlink()
-                user_agents[name]["graph"] = None
-                save_agents(user)
-                await broadcast(user, {"type": "agents", "agents": get_agents_info(user)})
+                try:
+                    validate_name(file_name)
+                except HTTPException as e:
+                    await ws.send_text(json.dumps({"type": "error", "msg": e.detail}))
+                    continue
+                src = DATA_DIR / user / "config" / "specific" / name / "graph.json"
+                if not src.exists():
+                    await ws.send_text(json.dumps({"type": "error", "msg": "no settings to save"}))
+                    continue
+                files_dir = DATA_DIR / user / "config" / "settings_files"
+                files_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, files_dir / f"{file_name}.json")
+                files = sorted(p.stem for p in files_dir.glob("*.json"))
+                await ws.send_text(json.dumps({"type": "settings_files", "files": files}))
+
+            elif cmd == "load_settings_file":
+                name = msg.get("name")
+                file_name = msg.get("file_name")
+                if name not in user_agents:
+                    await ws.send_text(json.dumps({"type": "error", "msg": f"agent {name} not found"}))
+                    continue
+                try:
+                    validate_name(file_name)
+                except HTTPException as e:
+                    await ws.send_text(json.dumps({"type": "error", "msg": e.detail}))
+                    continue
+                src = DATA_DIR / user / "config" / "settings_files" / f"{file_name}.json"
+                if not src.exists():
+                    await ws.send_text(json.dumps({"type": "error", "msg": "settings file not found"}))
+                    continue
+                settings = json.loads(src.read_text())
+                specific = DATA_DIR / user / "config" / "specific" / name
+                specific.mkdir(parents=True, exist_ok=True)
+                (specific / "graph.json").write_text(json.dumps(settings))
+                await ws.send_text(json.dumps({"type": "graph_settings", "name": name, "settings": settings}))
 
             else:
                 await ws.send_text(json.dumps({"type": "error", "msg": f"unknown command: {cmd}"}))
@@ -763,5 +741,5 @@ async def vnc_ws_proxy(ws: WebSocket, port: str):
             task.cancel()
 
 
-FRONT_DIR = Path(__file__).parent.parent / "front"
+FRONT_DIR = Path.cwd() / "fab" / "INT3RF4CE" / "front"
 app.mount("/", StaticFiles(directory=FRONT_DIR, html=True), name="INT3RF4CE_front")

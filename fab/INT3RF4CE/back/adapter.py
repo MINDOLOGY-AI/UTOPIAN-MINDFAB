@@ -55,15 +55,11 @@ COMMANDS: list[dict[str, Any]] = [
     {"name": "READ", "description": "Read file in workspace with line numbers. Optional 1-indexed start/end.", "parameters": {"type": "object", "properties": {"file": {"type": "string"}, "start": {"type": "integer"}, "end": {"type": "integer"}}, "required": ["file"]}},
     {"name": "WRITE", "description": "Overwrite a file in workspace with content. No escaping needed.", "parameters": {"type": "object", "properties": {"file": {"type": "string"}, "content": {"type": "string"}}, "required": ["file", "content"]}},
     {"name": "EDIT", "description": "Replace text in a workspace file. 'which' is '0','1',... (0-indexed occurrence) or 'all'.", "parameters": {"type": "object", "properties": {"file": {"type": "string"}, "old": {"type": "string"}, "new": {"type": "string"}, "which": {"type": "string"}}, "required": ["file", "old", "new", "which"]}},
-    # graph (host-side, operates the F4B board this agent is attached to)
-    {"name": "GCREATE", "description": "Create a node on your attached F4B board. kind: 'obj'|'func'|'folder'. node_type: a type from the board's registry (e.g. theory, evidence, doc, support, training). parent: optional folder node id/title. state: 'todo'|'doing'|'done' (objs only). ref: optional repo path or agent name. near: optional node id/title to place next to. Position is auto-placed when x/y are absent.", "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "kind": {"type": "string"}, "node_type": {"type": "string"}, "parent": {"type": "string"}, "state": {"type": "string"}, "ref": {"type": "string"}, "near": {"type": "string"}}, "required": ["title", "kind", "node_type"]}},
-    {"name": "GREAD", "description": "Read a node on your attached board: its fields, content, and directly connected nodes. node: id or unique title.", "parameters": {"type": "object", "properties": {"node": {"type": "string"}}, "required": ["node"]}},
-    {"name": "GUPDATE", "description": "Update a node on your attached board. Any of title, node_type, state, content, settings. state may be null to clear.", "parameters": {"type": "object", "properties": {"node": {"type": "string"}, "title": {"type": "string"}, "node_type": {"type": "string"}, "state": {"type": ["string", "null"]}, "content": {"type": "string"}, "settings": {"type": "object"}}, "required": ["node"]}},
-    {"name": "GDESTROY", "description": "Delete a node (and its folder children) from your attached board.", "parameters": {"type": "object", "properties": {"node": {"type": "string"}}, "required": ["node"]}},
-    {"name": "GMOVE", "description": "Move a node: new grid x/y, and/or a new parent folder (or null to unparent).", "parameters": {"type": "object", "properties": {"node": {"type": "string"}, "x": {"type": "integer"}, "y": {"type": "integer"}, "parent": {"type": ["string", "null"]}}, "required": ["node"]}},
-    {"name": "GLINK", "description": "Draw an edge source -> target on your attached board (source/target: ids or unique titles).", "parameters": {"type": "object", "properties": {"source": {"type": "string"}, "target": {"type": "string"}}, "required": ["source", "target"]}},
-    {"name": "GUNLINK", "description": "Remove an edge by id (find edge ids via GREAD or GLIST).", "parameters": {"type": "object", "properties": {"edge": {"type": "string"}}, "required": ["edge"]}},
-    {"name": "GLIST", "description": "Compact summary of your attached board: all nodes (id, title, kind, node_type, state, parent) and edge count.", "parameters": {"type": "object", "properties": {}}},
+    # graph (host-side, thoughtgraph docs — access-enforced by the agent's context-management settings)
+    {"name": "CHECK_GRAPH_ACCESS", "description": "Return your thoughtgraph access: your board, and the nodes (id + title + type) you can read and write. Write access implies read access.", "parameters": {"type": "object", "properties": {}}},
+    {"name": "GREAD", "description": "Read a thoughtgraph node you have access to (id or unique title): its fields and full content.", "parameters": {"type": "object", "properties": {"node": {"type": "string"}}, "required": ["node"]}},
+    {"name": "GUPDATE", "description": "Update a node you have WRITE access to: title and/or state ('todo'|'doing'|'done' or null to clear). Use state to mark docs done when you finish them. For content edits use GEDIT.", "parameters": {"type": "object", "properties": {"node": {"type": "string"}, "title": {"type": "string"}, "state": {"type": ["string", "null"]}}, "required": ["node"]}},
+    {"name": "GEDIT", "description": "Replace text in a node you have WRITE access to. 'which' is '0','1',... (0-indexed occurrence) or 'all'. Same semantics as the EDIT file tool.", "parameters": {"type": "object", "properties": {"node": {"type": "string"}, "old": {"type": "string"}, "new": {"type": "string"}, "which": {"type": "string"}}, "required": ["node", "old", "new", "which"]}},
     # docker (host-side, controls this agent's own computer)
     {"name": "DOCKER_START", "description": "Start your docker computer (Linux desktop with terminal + chromium). Use when you genuinely need to run code, browse, or control a GUI. Starts the container and switches you to work mode with computer tools.", "parameters": {"type": "object", "properties": {}}},
     {"name": "DOCKER_STOP", "description": "Stop your docker computer when you no longer need it, to save resources. Returns you to chat mode.", "parameters": {"type": "object", "properties": {}}},
@@ -282,3 +278,10 @@ class KimiAdapter(Adapter):
             })
 
         return blocks
+
+
+class GLMAdapter(KimiAdapter):
+    """GLM-via-OpenRouter adapter: OpenAI-compatible wire format, unified reasoning param."""
+
+    def reasoning_params(self, model: str) -> dict:
+        return {"reasoning": {"enabled": True}}

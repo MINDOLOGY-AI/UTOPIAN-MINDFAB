@@ -4,7 +4,7 @@ import logging
 import traceback
 from pathlib import Path
 
-from fab.F4B.back import graph_actions
+from fab.TH0UGHTGR4PH.back import graph_actions
 from fab.INT3RF4CE.back.context import Context
 from fab.INT3RF4CE.back.model import Model
 from fab.INT3RF4CE.back.container import Container
@@ -34,8 +34,8 @@ class Agent:
     # commands that are mouse input (trigger auto LOOK if no LOOK)
     MOUSE_TOOLS = {"MOVE", "LCLICK", "RCLICK", "DCLICK",
                    "LDOWN", "LUP", "RDOWN", "RUP", "SCROLLUP", "SCROLLDOWN"}
-    # graph commands (host-side)
-    GRAPH_TOOLS = {"GCREATE", "GREAD", "GUPDATE", "GDESTROY", "GMOVE", "GLINK", "GUNLINK", "GLIST"}
+    # graph commands (host-side, access-enforced against the agent's graph.json)
+    GRAPH_TOOLS = {"CHECK_GRAPH_ACCESS", "GREAD", "GUPDATE", "GEDIT"}
     DOCKER_TOOLS = {"DOCKER_START", "DOCKER_STOP"}
     # in chat mode only docker control + graph tools are advertised — no computer use
     CHAT_MODE_TOOLS = DOCKER_TOOLS | GRAPH_TOOLS
@@ -79,6 +79,11 @@ class Agent:
             )
         finally:
             self._notify("api_call", "ended")
+
+        # hierarchy models report which provider actually answered
+        used = getattr(self.model, "active_model", None)
+        if used:
+            self._notify("model_used", used)
 
         self.context.add_assistant_message(blocks)
         self.context.save_kv(self._kv)
@@ -154,7 +159,7 @@ class Agent:
         # tool_result_content: str (action ack / text) OR list[dict] (image blocks)
 
         # graph commands are host-side and work without a container
-        if name.startswith("G"):
+        if name.startswith("G") or name == "CHECK_GRAPH_ACCESS":
             return self._graph_dispatch(name, args), True
 
         assert self.container
@@ -243,8 +248,8 @@ class Agent:
         self._notify("chat_mode", "on")
         return "[DOCKER_STOP] container stopped. you are back in chat mode.", True
 
-    def _graph_attach(self) -> dict | None:
-        """Read this agent's F4B board attachment: {board, node} or None."""
+    def _graph_settings(self) -> dict | None:
+        """Read this agent's thoughtgraph access: {board, prompt_docs, read, write} or None."""
         path = DATA_DIR / self.user / "config" / "specific" / self.name / "graph.json"
         if not path.exists():
             return None
@@ -254,48 +259,94 @@ class Agent:
             return None
 
     def _graph_dispatch(self, name: str, args: dict) -> str:
-        attach = self._graph_attach()
-        if not attach:
-            return f"[{name}] no F4B board attached — ask the user to create your agent node on a board first"
-        board = attach["board"]
+        settings = self._graph_settings()
+        if not settings:
+            return f"[{name}] no thoughtgraph access configured — the user sets it in your context panel on the board"
+        read_entries = settings.get("read", [])
+        write_entries = settings.get("write", [])
+        readable = read_entries + write_entries  # write access implies read access
+
+        def entry_of(ref: str, entries: list) -> dict | None:
+            # find the {board, id} entry matching an id or a unique title
+            for e in entries:
+                if e.get("id") == ref:
+                    return e
+            matches = []
+            for e in entries:
+                try:
+                    meta = graph_actions.storage.load_meta(self.user, e["board"])
+                except Exception:
+                    continue
+                node = meta["nodes"].get(e["id"])
+                if node and node["title"] == ref:
+                    matches.append(e)
+            if len(matches) == 1:
+                return matches[0]
+            if len(matches) > 1:
+                raise ValueError(f"ambiguous title {ref!r} — use the id")
+            return None
+
         try:
-            if name == "GCREATE":
-                node = graph_actions.create_node(
-                    self.user, board, args["title"], args["kind"], args["node_type"],
-                    parent=args.get("parent"), state=args.get("state"),
-                    ref=args.get("ref"), near=args.get("near"),
-                )
-                return f"[GCREATE] {node['kind']} '{node['title']}' (id {node['id']}) at ({node['x']}, {node['y']})"
+            if name == "CHECK_GRAPH_ACCESS":
+                def names(entries):
+                    out = []
+                    for e in entries:
+                        try:
+                            meta = graph_actions.storage.load_meta(self.user, e["board"])
+                            node = meta["nodes"].get(e["id"])
+                            if node:
+                                out.append({"board": e["board"], "id": e["id"],
+                                            "title": node["title"], "node_type": node["node_type"],
+                                            "state": node["state"]})
+                        except Exception:
+                            continue
+                    return out
+                return "[CHECK_GRAPH_ACCESS]\n" + json.dumps({
+                    "read": names(readable),
+                    "write": names(write_entries),
+                }, indent=2)
+
             if name == "GREAD":
-                return f"[GREAD]\n{json.dumps(graph_actions.read_node(self.user, board, args['node']), indent=2)}"
+                e = entry_of(args["node"], readable)
+                if not e:
+                    return "[GREAD ERROR] no read access to that node — CHECK_GRAPH_ACCESS shows your access"
+                return f"[GREAD]\n{json.dumps(graph_actions.read_node(self.user, e['board'], e['id']), indent=2)}"
+
             if name == "GUPDATE":
+                e = entry_of(args["node"], write_entries)
+                if not e:
+                    return "[GUPDATE ERROR] no write access to that node — CHECK_GRAPH_ACCESS shows your access"
                 node = graph_actions.update_node(
-                    self.user, board, args["node"],
-                    title=args.get("title"), node_type=args.get("node_type"),
+                    self.user, e["board"], e["id"],
+                    title=args.get("title"),
                     state=args["state"] if "state" in args else ...,
-                    content=args.get("content"), settings=args.get("settings"),
+                    content=args.get("content"),
                 )
-                return f"[GUPDATE] '{node['title']}' (id {node['id']}) updated"
-            if name == "GDESTROY":
-                res = graph_actions.destroy_node(self.user, board, args["node"])
-                return f"[GDESTROY] deleted {len(res['deleted'])} node(s)"
-            if name == "GMOVE":
-                node = graph_actions.move_node(
-                    self.user, board, args["node"],
-                    x=args.get("x"), y=args.get("y"),
-                    parent=args["parent"] if "parent" in args else ...,
-                )
-                return f"[GMOVE] '{node['title']}' (id {node['id']}) at ({node['x']}, {node['y']})"
-            if name == "GLINK":
-                edge = graph_actions.link(self.user, board, args["source"], args["target"])
-                return f"[GLINK] edge {edge['id']}: {edge['source']} -> {edge['target']}"
-            if name == "GUNLINK":
-                graph_actions.unlink(self.user, board, args["edge"])
-                return "[GUNLINK] ok"
-            if name == "GLIST":
-                return f"[GLIST]\n{json.dumps(graph_actions.list_board(self.user, board), indent=2)}"
-        except ValueError as e:
-            return f"[{name} ERROR] {e}"
+                return f"[GUPDATE] '{node['title']}' (id {e['id']}) updated"
+
+            if name == "GEDIT":
+                e = entry_of(args["node"], write_entries)
+                if not e:
+                    return "[GEDIT ERROR] no write access to that node — CHECK_GRAPH_ACCESS shows your access"
+                content = graph_actions.storage.read_content(self.user, e["board"], e["id"])
+                old, new, which = args["old"], args["new"], str(args.get("which", "0"))
+                count = content.count(old)
+                if count == 0:
+                    return "[GEDIT] text not found"
+                if which == "all":
+                    result = content.replace(old, new)
+                else:
+                    n = int(which)
+                    if n >= count:
+                        return f"[GEDIT ERROR] occurrence {n} requested but only {count} found (0-indexed)"
+                    idx = -1
+                    for _ in range(n + 1):
+                        idx = content.index(old, idx + 1)
+                    result = content[:idx] + new + content[idx + len(old):]
+                graph_actions.storage.write_content(self.user, e["board"], e["id"], result)
+                return "[GEDIT] done"
+        except ValueError as err:
+            return f"[{name} ERROR] {err}"
         return f"[{name} ERROR] unknown graph command"
 
     def _workspace_path(self, file: str) -> Path:

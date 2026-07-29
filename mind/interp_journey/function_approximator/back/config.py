@@ -1,7 +1,7 @@
 from pathlib import Path
 import torch
 
-PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
+PROJECT_ROOT = Path.cwd()
 DATA_DIR = PROJECT_ROOT / "data" / "interp_journey" / "function_approximator"
 
 DEFAULT_EPOCHS = 200

@@ -1,72 +1,24 @@
-TH0UGHTGR4PH
+# TH0UGHTGR4PH
 
-# to do:
+the fab view: one 2D board where Objs (typed rectangles), Funcs (typed circles), and folders live, connected by plain white edges. INT3RF4CE agents are obj nodes — an agent connected into a func node is the doer of that function. models operate the board through graph-action commands (GCREATE/GREAD/GUPDATE/GDESTROY/GMOVE/GLINK/GUNLINK/GLIST).
 
-api for AI to use  
-integrate into INT3RF4CE (along with chatting collab)  
-a "doc into version
+# layout
 
+- nodes have types (user-extendable, color-coded): obj types (axiom, definition, theory, evidence, hypothesis, algorithm, weights, dataset, benchmark, actuator, world_state, aesthetics, feature_doc, doc, prompt, agent) and func types (support, reject, inference, training, calculating, use).
+- edges are just white lines with arrowheads. no types, no colors.
+- objs have time states: todo / doing / done.
+- agents are created and configured on the board (settings popup per agent node: model, prompts, computer). double-click an agent node to teleport into /INT3RF4CE/?agent=name for chatting.
+- workflows = saved node groups (incl. agent settings) re-insertable into the same board.
+- autoplacement only applies to model-created nodes; user placement is always kept.
 
-# purpose  
-md file organizer
+# data
 
-my entire brain should be roughly written in here.
-notes for all my knowledge. and expanding them with thoughts.  
-from world model (math, physics, neuroscience, etc.) to aesthetics (utopia, thoughtcore, etc.) to life paths and to dos to current actuator status.  
+per-user JSON in `fab/data/F4B/{user}/`: types.json, templates.json, and one folder per board (meta.json + content/ + versions/).
 
-ultimately it is hard for symbolic software especially just a 2d grpah to approximate how the neural brain learns information but this should make it as easily as possible for me or ai to quickly learn information recorded in it.  
+# serving
 
-this is the knowledge base, the "ssd". this is also my thinking process, the "ram" and i should eventually connect my thinking to my knowledge base by literally drawing edges.  
+mounted in `fab/hub/back/app.py` at `/F4B/`. auth via hub session cookie.
 
-we can also honestly make this a social media / discussion board. just need a recommender algorithm. already have a classification board afterall.  
+# tests
 
-maybe it's just also a context manager for AIs. what it competes with the is /compact feature.  
-
-
-
-
-
-
-# features:  
-
-- board of draggable nodes: docs (.md rectangles) + folders (ovals). no auto layout, positions remembered.
-- everything is real files in `thoughts/thoughtgrvph/` (gitignored): folders = dirs, docs = .md files, disk mirrors board. one json for positions/edges: `thoughts/thoughtgrvph/<board>/meta.json`.
-- double-click doc = expand + resize. shows rendered markdown, click text = edit raw, click away = render again.
-- double-click folder (or sidebar toggle) = expand into a container box wrapping its contents. nesting tints alternate blue/yellow.
-- selected folder = pink. add doc/folder goes inside it. drag onto it = move in. drag out of a non-selected folder = move out one level.
-- edges: add edge button, click two nodes. three colors (gray relate, green support, red contradict) picked in sidebar. selecting a node highlights its edges.
-- sidebar: folder tree + edge color picker.
-- versions: toolbar panel, save/delete/restore full snapshots of `data/` into `data/versions/`.
-- hyperlinks: `[[doc title]]` in any doc. renders as a link, click = jump to that doc. auto-creates a gray edge. dangling links render red. doc titles globally unique, renames rewrite links everywhere.
-
-layout rules:
-
-- double-clicking a node keeps its top-left corner in exactly the same place.
-- expanding shifts everything below the node down by the height increase, and everything to the right of the node right by the width increase. diagonal nodes get both shifts.
-- nodes are processed top-left first, so earlier nodes stay put while later expansions make room around them.
-- descendants and ancestors of an expanding node are not moved; they belong to its subtree.
-
-serving: mount `TH0UGHTGR4PH.back.api:app` in `hub/back/app.py` and visit `/TH0UGHTGR4PH/`. it is no longer served standalone.
-
-board delete is permanent: the 🗑 button removes the board from the menu AND deletes `thoughts/thoughtgrvph/<board>/` (nodes, edges, versions, everything). a confirmation popup warns you first.
-
-tech stack:  
-frontend:  
-pure html css js (+ marked.js cdn for markdown)  
-backend:  
-fastapi python  
-
-
-# future to dos:  
-
-ideally ALL my thoughts should be here. so i need to make this include a to do app, a MCTS tracker  
-
-perhaps TH0UGHTGR4PH could be a DAG since like stuff can't have a cycle of dependency it is a circular logical fallacy. 
-
-this needs to be made into a viewable website, a monetizable product, a social media, a ai colloboration tool. it doesnt need to be complicated but it needs to be robust and online.    
-
-in web version since its online and paid, allow the users to like have a click to download so they dont lose their data. and also can upload it to load it again.  
-
-
-
-
+`venv/bin/python -m fab.F4B.tests.headless_test` — agent-POV graph actions + REST/auth isolation. boots a throwaway server on port 2999, cleans up after itself.

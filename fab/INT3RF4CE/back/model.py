@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
 
+import asyncio
+import httpx
 import torch
 
 from fab.INT3RF4CE.back.adapter import Adapter
@@ -9,6 +11,10 @@ from fab.INT3RF4CE.back.adapter import Adapter
 # each tensor shape: (batch, heads, seq_len, head_dim)
 # None for API models that don't expose kv cache
 KVCache = tuple[tuple[torch.Tensor, torch.Tensor], ...] | None
+
+# fallback order for the "hierarchy" model: on timeout / 429 / 5xx the next
+# provider in line answers instead. each provider uses its own adapter.
+HIERARCHY = ["kimi-k3", "z-ai/glm-5.2"]
 
 
 class Model(ABC):
@@ -64,3 +70,54 @@ def get_model_class(model_id: str) -> type[Model] | None:
 def list_available_models() -> dict[str, dict[str, str]]:
     """Return {provider_name: {display_name: model_id, ...}, ...}."""
     return {name: dict(provider.models) for name, provider in MODEL_PROVIDERS.items()}
+
+
+@register_provider
+class HierarchyModel(Model):
+    """Ordered fallback across providers: on timeout / 429 / 5xx the next model
+    in HIERARCHY answers instead. Each provider in the chain uses its own
+    adapter, so switching models also switches adapters."""
+
+    name = "hierarchy"
+    models = {"hierarchy": "hierarchy"}
+
+    @classmethod
+    def make(cls, model_id: str) -> "HierarchyModel":
+        chain = []
+        for mid in HIERARCHY:
+            provider = get_model_class(mid)
+            if provider is None:
+                raise ValueError(f"hierarchy: unknown model {mid}")
+            chain.append(provider.make(mid))
+        return cls(chain)
+
+    def __init__(self, chain: list[Model]):
+        self.chain = chain
+        # the model that answered most recently (or the primary before any call)
+        self.active_model = chain[0].model
+
+    async def _try_chain(self, fn):
+        last_err = None
+        for m in self.chain:
+            try:
+                result = await fn(m)
+                self.active_model = m.model
+                return result
+            except asyncio.TimeoutError as e:
+                last_err = e
+            except httpx.HTTPStatusError as e:
+                # only fall through on overload/ratelimit/server errors — real
+                # request bugs (4xx) should surface, not be retried downstream
+                if e.response.status_code != 429 and e.response.status_code < 500:
+                    raise
+                last_err = e
+        raise last_err
+
+    async def call(self, prompt: str, messages: list[dict], kv_cache: KVCache,
+                   use_tools: bool = True, allowed_tools: set | None = None) -> tuple[list[dict], KVCache]:
+        return await self._try_chain(
+            lambda m: m.call(prompt, messages, kv_cache, use_tools=use_tools, allowed_tools=allowed_tools)
+        )
+
+    async def summarize(self, messages: list[dict], kv_cache: KVCache) -> tuple[str, KVCache]:
+        return await self._try_chain(lambda m: m.summarize(messages, kv_cache))

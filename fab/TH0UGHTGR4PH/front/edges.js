@@ -124,16 +124,17 @@ function computeRoutes(store) {
           routes[e.id] = [{x: sp.x, y: sp.y}, {x: midX, y: sp.y}, {x: midX, y: dp.y}, {x: dp.x, y: dp.y}];
         }
       } else {
-        // 6-point path via a horizontal lane next to the target row
-        const turnX1 = outSide === "right" ? sp.x + FAB_MARGIN : sp.x - FAB_MARGIN;
-        const turnX2 = outSide === "right" ? dp.x - FAB_MARGIN : dp.x + FAB_MARGIN;
-        const laneY = sp.y < dp.y ? tr.y - FAB_MARGIN : tr.y + tr.h + FAB_MARGIN;
+        // Z route: horizontal out of the source, ONE vertical turn, then
+        // straight into the port. multiple edges into the same target stagger
+        // their vertical turn lanes so parallel routes don't merge.
+        const i = inList.indexOf(e.id);
+        const gap = outSide === "right"
+          ? Math.max(dp.x - FAB_MARGIN - i * 12, sp.x + FAB_MARGIN)
+          : Math.min(dp.x + FAB_MARGIN + i * 12, sp.x - FAB_MARGIN);
         routes[e.id] = [
           {x: sp.x, y: sp.y},
-          {x: turnX1, y: sp.y},
-          {x: turnX1, y: laneY},
-          {x: turnX2, y: laneY},
-          {x: turnX2, y: dp.y},
+          {x: gap, y: sp.y},
+          {x: gap, y: dp.y},
           {x: dp.x, y: dp.y},
         ];
       }
@@ -160,15 +161,21 @@ class FabEdge {
     this.board = board;
     this.store = board.store;
     this.edge = edge;
+    // invisible fat hit strip under the visible line — edges are hard to click
+    this.hit = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+    this.hit.classList.add("edge-hit");
     this.el = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
     this.el.classList.add("edge");
     this.el.dataset.id = edge.id;
     this.arrow = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
     this.arrow.classList.add("edge-arrow");
-    this.el.addEventListener("mousedown", (e) => {
+    const select = (e) => {
       e.stopPropagation();
       board.selectEdge(edge.id);
-    });
+    };
+    this.hit.addEventListener("mousedown", select);
+    this.el.addEventListener("mousedown", select);
+    board.svg.appendChild(this.hit);
     board.svg.appendChild(this.el);
     board.svg.appendChild(this.arrow);
   }
@@ -176,11 +183,14 @@ class FabEdge {
   update() {
     const pts = (this.board.routes || {})[this.edge.id];
     if (!pts || pts.length < 2) {
+      this.hit.setAttribute("points", "");
       this.el.setAttribute("points", "");
       this.arrow.setAttribute("points", "");
       return;
     }
-    this.el.setAttribute("points", pts.map(p => `${p.x},${p.y}`).join(" "));
+    const points = pts.map(p => `${p.x},${p.y}`).join(" ");
+    this.hit.setAttribute("points", points);
+    this.el.setAttribute("points", points);
     const [a, b] = [pts[pts.length - 2], pts[pts.length - 1]];
     const size = 5;
     if (Math.abs(b.x - a.x) < 0.001) {
@@ -196,7 +206,10 @@ class FabEdge {
   }
 
   remove() {
+    this.hit.remove();
     this.el.remove();
     this.arrow.remove();
   }
 }
+
+if (typeof module !== "undefined") module.exports = {computeRoutes};

@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+PROJECT_ROOT = Path.cwd()
 DATA_DIR = PROJECT_ROOT / "fab" / "data" / "INT3RF4CE"
 
 # per-user layout: DATA_DIR / {username} / {agents.json, config/, context/, workspace/}

@@ -6,28 +6,27 @@
   <base href="/TH0UGHTGR4PH/">
   <link rel="stylesheet" href="/components/TechnoParadisalTheme.css">
   <link rel="stylesheet" href="/components/TechnoParadisalComponents.css">
-  <link rel="stylesheet" href="/components/AuthBox/AuthBox.css">
+  <link rel="stylesheet" href="/components/AuthBox/AuthBox.css?v=1">
   <link rel="stylesheet" href="/components/MarkdownEditor/MarkdownEditor.css">
-  <link rel="stylesheet" href="/components/GraphNode/GraphNode.css">
-  <link rel="stylesheet" href="static/style.css">
+  <link rel="stylesheet" href="static/style.css?v=24">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
 </head>
 <body>
   <auth-box></auth-box>
   <div id="auth-overlay" style="display:none;">
-    <div class="auth-overlay-msg">please log in — top right</div>
+    <div class="auth-overlay-msg">please log in — bottom left</div>
   </div>
-  <graph-board board-id="main"></graph-board>
+  <fab-board board-id="main"></fab-board>
   <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
   <script src="/components/MarkdownEditor/markdown-it-katex.js"></script>
   <script src="/components/MarkdownEditor/MarkdownEditor.js"></script>
-  <script src="/components/GraphNode/GraphNode.js"></script>
   <script type="module" src="/components/AuthBox/AuthBox.js"></script>
-  <script src="static/components/graph-store.js"></script>
-  <script src="static/components/graph-router.js"></script>
-  <script src="static/components/graph-edge.js"></script>
-  <script src="static/components/graph-board.js"></script>
+  <script src="static/store.js?v=24"></script>
+  <script src="static/edges.js?v=24"></script>
+  <script src="static/nodes.js?v=24"></script>
+  <script src="static/ctxpanel.js?v=24"></script>
+  <script src="static/board.js?v=24"></script>
   <script type="module">
     // login gate: cover the board until authed; reload once logged in
     const overlay = document.getElementById('auth-overlay');
