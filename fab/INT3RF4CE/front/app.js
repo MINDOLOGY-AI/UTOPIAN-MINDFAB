@@ -1,3 +1,8 @@
+// === agent view: docker agents, noVNC screen, per-agent dm stream ===
+// one websocket for everything; agents/state come as broadcasts, commands go
+// out as {cmd: ...} json. the right panel merges the dm channel with the
+// agent's context extras (tools, reasoning, images) into one timeline.
+
 // WebSocket connection
 let ws = null;
 let agents = {};
@@ -12,8 +17,8 @@ const agentList = document.getElementById('agent-list');
 const newAgentName = document.getElementById('new-agent-name');
 const createBtn = document.getElementById('create-btn');
 const chatInput = document.getElementById('chat-input');
-const startBtn = document.getElementById('start-btn');
-const pauseBtn = document.getElementById('pause-btn');
+const dockerBtn = document.getElementById('docker-btn');
+const modelBtn = document.getElementById('model-btn');
 const chatModeBtn = document.getElementById('chat-mode-btn');
 const contextMessages = document.getElementById('context-messages');
 const vncPlaceholder = document.getElementById('vnc-placeholder');
@@ -26,6 +31,10 @@ const agentMenuDelete = document.getElementById('agent-menu-delete');
 
 // auth: when true, the server rejected us for not being logged in — stop reconnecting
 let authBlocked = false;
+
+// shared markdown renderer (hub component) — same stack as thoughtgraph nodes.
+// user + assistant chat text renders as markdown; tool results stay plain.
+const md = makeMarkdownRenderer();
 
 function showAuthOverlay(show) {
     document.getElementById('auth-overlay').style.display = show ? 'flex' : 'none';
@@ -101,7 +110,23 @@ function handleMessage(msg) {
 
         case 'context':
             if (msg.name === selectedAgent) {
-                renderContext(msg.messages);
+                lastContextMessages = msg.messages;
+                // the render happens when the DM log arrives
+                send({ cmd: 'get_messages', channel: `dm-${selectedAgent}`, limit: 200 });
+            }
+            break;
+
+        case 'messages':
+            if (msg.channel === `dm-${selectedAgent}`) {
+                dmMsgs = msg.messages || [];
+                renderContext(lastContextMessages);
+            }
+            break;
+
+        case 'chat_message':
+            if (msg.channel === `dm-${selectedAgent}`) {
+                dmMsgs.push(msg.message);
+                renderContext(lastContextMessages);
             }
             break;
 
@@ -181,6 +206,8 @@ function hideAgentMenu() {
 
 function selectAgent(name) {
     selectedAgent = name;
+    dmMsgs = [];
+    lastContextMessages = [];
     hideAgentMenu();
     renderAgentList();
     updateButtons();
@@ -237,10 +264,15 @@ function stopVncRetry() {
 function updateButtons() {
     const agent = selectedAgent ? agents[selectedAgent] : null;
     const hasSelection = !!agent;
-    const isWorking = agent?.working || false;
 
-    startBtn.disabled = !hasSelection || isWorking;
-    pauseBtn.disabled = !hasSelection || !isWorking;
+    dockerBtn.disabled = !hasSelection;
+    modelBtn.disabled = !hasSelection;
+    // both buttons mirror backend state (agents broadcast): docker = container,
+    // model = work loop. click toggles.
+    dockerBtn.textContent = agent?.container_on ? '■ docker' : '▶ docker';
+    dockerBtn.title = agent?.container_on ? 'stop the docker container' : 'start the docker container';
+    modelBtn.textContent = agent?.working ? '⏸ model' : '▶ model';
+    modelBtn.title = agent?.working ? 'stop the model (work loop)' : 'start the model (work loop)';
     chatInput.disabled = !hasSelection;
 
     updateStatusBar();
@@ -287,68 +319,107 @@ function addTextBlock(cssClass, label, text) {
     roleDiv.className = 'role';
     roleDiv.textContent = label;
     const contentDiv = document.createElement('div');
-    contentDiv.className = 'content';
-    contentDiv.textContent = text;
+    contentDiv.className = 'content md';
+    contentDiv.innerHTML = md.render(text);
     div.appendChild(roleDiv);
     div.appendChild(contentDiv);
     contextMessages.appendChild(div);
 }
 
+// agent view stream = the DM channel conversation (text + file chips) merged
+// with context extras (tools, reasoning, images, non-chat texts) by timestamp.
+// texts the channel already covers are skipped from context — no duplicates.
+let dmMsgs = [];
+let lastContextMessages = [];
+
+function renderDmMessage(m) {
+    if (m.type === 'file' && m.file) {
+        const div = document.createElement('div');
+        div.className = 'message environment';
+        const roleDiv = document.createElement('div');
+        roleDiv.className = 'role';
+        roleDiv.textContent = m.sender === '__user__' ? 'you' : m.sender;
+        const a = document.createElement('a');
+        a.className = 'chat-file';
+        a.href = `chat/${encodeURIComponent(`dm-${selectedAgent}`)}/files/${encodeURIComponent(m.file.path)}`;
+        a.textContent = `↓ ${m.file.name} (${fmtSize(m.file.size)})`;
+        a.download = m.file.name;
+        div.appendChild(roleDiv);
+        div.appendChild(a);
+        contextMessages.appendChild(div);
+        return;
+    }
+    if (m.sender === '__user__') addTextBlock('user', 'you', m.text || '');
+    else addTextBlock('assistant', m.sender, m.text || '');
+}
+
+function renderCtxBlock(role, b) {
+    if (role === 'user') {
+        if (b.type === 'text') {
+            addTextBlock('user', 'user', b.text || '');
+        } else if (b.type === 'image') {
+            const src = b.source || {};
+            const img = document.createElement('img');
+            img.src = `data:${src.media_type || 'image/png'};base64,${src.data || ''}`;
+            img.className = 'context-img';
+            addThinBlock('environment', 'IMG', img);
+        } else if (b.type === 'tool_result') {
+            const label = b.name || 'tool';
+            const content = b.content;
+            if (typeof content === 'string') {
+                addThinBlock('environment', label, content);
+            } else if (Array.isArray(content)) {
+                content.forEach(sub => {
+                    if (sub.type === 'image') {
+                        const src = sub.source || {};
+                        const img = document.createElement('img');
+                        img.src = `data:${src.media_type || 'image/png'};base64,${src.data || ''}`;
+                        img.className = 'context-img';
+                        addThinBlock('environment', label, img);
+                    } else if (sub.type === 'text') {
+                        addThinBlock('environment', label, sub.text || '');
+                    }
+                });
+            }
+        }
+    } else if (role === 'assistant') {
+        if (b.type === 'text') {
+            const text = b.text || '';
+            // reasoning content arrives as a text block prefixed [reasoning] — collapse it
+            if (text.startsWith('[reasoning]')) {
+                addThinBlock('reasoning', 'reasoning', text.slice('[reasoning]'.length).trim());
+            } else {
+                addTextBlock('assistant', 'assistant', text);
+            }
+        } else if (b.type === 'tool_use') {
+            const name = b.name || 'tool';
+            const args = JSON.stringify(b.arguments || {});
+            addThinBlock('command', name, `${name} ${args}`);
+        }
+    }
+}
+
 function renderContext(messages) {
     contextMessages.innerHTML = '';
-    messages.forEach(msg => {
-        const role = msg.role;
+    // merge the DM channel conversation with context extras by timestamp
+    const channelAgentTexts = dmMsgs.filter(m => m.sender !== '__user__' && m.text).map(m => m.text);
+    const items = [];
+    for (const m of dmMsgs) items.push({ ts: m.ts, kind: 'dm', m });
+    for (const msg of messages) {
         const blocks = Array.isArray(msg.content) ? msg.content : [];
-
-        if (role === 'user') {
-            blocks.forEach(b => {
-                if (b.type === 'text') {
-                    addTextBlock('user', 'user', b.text || '');
-                } else if (b.type === 'image') {
-                    const src = b.source || {};
-                    const img = document.createElement('img');
-                    img.src = `data:${src.media_type || 'image/png'};base64,${src.data || ''}`;
-                    img.className = 'context-img';
-                    addThinBlock('environment', 'IMG', img);
-                } else if (b.type === 'tool_result') {
-                    const label = b.name || 'tool';
-                    const content = b.content;
-                    if (typeof content === 'string') {
-                        addThinBlock('environment', label, content);
-                    } else if (Array.isArray(content)) {
-                        content.forEach(sub => {
-                            if (sub.type === 'image') {
-                                const src = sub.source || {};
-                                const img = document.createElement('img');
-                                img.src = `data:${src.media_type || 'image/png'};base64,${src.data || ''}`;
-                                img.className = 'context-img';
-                                addThinBlock('environment', label, img);
-                            } else if (sub.type === 'text') {
-                                addThinBlock('environment', label, sub.text || '');
-                            }
-                        });
-                    }
-                }
-            });
-        } else if (role === 'assistant') {
-            blocks.forEach(b => {
-                if (b.type === 'text') {
-                    const text = b.text || '';
-                    // reasoning content arrives as a text block prefixed [reasoning] — collapse it
-                    if (text.startsWith('[reasoning]')) {
-                        addThinBlock('reasoning', 'reasoning', text.slice('[reasoning]'.length).trim());
-                    } else {
-                        addTextBlock('assistant', 'assistant', text);
-                    }
-                } else if (b.type === 'tool_use') {
-                    const name = b.name || 'tool';
-                    const args = JSON.stringify(b.arguments || {});
-                    addThinBlock('command', name, `${name} ${args}`);
-                }
-            });
+        for (const b of blocks) {
+            // chat injections and mirrored replies are covered by the channel
+            if (msg.role === 'user' && b.type === 'text' && b.text.startsWith('[chat #')) continue;
+            if (msg.role === 'assistant' && b.type === 'text' && !b.text.startsWith('[reasoning]')
+                && channelAgentTexts.some(t => t.includes(b.text))) continue;
+            items.push({ ts: msg.ts || 0, kind: 'ctx', role: msg.role, b });
         }
-    });
-
+    }
+    items.sort((a, b) => a.ts - b.ts);
+    for (const it of items) {
+        if (it.kind === 'dm') renderDmMessage(it.m);
+        else renderCtxBlock(it.role, it.b);
+    }
     contextMessages.scrollTop = contextMessages.scrollHeight;
 }
 
@@ -369,15 +440,17 @@ createBtn.onclick = () => {
     newAgentName.value = '';
 };
 
-startBtn.onclick = () => {
+dockerBtn.onclick = () => {
     if (selectedAgent) {
-        send({ cmd: 'start', name: selectedAgent });
+        const on = agents[selectedAgent]?.container_on;
+        send({ cmd: on ? 'docker_stop' : 'docker_start', name: selectedAgent });
     }
 };
 
-pauseBtn.onclick = () => {
+modelBtn.onclick = () => {
     if (selectedAgent) {
-        send({ cmd: 'pause', name: selectedAgent });
+        const working = agents[selectedAgent]?.working;
+        send({ cmd: working ? 'pause' : 'start', name: selectedAgent });
     }
 };
 
@@ -422,14 +495,72 @@ modelSelect.onchange = () => {
     }
 };
 
-chatInput.onkeydown = (e) => {
+// ---- attachments: drag/paste files into chat -> chips -> one-turn injection ----
+let pendingFiles = [];
+const attachChips = document.getElementById('attach-chips');
+
+function fmtSize(n) {
+    return n < 1024 ? `${n}B` : n < 1048576 ? `${(n / 1024).toFixed(1)}KB` : `${(n / 1048576).toFixed(1)}MB`;
+}
+
+function renderChips() {
+    attachChips.innerHTML = '';
+    pendingFiles.forEach((f, i) => {
+        const chip = document.createElement('span');
+        chip.className = 'attach-chip';
+        chip.textContent = `${f.name} (${fmtSize(f.size)}) `;
+        const x = document.createElement('button');
+        x.textContent = '×';
+        x.onclick = () => { pendingFiles.splice(i, 1); renderChips(); };
+        chip.appendChild(x);
+        attachChips.appendChild(chip);
+    });
+}
+
+function addFiles(files) {
+    for (const f of files) pendingFiles.push(f);
+    renderChips();
+}
+
+const rightPanel = document.querySelector('.right-panel');
+rightPanel.addEventListener('dragover', (e) => { e.preventDefault(); rightPanel.classList.add('drag-over'); });
+rightPanel.addEventListener('dragleave', () => rightPanel.classList.remove('drag-over'));
+rightPanel.addEventListener('drop', (e) => {
+    e.preventDefault();
+    rightPanel.classList.remove('drag-over');
+    if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+});
+
+chatInput.addEventListener('paste', (e) => {
+    if (e.clipboardData.files.length) {
+        e.preventDefault();
+        addFiles(e.clipboardData.files);
+    }
+});
+
+async function uploadAttachment(file) {
+    // file message in the DM channel with the selected agent
+    const r = await fetch(`chat/dm-${encodeURIComponent(selectedAgent)}/files?name=${encodeURIComponent(file.name)}`, { method: 'POST', body: file });
+    if (!r.ok) throw new Error(`${file.name}: upload failed (${r.status})`);
+    return r.json();
+}
+
+chatInput.onkeydown = async (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         const text = chatInput.value.trim();
-        if (text && selectedAgent) {
-            send({ cmd: 'chat', name: selectedAgent, text: text });
-            chatInput.value = '';
+        if ((!text && !pendingFiles.length) || !selectedAgent) return;
+        try {
+            // each file becomes its own channel message; text goes via ws
+            await Promise.all(pendingFiles.map(uploadAttachment));
+        } catch (err) {
+            alert(err.message);
+            return;
         }
+        pendingFiles = [];
+        renderChips();
+        if (text) send({ cmd: 'chat', name: selectedAgent, text: text });
+        chatInput.value = '';
     }
 };
 

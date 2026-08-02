@@ -13,7 +13,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from mind.SYN4P5E.algorithms.basic.MLP import MLP
-from mind.SYN4P5E.train.train_helpers import NumpySupervisedDataset
+from mind.SYN4P5E.train.data_to_loaders import NumpySupervisedDataset
 from mind.interp_journey.function_approximator.back import config
 
 

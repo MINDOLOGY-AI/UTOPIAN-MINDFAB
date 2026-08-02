@@ -7,7 +7,8 @@
     <base href="/INT3RF4CE/">
     <link rel="stylesheet" href="/components/TechnoParadisalTheme.css">
     <link rel="stylesheet" href="/components/AuthBox/AuthBox.css?v=1">
-    <link rel="stylesheet" href="style.css?v=7">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <link rel="stylesheet" href="style.css?v=19">
 </head>
 <body>
     <div class="container">
@@ -17,6 +18,7 @@
                 <div class="agent-controls">
                     <input type="text" id="new-agent-name" placeholder="agent name">
                     <button id="create-btn">create</button>
+                    <a href="/INT3RF4CE/chat/" class="hub-link" title="chat view">chat</a>
                     <a href="/" class="hub-link" title="back to hub">hub</a>
                 </div>
             </div>
@@ -27,15 +29,16 @@
 
         <!-- Middle: 50% -->
         <div class="mid-panel">
-            <div class="mid-mid" id="vnc-area">
+            <div class="mid-mid">
                 <div id="vnc-placeholder">select an agent to view</div>
                 <iframe id="vnc-frame" style="display:none;"></iframe>
             </div>
             <div class="mid-bot">
-                <button id="start-btn" disabled>start</button>
-                <button id="pause-btn" disabled>pause</button>
+                <button id="docker-btn" disabled title="docker">▶ docker</button>
+                <button id="model-btn" disabled title="model">▶ model</button>
                 <button id="docker-save-btn" disabled>docker save</button>
                 <button id="settings-btn">settings</button>
+                <a id="secrets-btn" href="/INT3RF4CE/secrets/" title="secrets store">secrets</a>
                 <button id="chat-mode-btn">chat</button>
             </div>
         </div>
@@ -45,6 +48,7 @@
             <div id="context-messages"></div>
             <div id="status-bar" style="display:none;">generating...</div>
             <div class="right-bot">
+                <div id="attach-chips"></div>
                 <select id="model-select">
                     <option value="kimi-k3">kimi-k3</option>
                     <option value="kimi-k2.7-fast">kimi-k2.7-fast</option>
@@ -67,7 +71,11 @@
         <div class="auth-overlay-msg">please log in — top right</div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script src="/components/MarkdownEditor/markdown-it-katex.js"></script>
+    <script src="/components/MarkdownEditor/markdown-render.js"></script>
     <script type="module" src="/components/AuthBox/AuthBox.js"></script>
-    <script src="app.js?v=6"></script>
+    <script src="app.js?v=12"></script>
 </body>
 </html>

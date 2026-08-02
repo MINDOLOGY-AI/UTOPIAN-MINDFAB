@@ -64,6 +64,9 @@ from fab.hub.auth.routes import router as auth_router
 
 HOST = "0.0.0.0"
 PORT = 2121
+# hub front page mode: "display" = public subset (interface/chat/intvrpviz/thoughtgraph/research),
+# "admin" = everything. config-level only — no frontend toggle.
+HUB_MODE = "display"
 
 hub_front = project_root / "fab" / "hub" / "front"
 hub_components = project_root / "fab" / "hub" / "components"
@@ -90,6 +93,15 @@ async def limit_body_size(request: Request, call_next):
 # backend routes
 app.include_router(function_approximator_router, prefix="/api")
 app.include_router(auth_router)
+
+
+@app.get("/")
+def hub_index():
+    # index with the configured display/admin mode baked in
+    from fastapi.responses import HTMLResponse
+    html = (hub_front / "index.html").read_text()
+    return HTMLResponse(html.replace("<body>", f'<body data-mode="{HUB_MODE}">'))
+
 
 # specific frontend apps only — no .git, venv, or source code exposed
 # more specific mounts must come before the catch-all root mount

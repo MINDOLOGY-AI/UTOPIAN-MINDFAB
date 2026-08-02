@@ -74,3 +74,9 @@ html, body {
     font-size: 1.3rem;
   }
 }
+
+/* display/admin mode toggle — display (public) hides admin-only sections */
+body[data-mode="display"] .admin-only {
+  display: none;
+}
+

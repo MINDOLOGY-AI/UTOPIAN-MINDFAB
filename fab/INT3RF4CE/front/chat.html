@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>chat — INT3RF4CE</title>
+    <base href="/INT3RF4CE/">
+    <link rel="stylesheet" href="/components/TechnoParadisalTheme.css">
+    <link rel="stylesheet" href="/components/AuthBox/AuthBox.css?v=1">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <link rel="stylesheet" href="style.css?v=19">
+</head>
+<body>
+    <div class="chat-container">
+        <aside class="chat-left">
+            <div class="chat-left-top">
+                <button id="new-channel-btn">+ channel</button>
+                <a href="/INT3RF4CE/" class="hub-link" title="agent view">agents</a>
+            </div>
+            <ul id="channel-list"></ul>
+        </aside>
+        <div class="chat-main">
+            <div id="chat-header">select a channel</div>
+            <div id="chat-messages"></div>
+            <div class="chat-input-area">
+                <div id="attach-chips"></div>
+                <textarea id="chat-input" placeholder="message… (enter to send, shift+enter for newline, drop files here)"></textarea>
+            </div>
+        </div>
+    </div>
+
+    <auth-box></auth-box>
+    <div id="auth-overlay" style="display:none;">
+        <div class="auth-overlay-msg">please log in</div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script src="/components/MarkdownEditor/markdown-it-katex.js"></script>
+    <script src="/components/MarkdownEditor/markdown-render.js"></script>
+    <script type="module" src="/components/AuthBox/AuthBox.js"></script>
+    <script src="chat.js?v=3"></script>
+</body>
+</html>

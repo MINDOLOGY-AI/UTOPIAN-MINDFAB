@@ -28,8 +28,6 @@ class FreeDrawCanvas extends HTMLElement {
 
   render() {
     const size = this.getAttribute("width") || "600";
-    const cols = this.getAttribute("cols") || "60";
-    const rows = this.getAttribute("rows") || "60";
 
     const pencilIcon = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>`;
     const circleIcon = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/></svg>`;
@@ -419,6 +417,9 @@ class FreeDrawCanvas extends HTMLElement {
    * grid: rows x cols x 4 array with values in [0, 255].
    * The grid is stretched to fill the canvas.
    */
+  // note: this shadows the no-arg drawGrid() above (the background grid painter) —
+  // init()'s this.drawGrid() resolves here, so the axis grid is never painted. kept
+  // as-is to avoid a behavior change; rename one if the background grid is wanted back.
   drawGrid(grid) {
     const ctx = this.ctx;
     const size = this.canvas.width;

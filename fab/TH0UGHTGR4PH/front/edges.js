@@ -203,6 +203,10 @@ class FabEdge {
     const selected = this.store.selectedEdgeId === this.edge.id;
     this.el.classList.toggle("selected", selected);
     this.arrow.classList.toggle("selected", selected);
+    // typed edges carry their type color; selected edges let the CSS pink rule through
+    const color = this.store.edgeColor(this.edge);
+    this.el.style.stroke = selected ? "" : color;
+    this.arrow.style.fill = selected ? "" : color;
   }
 
   remove() {

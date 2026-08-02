@@ -3,14 +3,14 @@ Chat with the local OlMo2-1B-Instruct model.
 Conversation history is kept in RAM.
 
 Run from UTOPIAN-MINDFAB root:
-    python mind/EV0K3/OlMo2_1b/chat_local.py
+    python mind/EV0K3/OlMo2_1b/run/chat_local.py
 """
 
 import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path.cwd()
-THIS_DIR = PROJECT_ROOT / "mind" / "EV0K3" / "OlMo2_1b"
+THIS_DIR = PROJECT_ROOT / "mind" / "EV0K3" / "OlMo2_1b" / "run"
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(THIS_DIR))
 

@@ -1,5 +1,6 @@
 import torch
 import mind.SYN4P5E.train.train_helpers as train_helpers
+import mind.SYN4P5E.train.data_to_loaders as data_to_loaders
 import time
 
 
@@ -23,7 +24,7 @@ def simple_train(
     model.train()
     losses = {"train": []}
     for cur_epoch in range(epochs):
-        dataloader = train_helpers.dataset_to_dataloader(dataset,batch_size,cur_epoch)
+        dataloader = data_to_loaders.dataset_to_dataloader(dataset,batch_size,cur_epoch)
         for cur_batch, (x,y) in enumerate(dataloader):
             start_time = time.time()
             x = x.to('cuda')

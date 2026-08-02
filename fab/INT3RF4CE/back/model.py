@@ -14,7 +14,7 @@ KVCache = tuple[tuple[torch.Tensor, torch.Tensor], ...] | None
 
 # fallback order for the "hierarchy" model: on timeout / 429 / 5xx the next
 # provider in line answers instead. each provider uses its own adapter.
-HIERARCHY = ["kimi-k3", "z-ai/glm-5.2"]
+HIERARCHY = ["kimi-k3", "deepseek-v4-flash", "z-ai/glm-5.2"]
 
 
 class Model(ABC):
@@ -29,10 +29,13 @@ class Model(ABC):
     name: str = ""
     adapter: Adapter | None = None
     models: dict[str, str] = {}
+    # name of this provider's api key in the user's secrets store (None = no key needed)
+    secret_name: str | None = None
 
     @classmethod
-    def make(cls, model_id: str) -> "Model":
-        """Factory that creates an instance for a model id listed in cls.models."""
+    def make(cls, model_id: str, get_key=None) -> "Model":
+        """Factory that creates an instance for a model id listed in cls.models.
+        get_key: optional callable resolving a provider's secret_name to an API key."""
         raise NotImplementedError
 
     @abstractmethod
@@ -82,13 +85,13 @@ class HierarchyModel(Model):
     models = {"hierarchy": "hierarchy"}
 
     @classmethod
-    def make(cls, model_id: str) -> "HierarchyModel":
+    def make(cls, model_id: str, get_key=None) -> "HierarchyModel":
         chain = []
         for mid in HIERARCHY:
             provider = get_model_class(mid)
             if provider is None:
                 raise ValueError(f"hierarchy: unknown model {mid}")
-            chain.append(provider.make(mid))
+            chain.append(provider.make(mid, get_key=get_key))
         return cls(chain)
 
     def __init__(self, chain: list[Model]):

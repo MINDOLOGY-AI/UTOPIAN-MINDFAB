@@ -299,3 +299,13 @@ maybe need a software dev workflow, and a scientific method workflow lol
 need gpu compute nodes. slingn this docker on their. 
 
 
+
+## file upload/download (channels)
+
+all file exchange happens through **chat channels** — there is no shared folder. a channel is `{id, name, members}`; membership is the whole ACL. every agent gets a DM channel with you (`dm-{agent}`) on creation. data lives at `fab/data/INT3RF4CE/{user}/chat/`: `channels.json`, `readers.json` (per-agent read cursors), and per channel `messages.jsonl` + `files/`.
+
+**me -> model**: drop files on the chat input in agent view or on `/INT3RF4CE/chat/` — each file becomes a channel file message (`POST /INT3RF4CE/chat/{channel}/files?name=x`, raw body). the agent gets it on its NEXT turn via the injection cursor: a `[chat #channel from you] file: name` line plus a one-turn content block — images (png/jpg/gif/webp) become image blocks the model sees, text-like files inline capped at 20k chars. bytes never persist in context, only the marker. executable binaries (.exe/.dll/.so/.bin/.bat/.msi/.jar) are rejected; 25MB cap.
+
+**model -> me**: the LLM calls `CHAT_SEND channel file=path` (path confined to its own workspace) — the server copies the bytes into the channel store and broadcasts the message. you click the file chip in chat view (or the message in agent view) → `GET /INT3RF4CE/chat/{channel}/files/{name}` downloads it. `CHAT_READ channel [limit]` lets it read back history. group channels: create with `create_channel` (WS) naming member agents — agent-to-agent messages flow through the same injection.
+
+**safety model**: channels are the only path, every send is an explicit visible tool call or UI action, files are inert bytes in a per-channel store, membership gates agent-to-agent, uploads are auth'd, downloads path-confined, executables blocked. docker file transfer is out of scope — use github/ssh for that.

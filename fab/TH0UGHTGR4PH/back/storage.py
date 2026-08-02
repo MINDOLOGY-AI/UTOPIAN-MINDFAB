@@ -5,13 +5,13 @@ from pathlib import Path
 
 from fab.TH0UGHTGR4PH.back.config import (
     DATA_DIR,
-    DEFAULT_FUNC_TYPES,
-    DEFAULT_OBJ_TYPES,
+    DEFAULT_DOC_TYPES,
+    DEFAULT_EDGE_TYPES,
     DEFAULT_STATE_COLORS,
 )
 
-# per-user layout: fab/data/TH0UGHTGR4PH/{user}/{types.json, templates.json, {board}/}
-# each board is a self-contained directory: meta.json + content/ + versions/
+# per-user layout: fab/data/TH0UGHTGR4PH/{user}/{types.json, {board}/}
+# each board is a self-contained directory: meta.json + tree/ (content) + versions/
 
 
 def _user_dir(user: str) -> Path:
@@ -63,14 +63,14 @@ def new_id(existing) -> str:
 
 
 def init_user_storage(user: str):
-    """Ensure the user's data dir exists. Seed types/templates and a 'main' board on first use."""
+    """Ensure the user's data dir exists. Seed types and a 'main' board on first use."""
     d = _user_dir(user)
     first_time = not d.exists()
     d.mkdir(parents=True, exist_ok=True)
     if first_time:
         _write_json(_types_file(user), {
-            "obj_types": DEFAULT_OBJ_TYPES,
-            "func_types": DEFAULT_FUNC_TYPES,
+            "doc_types": DEFAULT_DOC_TYPES,
+            "edge_types": DEFAULT_EDGE_TYPES,
             "state_colors": DEFAULT_STATE_COLORS,
         })
         init_board(user, "main")
@@ -79,6 +79,7 @@ def init_user_storage(user: str):
 def init_board(user: str, board_id: str):
     d = _board_dir(user, board_id)
     d.mkdir(parents=True, exist_ok=True)
+    # vestigial empty dir — doc content actually lives in tree/ (see content_path)
     _content_dir(user, board_id).mkdir(exist_ok=True)
     if not _meta_file(user, board_id).exists():
         save_meta(user, board_id, {"nodes": {}, "edges": {}})
@@ -117,25 +118,93 @@ def save_meta(user: str, board_id: str, meta):
 
 
 # ---- content ----
+# docs live at {board}/tree/{ancestor folder titles}/{title}.md — the title IS
+# the path. folders are plain directories. titles must therefore be unique per
+# board and filesystem-safe (enforced in graph_actions on create/rename).
+
+MAX_TITLE_CHARS = 120
 
 
-def read_content(user: str, board_id: str, node_id: str) -> str:
-    p = _content_dir(user, board_id) / f"{node_id}.md"
+def validate_title(title: str) -> str:
+    """Normalize + validate a title for use as a file path component."""
+    t = title.strip()
+    if not t:
+        raise ValueError("title cannot be empty")
+    if len(t) > MAX_TITLE_CHARS:
+        raise ValueError(f"title too long (max {MAX_TITLE_CHARS} chars)")
+    if t.startswith("."):
+        raise ValueError("title cannot start with '.'")
+    if "/" in t or "\\" in t:
+        raise ValueError("title cannot contain '/' or '\\' (titles become file paths)")
+    if any(ord(c) < 32 for c in t):
+        raise ValueError("title cannot contain control characters")
+    return t
+
+
+def require_unique_title(meta, title: str, exclude_id: str | None = None):
+    for nid, n in meta["nodes"].items():
+        if nid != exclude_id and n["title"] == title:
+            raise ValueError(f"title already exists: {title!r} (titles must be unique — they become file paths)")
+
+
+def content_path(user: str, board_id: str, meta, node_id: str) -> Path:
+    # docs: tree/<folders...>/<title>.md — folders: tree/<folders...>/<title>/
+    node = meta["nodes"][node_id]
+    parts = [node["title"]]
+    cur = node
+    while cur["parent"]:
+        cur = meta["nodes"][cur["parent"]]
+        parts.append(cur["title"])
+    parts.reverse()
+    p = _board_dir(user, board_id) / "tree"
+    for part in parts:
+        p = p / part
+    return p if node["kind"] == "folder" else p.with_suffix(".md")
+
+
+def read_content(user: str, board_id: str, meta, node_id: str) -> str:
+    p = content_path(user, board_id, meta, node_id)
     if not p.exists():
         return ""
     return p.read_text()
 
 
-def write_content(user: str, board_id: str, node_id: str, content: str):
-    p = _content_dir(user, board_id) / f"{node_id}.md"
+def write_content(user: str, board_id: str, meta, node_id: str, content: str):
+    p = content_path(user, board_id, meta, node_id)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content)
 
 
-def delete_content(user: str, board_id: str, node_id: str):
-    p = _content_dir(user, board_id) / f"{node_id}.md"
-    if p.exists():
+def _rmdir_empty_ancestors(p: Path, stop: Path):
+    # remove empty dirs upward from a deleted file's parent, never past `stop`
+    cur = p.parent
+    while cur != stop and cur.is_dir():
+        try:
+            cur.rmdir()
+        except OSError:
+            break
+        cur = cur.parent
+
+
+def delete_content(user: str, board_id: str, meta, node_id: str):
+    p = content_path(user, board_id, meta, node_id)
+    if meta["nodes"][node_id]["kind"] == "folder":
+        if p.exists():
+            shutil.rmtree(p)
+    elif p.exists():
         p.unlink()
+    _rmdir_empty_ancestors(p, _board_dir(user, board_id) / "tree")
+
+
+def move_content(user: str, board_id: str, old_meta, meta, node_id: str):
+    # old_meta = the pre-mutation meta (same node, old title/parent chain)
+    old_p = content_path(user, board_id, old_meta, node_id)
+    new_p = content_path(user, board_id, meta, node_id)
+    if old_p == new_p or not old_p.exists():
+        return
+    new_p.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(old_p), str(new_p))
+    _rmdir_empty_ancestors(old_p, _board_dir(user, board_id) / "tree")
 
 
 # ---- types registry ----
@@ -149,8 +218,8 @@ def load_types(user: str):
     # deleted — an emptied registry breaks node creation board-wide.
     # custom (user-added) types are kept as-is.
     for section, defaults in (
-        ("obj_types", DEFAULT_OBJ_TYPES),
-        ("func_types", DEFAULT_FUNC_TYPES),
+        ("doc_types", DEFAULT_DOC_TYPES),
+        ("edge_types", DEFAULT_EDGE_TYPES),
         ("state_colors", DEFAULT_STATE_COLORS),
     ):
         disk = types.get(section) or {}

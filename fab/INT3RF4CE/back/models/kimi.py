@@ -20,14 +20,18 @@ class Kimi(Model):
     name = "kimi"
     adapter = KimiAdapter()
     base_url = KIMI_BASE_URL
+    # name of this provider's key in the user's secrets store (secrets.json)
+    secret_name = "moonshot"
     models = {
         "kimi-k3": "kimi-k3",
         "kimi-k2.7-fast": "kimi-k2.7-fast",
     }
 
     @classmethod
-    def make(cls, model_id: str) -> "Kimi":
-        return cls(model=model_id)
+    def make(cls, model_id: str, get_key=None) -> "Kimi":
+        # get_key: resolves a secret name from the user's secrets store (secrets.json);
+        # the env var remains the fallback when no secret is stored
+        return cls(model=model_id, api_key=get_key(cls.secret_name) if get_key else None)
 
     def __init__(self, model: str = KIMI_DEFAULT_MODEL, api_key: str | None = None):
         self.model = model

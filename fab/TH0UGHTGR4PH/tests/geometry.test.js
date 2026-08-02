@@ -35,8 +35,8 @@ function addFolder(store, id, x, y, expanded = true, parent = null) {
   return store.nodes[id];
 }
 
-function addObj(store, id, x, y, parent = null, expanded = false) {
-  store.nodes[id] = {id, kind: "obj", node_type: "doc", title: id, x, y, parent, expanded, width: 0, height: 0};
+function addDoc(store, id, x, y, parent = null, expanded = false) {
+  store.nodes[id] = {id, kind: "doc", node_type: "doc", title: id, x, y, parent, expanded, width: 0, height: 0};
   return store.nodes[id];
 }
 
@@ -44,7 +44,7 @@ function addObj(store, id, x, y, parent = null, expanded = false) {
 
 test("root node renders at its stored position", () => {
   const s = makeStore();
-  addObj(s, "a", 400, 600);
+  addDoc(s, "a", 400, 600);
   s.computeFolderContentOffsets();
   const p = s.renderPos(s.nodes.a);
   eq(p.x, 400, "x");
@@ -54,7 +54,7 @@ test("root node renders at its stored position", () => {
 test("top-left child renders grid-aligned at the folder's position", () => {
   const s = makeStore();
   addFolder(s, "f", 200, 200, true);
-  addObj(s, "c", 12, 44, "f");
+  addDoc(s, "c", 12, 44, "f");
   s.computeFolderContentOffsets();
   const p = s.renderPos(s.nodes.c);
   eq(p.x, 200, "x must not be pushed off-center by padding");
@@ -64,8 +64,8 @@ test("top-left child renders grid-aligned at the folder's position", () => {
 test("folder top-left stays pinned when a child moves (post-drop)", () => {
   const s = makeStore();
   addFolder(s, "f", 0, 0, true);
-  addObj(s, "c1", 12, 44, "f");
-  addObj(s, "c2", 12, 244, "f");
+  addDoc(s, "c1", 12, 44, "f");
+  addDoc(s, "c2", 12, 244, "f");
   s.computeFolderContentOffsets();
   const before = s.folderBounds(s.nodes.f);
   // user drags c2 down-right and drops it
@@ -81,7 +81,7 @@ test("folder top-left stays pinned when a child moves (post-drop)", () => {
 test("folder does not chase a child mid-drag", () => {
   const s = makeStore();
   addFolder(s, "f", 0, 0, true);
-  addObj(s, "c", 12, 44, "f");
+  addDoc(s, "c", 12, 44, "f");
   s.computeFolderContentOffsets();
   const offBefore = {...s.folderContentOffsets.f};
   // mid-drag: node coords mutated, dragging guard active
@@ -103,7 +103,7 @@ test("folder does not chase a child mid-drag", () => {
 test("dragging a folder moves its children visually, stored rels unchanged", () => {
   const s = makeStore();
   addFolder(s, "f", 100, 100, true);
-  addObj(s, "c", 12, 44, "f");
+  addDoc(s, "c", 12, 44, "f");
   s.computeFolderContentOffsets();
   const before = s.renderPos(s.nodes.c);
   // drag folder by (+300, +300) — only the folder's coords change
@@ -119,8 +119,8 @@ test("dragging a folder moves its children visually, stored rels unchanged", () 
 
 test("expanding a node pushes the sibling below it down", () => {
   const s = makeStore();
-  addObj(s, "a", 0, 0);
-  addObj(s, "b", 0, 200);
+  addDoc(s, "a", 0, 0);
+  addDoc(s, "b", 0, 200);
   s.nodes.a.expanded = true;
   s.nodes.a.width = FabStore.EXPANDED_W;
   s.nodes.a.height = FabStore.EXPANDED_H;
@@ -138,8 +138,8 @@ test("expanding a node pushes the sibling below it down", () => {
 test("expanding a node inside a folder grows the folder without moving it", () => {
   const s = makeStore();
   addFolder(s, "f", 0, 0, true);
-  addObj(s, "c1", 12, 44, "f");
-  addObj(s, "c2", 12, 244, "f");
+  addDoc(s, "c1", 12, 44, "f");
+  addDoc(s, "c2", 12, 244, "f");
   s.nodes.c1.expanded = true;
   s.nodes.c1.width = FabStore.EXPANDED_W;
   s.nodes.c1.height = FabStore.EXPANDED_H;
@@ -151,13 +151,98 @@ test("expanding a node inside a folder grows the folder without moving it", () =
   eq(b.y, -FabStore.FOLDER_PAD.top, "folder y");
   if (b.h < FabStore.EXPANDED_H + 200) throw new Error(`folder should engulf expanded child, h=${b.h}`);
   const p2 = s.renderPos(s.nodes.c2);
-  if (p2.y < 200 + FabStore.GRID) throw new Error(`sibling c2 should be pushed down, y=${p2.y}`);
+  // pushed a whole grid cell down (margins preserved), not edge-to-edge
+  eq(p2.y, 400, "sibling pushed a full grid cell to clear the collision");
+});
+
+test("expansion does not push nodes in other columns", () => {
+  const s = makeStore();
+  addDoc(s, "a", 0, 0);
+  addDoc(s, "below", 0, 200);
+  addDoc(s, "far", 600, 200);
+  s.nodes.a.expanded = true;
+  s.nodes.a.width = FabStore.EXPANDED_W;
+  s.nodes.a.height = FabStore.EXPANDED_H;
+  s.computeFolderContentOffsets();
+  s.resolveCollisions();
+  eq(s.renderPos(s.nodes.far).y, 200, "far-column node must not move");
+  if (s.renderPos(s.nodes.below).y <= 200) throw new Error("colliding node should move");
+});
+
+test("expansion pushes same-row siblings rightward, not down", () => {
+  const s = makeStore();
+  addDoc(s, "a", 0, 0);
+  addDoc(s, "b", 200, 0);
+  addDoc(s, "c", 400, 0);
+  s.nodes.a.expanded = true;
+  s.nodes.a.width = FabStore.EXPANDED_W;
+  s.nodes.a.height = FabStore.EXPANDED_H;
+  s.computeFolderContentOffsets();
+  s.resolveCollisions();
+  const rb = s.renderPos(s.nodes.b);
+  const rc = s.renderPos(s.nodes.c);
+  eq(rb.y, 0, "same-row node must not be pushed down");
+  eq(rc.y, 0, "same-row node must not be pushed down");
+  if (rb.x <= 200) throw new Error("b should be pushed right");
+  if (rc.x <= rb.x) throw new Error("c should cascade right of b");
+});
+
+test("row-mates of a wide expanded node stay in their row", () => {
+  const s = makeStore();
+  addDoc(s, "a", 0, 0);
+  addDoc(s, "b", 200, 0);
+  addDoc(s, "c", 400, 0);
+  addDoc(s, "d", 600, 0);
+  for (const id of ["a", "b"]) {
+    s.nodes[id].expanded = true;
+    s.nodes[id].width = FabStore.EXPANDED_W;
+    s.nodes[id].height = FabStore.EXPANDED_H;
+  }
+  s.computeFolderContentOffsets();
+  s.resolveCollisions();
+  eq(s.renderPos(s.nodes.c).y, 0, "c must stay in its row");
+  eq(s.renderPos(s.nodes.d).y, 0, "d must stay in its row");
+  if (s.renderPos(s.nodes.c).x <= 400) throw new Error("c should slide right");
+});
+
+test("expanding a folder never moves the folder, only downstream siblings move", () => {
+  const s = makeStore();
+  addFolder(s, "f", 0, 0, true);
+  const child = addDoc(s, "child", 0, 0, "f");
+  child.expanded = true;
+  child.width = FabStore.EXPANDED_W;
+  child.height = FabStore.EXPANDED_H;
+  addDoc(s, "left", -200, 0);
+  addDoc(s, "above", 0, -200);
+  addDoc(s, "below", 0, 200);
+  s.computeFolderContentOffsets();
+  s.resolveCollisions();
+  const pf = s.renderPos(s.nodes.f);
+  eq(pf.x, 0, "folder must not move (x)");
+  eq(pf.y, 0, "folder must not move (y)");
+  eq(s.renderPos(s.nodes.left).x, -200, "left sibling must not move");
+  eq(s.renderPos(s.nodes.above).y, -200, "above sibling must not move");
+  if (s.renderPos(s.nodes.below).y <= 200) throw new Error("downstream sibling should be pushed");
+});
+
+test("pushes cascade through chains of collisions", () => {
+  const s = makeStore();
+  addDoc(s, "a", 0, 0);
+  addDoc(s, "b", 0, 200);
+  addDoc(s, "c", 0, 400);
+  s.nodes.a.expanded = true;
+  s.nodes.a.width = FabStore.EXPANDED_W;
+  s.nodes.a.height = FabStore.EXPANDED_H;
+  s.computeFolderContentOffsets();
+  s.resolveCollisions();
+  // c never touches a directly (a bottom 380, c top 420) but b's push hits c
+  if (s.renderPos(s.nodes.c).y <= 400) throw new Error("cascade should push c");
 });
 
 test("collapsing a folder hides its descendants", () => {
   const s = makeStore();
   addFolder(s, "f", 0, 0, false);
-  addObj(s, "c", 12, 44, "f");
+  addDoc(s, "c", 12, 44, "f");
   eq(s.isVisible(s.nodes.c), false, "child visible inside collapsed folder");
   s.nodes.f.expanded = true;
   eq(s.isVisible(s.nodes.c), true, "child invisible inside expanded folder");
@@ -167,7 +252,7 @@ test("nested collapsed ancestor hides descendants", () => {
   const s = makeStore();
   addFolder(s, "outer", 0, 0, false);
   addFolder(s, "inner", 12, 44, true, "outer");
-  addObj(s, "c", 12, 44, "inner");
+  addDoc(s, "c", 12, 44, "inner");
   eq(s.isVisible(s.nodes.c), false, "descendant visible through collapsed ancestor");
   s.nodes.outer.expanded = true;
   eq(s.isVisible(s.nodes.c), true, "descendant still invisible after expanding");
@@ -175,8 +260,8 @@ test("nested collapsed ancestor hides descendants", () => {
 
 test("resolveOverlap slides a new node past existing siblings", () => {
   const s = makeStore();
-  addObj(s, "a", 0, 0);
-  const candidate = {kind: "obj", node_type: "doc", parent: null, x: 0, y: 0, expanded: false, width: 0, height: 0};
+  addDoc(s, "a", 0, 0);
+  const candidate = {kind: "doc", node_type: "doc", parent: null, x: 0, y: 0, expanded: false, width: 0, height: 0};
   s.resolveOverlap([candidate]);
   if (candidate.y < FabStore.GRID) throw new Error(`candidate still overlapping: y=${candidate.y}`);
 });
@@ -184,7 +269,7 @@ test("resolveOverlap slides a new node past existing siblings", () => {
 test("freeChildPosition never hands out an occupied cell", () => {
   const s = makeStore();
   addFolder(s, "f", 0, 0, true);
-  addObj(s, "c1", 12, 44, "f");
+  addDoc(s, "c1", 12, 44, "f");
   const p = s.freeChildPosition(s.nodes.f);
   if (p.x === 12 && p.y === 44) throw new Error("occupied cell handed out");
 });
@@ -204,7 +289,7 @@ test("nested child renders through both folder offsets", () => {
   const s = makeStore();
   addFolder(s, "outer", 100, 100, true);
   addFolder(s, "inner", 12, 44, true, "outer");
-  addObj(s, "c", 12, 44, "inner");
+  addDoc(s, "c", 12, 44, "inner");
   s.computeFolderContentOffsets();
   const pi = s.renderPos(s.nodes.inner);
   eq(pi.x, 100, "inner x");
@@ -216,8 +301,8 @@ test("nested child renders through both folder offsets", () => {
 
 test("wouldOverlap detects stacking and leaves state untouched", () => {
   const s = makeStore();
-  addObj(s, "a", 0, 0);
-  addObj(s, "b", 400, 400);
+  addDoc(s, "a", 0, 0);
+  addDoc(s, "b", 400, 400);
   s.computeFolderContentOffsets();
   eq(s.wouldOverlap("b", 0, 0, null), true, "moving b onto a's cell must overlap");
   eq(s.wouldOverlap("b", 200, 0, null), false, "free cell must not overlap");
@@ -229,8 +314,8 @@ test("wouldOverlap detects stacking and leaves state untouched", () => {
 test("wouldOverlap is sibling-scoped, not world-scoped", () => {
   const s = makeStore();
   addFolder(s, "f", 0, 0, true);
-  addObj(s, "inside", 12, 44, "f");
-  addObj(s, "outside", 0, 0, null);
+  addDoc(s, "inside", 12, 44, "f");
+  addDoc(s, "outside", 0, 0, null);
   s.computeFolderContentOffsets();
   eq(s.wouldOverlap("outside", 400, 400, null), false, "free root cell must not overlap");
   // moving 'inside' to root at a free spot: siblings are now root nodes only
@@ -240,8 +325,8 @@ test("wouldOverlap is sibling-scoped, not world-scoped", () => {
 test("expanded folder bounds count for overlap", () => {
   const s = makeStore();
   addFolder(s, "f", 0, 0, true);
-  addObj(s, "c", 12, 44, "f");
-  addObj(s, "b", 600, 600);
+  addDoc(s, "c", 12, 44, "f");
+  addDoc(s, "b", 600, 600);
   s.computeFolderContentOffsets();
   eq(s.wouldOverlap("b", 0, 0, null), true, "dropping onto the folder's bounds must overlap");
   eq(s.wouldOverlap("b", 400, 0, null), false, "next to the folder must not overlap");

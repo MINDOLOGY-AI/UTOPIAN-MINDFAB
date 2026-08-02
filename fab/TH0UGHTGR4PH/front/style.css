@@ -42,7 +42,7 @@ fab-board {
 
 #toolbar .sep { width: 1px; height: 20px; background: var(--dark-gray, #212121); margin: 0 4px; }
 
-#toolbar button, .popup button, .board-controls button, .type-add button, .workflow-row button {
+#toolbar button, .popup button, .board-controls button, .type-add button {
   background: var(--dark-gray, #212121);
   color: var(--white, #fff);
   border: 1px solid var(--mid-gray, #4c4c4c);
@@ -131,7 +131,7 @@ fab-board {
   flex-shrink: 0;
 }
 
-.type-row, .workflow-row {
+.type-row {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -218,10 +218,10 @@ fab-board {
   stroke: #ffffff;
   stroke-width: 1.2;
   fill: none;
-  opacity: 0.35;
+  opacity: 0.6;
 }
 .edge.selected { opacity: 1; stroke: var(--neon-pink, #FF80BF); stroke-width: 2; }
-.edge-arrow { fill: #ffffff; opacity: 0.35; }
+.edge-arrow { fill: #ffffff; opacity: 0.6; }
 .edge-arrow.selected { fill: var(--neon-pink, #FF80BF); opacity: 1; }
 
 /* ---- nodes ---- */
@@ -332,23 +332,6 @@ fab-board {
   line-height: 1.55;
 }
 
-/* func node: circle. funcs have no names — the type is the label */
-.fab-node.kind-func {
-  border-radius: 50%;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  text-align: center;
-}
-.fab-node.kind-func .func-type {
-  color: var(--nc, #fff);
-  font-size: 12px;
-  font-weight: 600;
-  max-width: 90%;
-  overflow: hidden;
-  pointer-events: none;
-}
-
 /* folder */
 .fab-node.kind-folder {
   background: rgba(197, 197, 197, 0.04);
@@ -456,21 +439,7 @@ fab-board {
 .version-row.selected { border-left-color: var(--neon-pink, #FF80BF); background: var(--dark-gray, #212121); }
 .search-row.active { background: var(--dark-gray, #212121); border-left-color: var(--neon-pink, #FF80BF); }
 
-#workflow-info { color: var(--light-gray, #5C5C5C); font-size: 10px; margin-bottom: 8px; }
-
-/* settings popup (legacy popups) */
-#settings-popup { min-width: 360px; }
-.settings-row { margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
-.settings-row select { width: auto; margin-bottom: 0; }
-.settings-subtitle { color: var(--light-gray, #5C5C5C); font-size: 10px; margin: 10px 0 6px; }
-.settings-prompts { max-height: 200px; overflow-y: auto; }
-.prompt-row { padding: 3px 6px; cursor: pointer; color: var(--light-gray, #5C5C5C); }
-.prompt-row:hover { background: var(--dark-gray, #212121); }
-.prompt-row.active { color: var(--green, #00FF41); }
-.settings-open { margin-top: 10px; width: 100%; }
-.dim { color: var(--light-gray, #5C5C5C); }
-
-/* auth overlay *//* auth overlay */
+/* auth overlay */
 #auth-overlay {
   position: fixed;
   inset: 0;
@@ -485,27 +454,6 @@ fab-board {
   font-family: var(--mono, monospace);
   font-size: 14px;
 }
-
-/* edge delete button — floats at the selected edge's midpoint */
-#edge-del {
-  position: absolute;
-  width: 20px;
-  height: 20px;
-  background: var(--dark-gray, #212121);
-  color: var(--red, #FF0055);
-  border: 1px solid var(--mid-gray, #4c4c4c);
-  border-radius: 50%;
-  font-size: 12px;
-  line-height: 1;
-  cursor: pointer;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-}
-#edge-del.hidden { display: none; }
-#edge-del:hover { border-color: var(--red, #FF0055); }
 
 /* ---- ctx panel: context management right sidebar ---- */
 
@@ -581,6 +529,14 @@ fab-board {
   padding: 0 2px;
 }
 .ctx-chip button:hover { color: var(--red, #FF0055); }
+
+/* secret chips in the ctx panel: draggable, mint when granted */
+.ctx-secret-chip {
+  cursor: grab;
+  font-family: var(--mono, monospace);
+}
+.ctx-secret-chip:active { cursor: grabbing; }
+#ctx-secrets .ctx-secret-chip { color: var(--mint, #7FFFD4); border-color: var(--mint, #7FFFD4); }
 
 .ctx-board-tag {
   color: var(--sky, #6BC4FF);

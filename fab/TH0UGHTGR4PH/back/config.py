@@ -3,8 +3,8 @@ from pathlib import Path
 PROJECT_ROOT = Path.cwd()
 DATA_DIR = PROJECT_ROOT / "fab" / "data" / "TH0UGHTGR4PH"
 
-# per-user layout: DATA_DIR / {username} / {types.json, templates.json, {board}/}
-# per-board layout: {board}/{meta.json, content/{node_id}.md, versions/}
+# per-user layout: DATA_DIR / {username} / {types.json, {board}/}
+# per-board layout: {board}/{meta.json, tree/<folder titles>/<title>.md, versions/}
 
 GRID_SIZE = 200
 
@@ -14,7 +14,7 @@ _PURPLE = "#B8A0FF"
 _BLUE = "#6BC4FF"
 _ORANGE = "#FF8C00"
 
-DEFAULT_OBJ_TYPES = {
+DEFAULT_DOC_TYPES = {
     "axiom": {"color": _PURPLE},
     "definition": {"color": _PURPLE},
     "theory": {"color": _PURPLE},
@@ -33,7 +33,7 @@ DEFAULT_OBJ_TYPES = {
     "prompt": {"color": "#FF0055"},
 }
 
-DEFAULT_FUNC_TYPES = {
+DEFAULT_EDGE_TYPES = {
     "support": {"color": "#00FF41"},
     "reject": {"color": "#FF0055"},
     "inference": {"color": "#6BC4FF"},

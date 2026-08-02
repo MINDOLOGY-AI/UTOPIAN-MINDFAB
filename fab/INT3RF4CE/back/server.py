@@ -4,24 +4,39 @@ session user; agents, data folders, and broadcasts are all scoped per-user.
 
 Commands (client -> server):
     {"cmd": "list"}
-    {"cmd": "create", "name": "agent_1"}
-    {"cmd": "start", "name": "agent_1"}
-    {"cmd": "pause", "name": "agent_1"}
-    {"cmd": "kill", "name": "agent_1"}
-    {"cmd": "delete", "name": "agent_1"}
+    {"cmd": "create", "name": "agent_1", "model": "kimi-k3"}
+    {"cmd": "start", "name": "agent_1"}        work loop on (chat_mode off); also un-stops a STOPped agent
+    {"cmd": "pause", "name": "agent_1"}        halt work loop / chat turn; container keeps running
+    {"cmd": "kill", "name": "agent_1"}         halt + destroy container (alias: "docker_stop")
+    {"cmd": "docker_start", "name": "agent_1"} container only, no work loop
+    {"cmd": "delete", "name": "agent_1"}       destroy container + workspace + context
     {"cmd": "rename", "name": "agent_1", "new_name": "agent_2"}
     {"cmd": "chat", "name": "agent_1", "text": "do this task"}
     {"cmd": "chat_mode", "name": "agent_1", "enabled": true}
     {"cmd": "get_context", "name": "agent_1"}
-    {"cmd": "list_models"}
-    {"cmd": "set_model", "name": "agent_1", "model": "kimi-k3"}
+    {"cmd": "list_models"} / {"cmd": "set_model", "name", "model"}
+    channels:
+    {"cmd": "list_channels"} / {"cmd": "create_channel", "name", "agents": [...]}
+    {"cmd": "set_members", "channel", "agents": [...]} / {"cmd": "rename_channel", "channel", "name"}
+    {"cmd": "delete_channel", "channel"}
+    {"cmd": "get_messages", "channel", "limit"} / {"cmd": "chat_send", "channel", "text"}
+    thoughtgraph access (per agent):
+    {"cmd": "get_graph_settings", "name"} / {"cmd": "set_graph_settings", "name", "settings": {...}}
+    {"cmd": "list_settings_files"} / {"cmd": "save_settings_file", "name", "file_name"}
+    {"cmd": "load_settings_file", "name", "file_name"}
+    secrets:
+    {"cmd": "list_secrets"} / {"cmd": "set_secret", "key", "value", "cat"} / {"cmd": "delete_secret", "key"}
+    {"cmd": "get_secret_grants", "name"} / {"cmd": "set_secret_grants", "name", "grants": [...]}
 
 Responses (server -> client):
     {"type": "agents", "agents": {...}}
     {"type": "context", "name": "agent_1", "messages": [...]}
     {"type": "models", "models": {...}}
     {"type": "status", "name": "agent_1", "phase": "api_call", "state": "started"}
-    {"type": "error", "msg": "..."}
+    {"type": "channels", ...} / {"type": "messages", ...} / {"type": "chat_message", ...}
+    {"type": "graph_settings", ...} / {"type": "settings_files", ...}
+    {"type": "secrets", ...} / {"type": "secret_grants", ...}
+    {"type": "auth_required"} / {"type": "error", "msg": "..."}
 
 """
 
@@ -39,14 +54,17 @@ import websockets
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 
 logger = logging.getLogger(__name__)
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from fab.TH0UGHTGR4PH.back import storage as tg_storage
+from fab.INT3RF4CE.back import chat as chatmod
+from fab.INT3RF4CE.back import secrets as secretsmod
 from fab.INT3RF4CE.back.agent import Agent
-from fab.INT3RF4CE.back.model import Model, list_available_models, get_model_class
+from fab.INT3RF4CE.back.model import Model, MODEL_PROVIDERS, list_available_models, get_model_class
 from fab.INT3RF4CE.back.models.kimi import Kimi  # registers the kimi provider
 from fab.INT3RF4CE.back.models.glm import GLM  # registers the glm provider
+from fab.INT3RF4CE.back.models.deepseek import DeepSeek  # registers the deepseek provider
 from fab.INT3RF4CE.back.model import HierarchyModel  # registers the hierarchy provider
 from fab.INT3RF4CE.back.config import DATA_DIR
 from fab.hub.auth.store import COOKIE_NAME, user_for_token
@@ -67,6 +85,101 @@ def validate_name(name: str):
 # users: {username: {agent_name: {"agent": Agent, "novnc_port": int, "model": str,
 #           "container_on": bool, "working": bool, "pending_chat": [str, ...]}}}
 users: dict[str, dict[str, dict]] = {}
+
+# ---- channel chat files (per-channel store; replaces the shared-folder design) ----
+
+MAX_FILE_BYTES = 25 * 1024 * 1024
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+TEXT_EXTS = {".txt", ".md", ".csv", ".json", ".py", ".js", ".html", ".css",
+             ".log", ".yaml", ".yml", ".toml", ".xml", ".svg", ".sh", ".c", ".cpp", ".h"}
+MAX_ATTACH_CHARS = 20_000
+
+
+def _block_for_file(p: Path) -> dict | None:
+    """One-turn content block for a file: image block for images, inline text
+    for text-like files, None for anything else."""
+    from fab.INT3RF4CE.back.context import Context
+    ext = p.suffix.lower()
+    if ext in IMAGE_EXTS:
+        return Context.image_block(p.read_bytes())
+    if ext in TEXT_EXTS:
+        text = p.read_text(errors="replace")[:MAX_ATTACH_CHARS]
+        return {"type": "text", "text": f"[attached file: {p.name}]\n{text}"}
+    return None
+
+
+def inject_pending(user: str, name: str, info: dict):
+    """Deliver the agent's unread channel messages into its next turn:
+    a user text block summarizing them + one-turn attachment blocks for files."""
+    agent = info["agent"]
+    pend = chatmod.pending_messages(user, name)
+    if not pend:
+        return
+    lines, blocks = [], []
+    for cid, msgs in pend.items():
+        ch = chatmod.channel_of(user, cid)
+        latest = 0.0
+        for m in msgs:
+            latest = max(latest, m["ts"])
+            who = "you" if m["sender"] == chatmod.USER_SENDER else m["sender"]
+            if m["type"] == "file":
+                lines.append(f"[chat #{ch['name']} from {who}] file: {m['file']['name']} ({m['file']['size']} bytes)")
+                p = chatmod.channel_file(user, cid, m["file"]["path"])
+                if p.is_file():
+                    b = _block_for_file(p)
+                    if b:
+                        blocks.append(b)
+                    else:
+                        lines[-1] += " (not inlined)"
+            else:
+                lines.append(f"[chat #{ch['name']} from {who}] {m.get('text', '')}")
+        chatmod.mark_read(user, name, cid, latest)
+    agent.context.add_user_text("\n".join(lines))
+    if blocks:
+        agent.context.pending_attachments = blocks
+
+
+@app.post("/chat/{channel_id}/files")
+async def upload_chat_file(channel_id: str, request: Request):
+    user = user_for_token(request.cookies.get(COOKIE_NAME))
+    if not user:
+        raise HTTPException(status_code=401, detail="login required")
+    if not chatmod.is_member(user, channel_id, chatmod.USER_SENDER):
+        raise HTTPException(status_code=404, detail="channel not found")
+    data = await request.body()
+    if not data:
+        raise HTTPException(status_code=400, detail="empty file")
+    try:
+        ref = chatmod.store_file(user, channel_id, request.query_params.get("name", "file"), data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    msg = chatmod.append_message(user, channel_id, chatmod.USER_SENDER, "file", file=ref)
+    await broadcast(user, {"type": "chat_message", "channel": channel_id, "message": msg})
+    return msg
+
+
+@app.get("/chat/{channel_id}/files/{filename}")
+def download_chat_file(channel_id: str, filename: str, request: Request):
+    user = user_for_token(request.cookies.get(COOKIE_NAME))
+    if not user:
+        raise HTTPException(status_code=401, detail="login required")
+    try:
+        p = chatmod.channel_file(user, channel_id, filename)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="bad path")
+    if not p.is_file():
+        raise HTTPException(status_code=404, detail="file not found")
+    return FileResponse(p, filename=p.name)
+
+
+@app.get("/chat/")
+def chat_page():
+    return FileResponse(FRONT_DIR / "chat.html")
+
+
+@app.get("/secrets/")
+def secrets_page():
+    return FileResponse(FRONT_DIR / "secrets.html")
 
 # connected websocket clients: ws -> username
 clients: dict[WebSocket, str] = {}
@@ -110,11 +223,12 @@ def is_container_running(docker_name: str) -> bool:
     return bool(result.stdout.strip())
 
 
-def _make_model(model_name: str) -> Model:
+def _make_model(user: str, model_name: str) -> Model:
     provider = get_model_class(model_name)
     if provider is None:
         raise ValueError(f"unknown model {model_name}")
-    return provider.make(model_name)
+    # API keys resolve from the user's secrets store first; providers fall back to env vars
+    return provider.make(model_name, get_key=lambda name: secretsmod.resolve(user, name))
 
 
 def _all_model_ids() -> set[str]:
@@ -146,6 +260,19 @@ def _attach_status_handler(user: str, name: str, agent: Agent):
         asyncio.create_task(broadcast(user, {"type": "status", "name": name, **status}))
     agent.on_status = handler
 
+    def on_stop():
+        # the agent called STOP: halt the work loop. it cannot restart itself —
+        # only a user "start"/"chat_mode off" clears agent.stopped.
+        info = users.get(user, {}).get(name)
+        if not info:
+            return
+        info["working"] = False
+        # no cancel: STOP arrives mid-turn inside the loop; the loop exits
+        # cleanly on its own after this turn's tool results are saved
+        logger.info("[STOP] %s/%s stopped itself", user, name)
+        asyncio.create_task(broadcast(user, {"type": "agents", "agents": get_agents_info(user)}))
+    agent.on_stop = on_stop
+
 
 def load_agents():
     """Load every user's agent configs from disk on startup."""
@@ -161,10 +288,11 @@ def load_agents():
                 continue
             novnc_port = cfg["novnc_port"]
             model_name = cfg.get("model", "kimi-k3")
-            model = _make_model(model_name)
+            model = _make_model(user, model_name)
             agent = Agent(user, name, model, use_container=True, novnc_port=novnc_port,
                           chat_mode=cfg.get("chat_mode", True))
             _attach_status_handler(user, name, agent)
+            chatmod.ensure_dm(user, name)
             container_on = is_container_running(agent.container.name)
             if container_on:
                 agent.container._running = True
@@ -218,6 +346,7 @@ async def work_loop(user: str, name: str, info: dict):
                     agent.context.add_user_text(text)
                 info["pending_chat"] = []
                 await broadcast(user, {"type": "context", "name": name, "messages": agent.context.messages})
+            inject_pending(user, name, info)
             await agent.turn()
             await broadcast(user, {"type": "context", "name": name, "messages": agent.context.messages})
         except asyncio.CancelledError:
@@ -287,7 +416,7 @@ async def websocket_endpoint(ws: WebSocket):
                     await ws.send_text(json.dumps({"type": "error", "msg": f"unknown model {model_name}"}))
                     continue
 
-                model = _make_model(model_name)
+                model = _make_model(user, model_name)
                 agent = Agent(user, name, model, use_container=True, novnc_port=novnc_port)
                 _attach_status_handler(user, name, agent)
 
@@ -299,10 +428,83 @@ async def websocket_endpoint(ws: WebSocket):
                     "working": False,
                     "pending_chat": [],
                 }
+                chatmod.ensure_dm(user, name)
 
                 save_agents(user)
                 await broadcast(user, {"type": "agents", "agents": get_agents_info(user)})
 
+            # ---- channels (user-managed; agents talk via CHAT_* tools) ----
+            elif cmd == "list_channels":
+                chans = [{"id": c["id"], "name": c["name"], "members": c["members"], "dm": c["dm"]}
+                         for c in chatmod.load_channels(user).values()]
+                await ws.send_text(json.dumps({"type": "channels", "channels": chans}))
+
+            elif cmd == "create_channel":
+                chan_name = (msg.get("name") or "").strip()
+                members = [chatmod.USER_SENDER] + [a for a in msg.get("agents", []) if a in user_agents]
+                if not chan_name:
+                    await ws.send_text(json.dumps({"type": "error", "msg": "channel name required"}))
+                    continue
+                chatmod.create_channel(user, chan_name, members)
+                chans = [{"id": c["id"], "name": c["name"], "members": c["members"], "dm": c["dm"]}
+                         for c in chatmod.load_channels(user).values()]
+                await broadcast(user, {"type": "channels", "channels": chans})
+
+            elif cmd == "set_members":
+                channel = msg.get("channel")
+                agents = [a for a in msg.get("agents", []) if a in user_agents]
+                if not chatmod.is_member(user, channel, chatmod.USER_SENDER):
+                    await ws.send_text(json.dumps({"type": "error", "msg": "channel not found"}))
+                    continue
+                chatmod.set_members(user, channel, [chatmod.USER_SENDER] + agents)
+                chans = [{"id": c["id"], "name": c["name"], "members": c["members"], "dm": c["dm"]}
+                         for c in chatmod.load_channels(user).values()]
+                await broadcast(user, {"type": "channels", "channels": chans})
+
+            elif cmd == "rename_channel":
+                channel = msg.get("channel")
+                new_name = (msg.get("name") or "").strip()
+                if not chatmod.is_member(user, channel, chatmod.USER_SENDER):
+                    await ws.send_text(json.dumps({"type": "error", "msg": "channel not found"}))
+                    continue
+                try:
+                    chatmod.rename_channel(user, channel, new_name)
+                except ValueError as e:
+                    await ws.send_text(json.dumps({"type": "error", "msg": str(e)}))
+                    continue
+                chans = [{"id": c["id"], "name": c["name"], "members": c["members"], "dm": c["dm"]}
+                         for c in chatmod.load_channels(user).values()]
+                await broadcast(user, {"type": "channels", "channels": chans})
+
+            elif cmd == "delete_channel":
+                channel = msg.get("channel")
+                if not chatmod.is_member(user, channel, chatmod.USER_SENDER):
+                    await ws.send_text(json.dumps({"type": "error", "msg": "channel not found"}))
+                    continue
+                chatmod.delete_channel(user, channel)
+                chans = [{"id": c["id"], "name": c["name"], "members": c["members"], "dm": c["dm"]}
+                         for c in chatmod.load_channels(user).values()]
+                await broadcast(user, {"type": "channels", "channels": chans})
+
+            elif cmd == "get_messages":
+                channel = msg.get("channel")
+                if not chatmod.is_member(user, channel, chatmod.USER_SENDER):
+                    await ws.send_text(json.dumps({"type": "error", "msg": "channel not found"}))
+                    continue
+                msgs = chatmod.read_messages(user, channel, limit=int(msg.get("limit", 100)))
+                await ws.send_text(json.dumps({"type": "messages", "channel": channel, "messages": msgs}))
+
+            elif cmd == "chat_send":
+                channel = msg.get("channel")
+                text = msg.get("text", "")
+                if not chatmod.is_member(user, channel, chatmod.USER_SENDER):
+                    await ws.send_text(json.dumps({"type": "error", "msg": "channel not found"}))
+                    continue
+                if text.strip():
+                    m = chatmod.append_message(user, channel, chatmod.USER_SENDER, "text", text=text)
+                    await broadcast(user, {"type": "chat_message", "channel": channel, "message": m})
+
+            # ---- agent lifecycle ----
             elif cmd == "start":
                 name = msg.get("name")
                 if name not in user_agents:
@@ -310,13 +512,11 @@ async def websocket_endpoint(ws: WebSocket):
                     continue
 
                 info = user_agents[name]
-                # start is an explicit work-mode request: leave chat mode
+                # start is an explicit MODEL request: work loop only, no container
+                # boot (the docker button does that). also the one way back from
+                # an agent's own STOP.
                 info["agent"].chat_mode = False
-                if not info["container_on"]:
-                    agent = info["agent"]
-                    if agent.container and not agent.container._running:
-                        await asyncio.to_thread(agent.container.start)
-                    info["container_on"] = True
+                info["agent"].stopped = False
 
                 if not info["working"]:
                     info["working"] = True
@@ -324,6 +524,19 @@ async def websocket_endpoint(ws: WebSocket):
                     logger.info("[start] %s/%s work loop created", user, name)
 
                 save_agents(user)
+                await broadcast(user, {"type": "agents", "agents": get_agents_info(user)})
+
+            elif cmd == "docker_start":
+                name = msg.get("name")
+                if name not in user_agents:
+                    await ws.send_text(json.dumps({"type": "error", "msg": f"agent {name} not found"}))
+                    continue
+                info = user_agents[name]
+                # container only — the user wants the machine, not necessarily the model
+                agent = info["agent"]
+                if agent.container and not agent.container._running:
+                    await asyncio.to_thread(agent.container.start)
+                info["container_on"] = True
                 await broadcast(user, {"type": "agents", "agents": get_agents_info(user)})
 
             elif cmd == "pause":
@@ -344,10 +557,15 @@ async def websocket_endpoint(ws: WebSocket):
                         agent.context.add_user_text(text)
                     info["pending_chat"] = []
                     await broadcast(user, {"type": "context", "name": name, "messages": agent.context.messages})
+                # stop also halts an in-flight chat-mode turn
+                if info.get("chat_task") and not info["chat_task"].done():
+                    info["chat_task"].cancel()
+                    info["chat_task"] = None
+                    logger.info("[pause] %s/%s chat turn cancelled", user, name)
 
                 await broadcast(user, {"type": "agents", "agents": get_agents_info(user)})
 
-            elif cmd == "kill":
+            elif cmd in ("kill", "docker_stop"):
                 name = msg.get("name")
                 if name not in user_agents:
                     await ws.send_text(json.dumps({"type": "error", "msg": f"agent {name} not found"}))
@@ -396,6 +614,9 @@ async def websocket_endpoint(ws: WebSocket):
                 if context.exists():
                     shutil.rmtree(context)
 
+                # strip the agent from all channels; delete channels left empty of agents
+                chatmod.remove_agent_everywhere(user, name)
+
                 del user_agents[name]
                 save_agents(user)
                 await broadcast(user, {"type": "agents", "agents": get_agents_info(user)})
@@ -439,7 +660,7 @@ async def websocket_endpoint(ws: WebSocket):
                     old_context.rename(new_context)
 
                 # recreate agent with new name but same port/model
-                model = _make_model(info.get("model", "kimi-k3"))
+                model = _make_model(user, info.get("model", "kimi-k3"))
                 agent = Agent(user, new_name, model, use_container=True, novnc_port=info["novnc_port"])
                 _attach_status_handler(user, new_name, agent)
 
@@ -480,6 +701,8 @@ async def websocket_endpoint(ws: WebSocket):
                     if info.get("chat_task") and not info["chat_task"].done():
                         info["chat_task"].cancel()
                         info["chat_task"] = None
+                    # user-driven mode switch: also the way back from an agent's STOP
+                    info["agent"].stopped = False
                     if info["container_on"] and not info["working"]:
                         info["working"] = True
                         info["work_loop"] = asyncio.create_task(work_loop(user, name, info))
@@ -496,21 +719,30 @@ async def websocket_endpoint(ws: WebSocket):
                     continue
 
                 info = user_agents[name]
-                # chat works containerless: agents default to chat mode, docker is on-demand
+                # user chat = a message in the DM channel; the agent gets it via
+                # the normal next-turn injection (work loop or immediate chat turn)
+                cid = chatmod.ensure_dm(user, name)
+                if text.strip():
+                    m = chatmod.append_message(user, cid, chatmod.USER_SENDER, "text", text=text)
+                    await broadcast(user, {"type": "chat_message", "channel": cid, "message": m})
 
                 if info["working"] and not info["agent"].chat_mode:
-                    info.setdefault("pending_chat", []).append(text)
-                    await broadcast(user, {"type": "context", "name": name, "messages": info["agent"].context.messages})
-                    continue
+                    continue  # the work loop injects it before its next turn
 
-                info["agent"].context.add_user_text(text)
+                inject_pending(user, name, info)
                 await broadcast(user, {"type": "context", "name": name, "messages": info["agent"].context.messages})
                 if info["agent"].chat_mode:
                     agent = info["agent"]
-                    async def do_chat_turn(_name=name, _agent=agent):
+                    async def do_chat_turn(_name=name, _agent=agent, _cid=cid):
                         try:
                             print(f"[chat_mode] calling turn for {_name}")
-                            await _agent.turn()
+                            blocks = await _agent.turn()
+                            # mirror the assistant's reply into the DM channel
+                            texts = [b["text"] for b in blocks
+                                     if b.get("type") == "text" and not b.get("text", "").startswith("[reasoning]")]
+                            if texts:
+                                m = chatmod.append_message(user, _cid, _name, "text", text="\n\n".join(texts))
+                                await broadcast(user, {"type": "chat_message", "channel": _cid, "message": m})
                             await broadcast(user, {"type": "context", "name": _name, "messages": _agent.context.messages})
                         except Exception as e:
                             print(f"[chat_mode] ERROR: {e}")
@@ -542,10 +774,11 @@ async def websocket_endpoint(ws: WebSocket):
                     await ws.send_text(json.dumps({"type": "error", "msg": f"unknown model {model_name}"}))
                     continue
                 user_agents[name]["model"] = model_name
-                user_agents[name]["agent"].model = _make_model(model_name)
+                user_agents[name]["agent"].model = _make_model(user, model_name)
                 save_agents(user)
                 await broadcast(user, {"type": "agents", "agents": get_agents_info(user)})
 
+            # ---- thoughtgraph access settings (per agent) ----
             elif cmd == "get_graph_settings":
                 name = msg.get("name")
                 if name not in user_agents:
@@ -566,15 +799,19 @@ async def websocket_endpoint(ws: WebSocket):
                     continue
                 # entries are {"board": b, "id": nid} — validate every board exists and every id is on it
                 bad = None
-                for key in ("prompt_docs", "read", "write"):
+                for key in ("prompt_docs", "read", "write", "folders"):
                     for e in settings.get(key) or []:
                         try:
                             meta = tg_storage.load_meta(user, e["board"])
                         except Exception:
                             bad = f"board not found: {e.get('board')}"
                             break
-                        if e.get("id") not in meta["nodes"]:
+                        node = meta["nodes"].get(e.get("id"))
+                        if not node:
                             bad = f"node {e.get('id')} not on board {e['board']}"
+                            break
+                        if key == "folders" and node["kind"] != "folder":
+                            bad = f"folder total control entries must be folders: {node['title']}"
                             break
                     if bad:
                         break
@@ -587,6 +824,7 @@ async def websocket_endpoint(ws: WebSocket):
                     "prompt_docs": settings.get("prompt_docs", []),
                     "read": settings.get("read", []),
                     "write": settings.get("write", []),
+                    "folders": settings.get("folders", []),
                 }))
                 await ws.send_text(json.dumps({"type": "graph_settings", "name": name, "settings": settings}))
 
@@ -637,6 +875,62 @@ async def websocket_endpoint(ws: WebSocket):
                 specific.mkdir(parents=True, exist_ok=True)
                 (specific / "graph.json").write_text(json.dumps(settings))
                 await ws.send_text(json.dumps({"type": "graph_settings", "name": name, "settings": settings}))
+
+            # ---- secrets (values never leave the host; grants are per agent) ----
+            elif cmd == "list_secrets":
+                # names + categories only — values never leave the host over the wire
+                await ws.send_text(json.dumps({"type": "secrets", "secrets": secretsmod.items(user)}))
+
+            elif cmd == "set_secret":
+                key = msg.get("key", "")
+                cat = msg.get("cat", "account")
+                # llm keys are hardset: the backend resolves them by name, so only
+                # registered provider secret names are valid (moonshot, deepseek, ...)
+                if cat == "llm":
+                    valid = {p.secret_name for p in MODEL_PROVIDERS.values() if p.secret_name}
+                    if key not in valid:
+                        await ws.send_text(json.dumps({"type": "error", "msg": f"llm secret must be one of: {', '.join(sorted(valid))}"}))
+                        continue
+                try:
+                    # value is a string for most cats, a forced {"account","key"} dict for git
+                    secretsmod.set_secret(user, key, msg.get("value"), cat=cat)
+                except ValueError as e:
+                    await ws.send_text(json.dumps({"type": "error", "msg": str(e)}))
+                    continue
+                await broadcast(user, {"type": "secrets", "secrets": secretsmod.items(user)})
+
+            elif cmd == "delete_secret":
+                try:
+                    secretsmod.delete_secret(user, msg.get("key", ""))
+                except ValueError as e:
+                    await ws.send_text(json.dumps({"type": "error", "msg": str(e)}))
+                    continue
+                await broadcast(user, {"type": "secrets", "secrets": secretsmod.items(user)})
+
+            elif cmd == "get_secret_grants":
+                name = msg.get("name")
+                if name not in user_agents:
+                    await ws.send_text(json.dumps({"type": "error", "msg": f"agent {name} not found"}))
+                    continue
+                await ws.send_text(json.dumps({"type": "secret_grants", "name": name,
+                                               "grants": secretsmod.load_grants(user, name)}))
+
+            elif cmd == "set_secret_grants":
+                name = msg.get("name")
+                if name not in user_agents:
+                    await ws.send_text(json.dumps({"type": "error", "msg": f"agent {name} not found"}))
+                    continue
+                grants = msg.get("grants", [])
+                if not isinstance(grants, list):
+                    await ws.send_text(json.dumps({"type": "error", "msg": "grants must be a list"}))
+                    continue
+                existing = set(secretsmod.names(user))
+                bad = [g for g in grants if g not in existing]
+                if bad:
+                    await ws.send_text(json.dumps({"type": "error", "msg": f"unknown secrets: {', '.join(bad)}"}))
+                    continue
+                secretsmod.save_grants(user, name, grants)
+                await ws.send_text(json.dumps({"type": "secret_grants", "name": name, "grants": grants}))
 
             else:
                 await ws.send_text(json.dumps({"type": "error", "msg": f"unknown command: {cmd}"}))

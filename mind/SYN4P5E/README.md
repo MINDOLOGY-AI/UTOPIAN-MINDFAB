@@ -3,6 +3,11 @@ a lot of paper implementations are going to be here, maybe their algorithms won'
 
 # to do 
 
+# save saving
+
+
+# evals
+
 # async loading  
 
 useful for large data like images not really useful for text  

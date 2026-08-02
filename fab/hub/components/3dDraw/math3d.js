@@ -11,10 +11,6 @@ export function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(v, hi));
 }
 
-export function lerp(a, b, t) {
-  return a + (b - a) * t;
-}
-
 function dot(a, b) {
   return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
@@ -126,6 +122,8 @@ export function projectPoint(p, camera, width, height, zoom) {
   const denom = dot(ray, camera.viewDir);
   if (denom <= 1e-9) return null; // behind or on the image plane
 
+  // perspective divide: intersect the ray with the image plane at focalLength,
+  // then measure the hit point's offset from the image center in camera basis
   const t = camera.focalLength / denom;
   const hit = add(camera.pos, scale(ray, t));
   const toHit = sub(hit, add(camera.pos, scale(camera.viewDir, camera.focalLength)));
@@ -143,6 +141,8 @@ export function projectPoint(p, camera, width, height, zoom) {
 }
 
 export function screenToWorldPlane(sx, sy, camera, width, height, zoom, planeDepth) {
+  // inverse of projectPoint for a camera-facing plane at planeDepth:
+  // world offset = pixel offset scaled by (depth / focalLength)
   const pixelScale = screenScale(camera, width, height, zoom);
   const depthScale = planeDepth / camera.focalLength;
   const du = (sx - width / 2) / pixelScale * depthScale;
@@ -166,22 +166,6 @@ export function screenToSupportPlane(sx, sy, camera, width, height, zoom, suppor
 }
 
 // ---- Arcball ----
-
-/**
- * Map a screen point to a unit vector in camera space.
- */
-export function screenToArcball(sx, sy, width, height) {
-  const r = Math.min(width, height) / 2;
-  let x = (sx - width / 2) / r;
-  let y = -(sy - height / 2) / r;
-  const r2 = x * x + y * y;
-
-  if (r2 <= 1) {
-    return [x, y, Math.sqrt(1 - r2)];
-  }
-  const len = Math.sqrt(r2);
-  return [x / len, y / len, 0];
-}
 
 /**
  * Compute the quaternion rotation from vector a to vector b.

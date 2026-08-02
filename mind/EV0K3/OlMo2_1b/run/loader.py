@@ -24,7 +24,7 @@ from mind.SYN4P5E.algorithms.transformer.olmo2 import Olmo2ForCausalLM
 
 # Load config from this same hyphenated folder via importlib because Python
 # packages cannot contain '-'.
-CONFIG_PATH = PROJECT_ROOT / "mind" / "EV0K3" / "OlMo2_1b" / "config.py"
+CONFIG_PATH = PROJECT_ROOT / "mind" / "EV0K3" / "OlMo2_1b" / "run" / "config.py"
 spec = importlib.util.spec_from_file_location("olmo2_1b_config", CONFIG_PATH)
 olmo2_1b_config = importlib.util.module_from_spec(spec)
 sys.modules["olmo2_1b_config"] = olmo2_1b_config

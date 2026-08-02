@@ -13,7 +13,7 @@ class FabStore extends EventTarget {
     this.boardId = boardId;
     this.nodes = {};
     this.edges = {};
-    this.types = {obj_types: {}, func_types: {}, state_colors: {}};
+    this.types = {doc_types: {}, edge_types: {}, state_colors: {}};
     this.camera = {x: 80, y: 80, zoom: 1};
     this.selectedNodeIds = new Set();
     this.activeFolderId = null;
@@ -25,9 +25,6 @@ class FabStore extends EventTarget {
   }
 
   emit() { this.dispatchEvent(new CustomEvent("change")); }
-
-  setActiveFolder(id) { this.activeFolderId = id; }
-  clearActiveFolder() { this.activeFolderId = null; }
 
   async api(method, path, body) {
     const opts = {method, headers: {"Content-Type": "application/json"}};
@@ -47,7 +44,7 @@ class FabStore extends EventTarget {
     this.edges = data.edges;
     // expansion sizes are render-time only; reset on load
     for (const n of Object.values(this.nodes)) {
-      if ((n.kind === "obj" || n.kind === "func") && n.expanded) {
+      if (n.kind === "doc" && n.expanded) {
         n.width = FabStore.EXPANDED_W;
         n.height = FabStore.EXPANDED_H;
       }
@@ -73,15 +70,6 @@ class FabStore extends EventTarget {
     return node;
   }
 
-  async updateNodePositions(updates) {
-    // updates: [{id, x, y}, ...]
-    for (const u of updates) {
-      await this.api("PUT", `/nodes/${u.id}`, {x: u.x, y: u.y});
-      Object.assign(this.nodes[u.id], {x: u.x, y: u.y});
-    }
-    this.emit();
-  }
-
   async deleteNode(id) {
     const res = await this.api("DELETE", `/nodes/${id}`);
     for (const nid of res.deleted) {
@@ -101,9 +89,16 @@ class FabStore extends EventTarget {
 
   async putContent(id, content) { return this.api("PUT", `/nodes/${id}/content`, {content}); }
 
-  async createEdge(source, target) {
-    const edge = await this.api("POST", "/edges", {source, target});
+  async createEdge(source, target, edgeType) {
+    const edge = await this.api("POST", "/edges", {source, target, edge_type: edgeType});
     this.edges[edge.id] = edge;
+    this.emit();
+    return edge;
+  }
+
+  async updateEdge(id, edgeType) {
+    const edge = await this.api("PUT", `/edges/${id}`, {edge_type: edgeType});
+    this.edges[id] = edge;
     this.emit();
     return edge;
   }
@@ -132,8 +127,11 @@ class FabStore extends EventTarget {
 
   typeColor(node) {
     if (node.color) return node.color;
-    const reg = node.kind === "func" ? this.types.func_types : this.types.obj_types;
-    return (reg[node.node_type] || {}).color || "#E2E8F0";
+    return (this.types.doc_types[node.node_type] || {}).color || "#E2E8F0";
+  }
+
+  edgeColor(edge) {
+    return (this.types.edge_types[edge.edge_type] || {}).color || "#ffffff";
   }
 
   // ---- geometry / layout ----
@@ -156,18 +154,6 @@ class FabStore extends EventTarget {
       p = this.nodes[p]?.parent;
     }
     return false;
-  }
-
-  descendants(id) {
-    const out = [];
-    const stack = [id];
-    while (stack.length) {
-      const cur = stack.pop();
-      for (const n of Object.values(this.nodes)) {
-        if (n.parent === cur) { out.push(n.id); stack.push(n.id); }
-      }
-    }
-    return out;
   }
 
   nodeDepth(node) {
@@ -200,10 +186,6 @@ class FabStore extends EventTarget {
       const s = FabStore.COLLAPSED;
       return {x: p.x + m, y: p.y + m, w: s, h: s};
     }
-    if (node.kind === "func") {
-      const G = FabStore.GRID, s = FabStore.FUNC_SIZE;
-      return {x: p.x + G / 2 - s / 2, y: p.y + G / 2 - s / 2, w: s, h: s};
-    }
     if (node.expanded) {
       const w = node.width || FabStore.EXPANDED_W;
       const h = node.height || FabStore.EXPANDED_H;
@@ -217,10 +199,6 @@ class FabStore extends EventTarget {
 
   collapsedRect(node) {
     const p = this.renderPos(node);
-    if (node.kind === "func") {
-      const G = FabStore.GRID, s = FabStore.FUNC_SIZE;
-      return {x: p.x + G / 2 - s / 2, y: p.y + G / 2 - s / 2, w: s, h: s};
-    }
     const m = FabStore.MARGIN;
     const s = FabStore.COLLAPSED;
     return {x: p.x + m, y: p.y + m, w: s, h: s};
@@ -232,7 +210,6 @@ class FabStore extends EventTarget {
       if (node.expanded) return this.folderBounds(node);
       return this.collapsedRect(node);
     }
-    if (node.kind === "func") return this.collapsedRect(node);
     if (node.expanded) {
       const p = this.renderPos(node);
       return {
@@ -264,8 +241,7 @@ class FabStore extends EventTarget {
       return {x: p.x, y: p.y, w: G, h: G};
     }
     let w, h;
-    if (node.kind === "func") { w = G; h = G; }
-    else if (node.expanded) {
+    if (node.expanded) {
       w = Math.ceil((node.width || FabStore.EXPANDED_W) / G) * G;
       h = Math.ceil((node.height || FabStore.EXPANDED_H) / G) * G;
     } else { w = G; h = G; }
@@ -332,48 +308,57 @@ class FabStore extends EventTarget {
   }
 
   resolveCollisions() {
-    // expanding a node pushes its siblings below/right aside (render-time only)
+    // collision-based push-aside: a node only moves if some sibling's rect
+    // actually overlaps it, by just enough to clear the overlap, cascading
+    // downward. nodes that would never collide stay put (things just get
+    // closer). upper nodes anchor, lower nodes move.
     this.tempOffsets = {};
     const visible = Object.values(this.nodes).filter(n => this.isVisible(n));
-    const expanded = visible.filter(n => n.expanded).sort((a, b) => {
-      const da = this.nodeDepth(a), db = this.nodeDepth(b);
-      if (da !== db) return db - da;
-      const ra = this.naturalRect(a), rb = this.naturalRect(b);
-      if (ra.y !== rb.y) return ra.y - rb.y;
-      return ra.x - rb.x;
-    });
-
-    const G = FabStore.GRID;
-    for (const a of expanded) {
-      const p = this.renderPos(a);
-      const collapsed = {x: p.x, y: p.y, w: G, h: G};
-      const after = this.gridRect(a);
-      const dW = Math.ceil((after.w - collapsed.w) / G) * G;
-      const dH = Math.ceil((after.h - collapsed.h) / G) * G;
-      if (dW === 0 && dH === 0) continue;
-      const oldRight = collapsed.x + collapsed.w;
-      const oldBottom = collapsed.y + collapsed.h;
-      const insideFolder = a.parent !== null;
-      for (const b of visible) {
-        if (b.id === a.id) continue;
-        if (a.parent !== b.parent) continue;
-        const br = this.gridRect(b);
-        if (dH !== 0 && br.y >= oldBottom) {
-          if (insideFolder) {
-            const xOverlap = Math.min(br.x + br.w, after.x + after.w) - Math.max(br.x, after.x);
-            if (xOverlap > 0) this.applyTempOffset(b.id, 0, dH);
-          } else {
-            this.applyTempOffset(b.id, 0, dH);
+    const groups = new Map(); // parent key -> sibling list
+    for (const n of visible) {
+      const key = n.parent || "";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(n);
+    }
+    // deepest groups first: inner pushes settle before parent bounds are read
+    const sorted = [...groups.values()].sort((g1, g2) => this.nodeDepth(g2[0]) - this.nodeDepth(g1[0]));
+    const overlaps = (r1, r2) =>
+      r1.x < r2.x + r2.w && r1.x + r1.w > r2.x && r1.y < r2.y + r2.h && r1.y + r1.h > r2.y;
+    for (const group of sorted) {
+      for (let iter = 0; iter < 50; iter++) {
+        let moved = false;
+        group.sort((a, b) => {
+          const ra = this.naturalRect(a), rb = this.naturalRect(b);
+          return ra.y - rb.y || ra.x - rb.x;
+        });
+        for (let i = 0; i < group.length; i++) {
+          for (let j = i + 1; j < group.length; j++) {
+            // the expanded node is always the anchor and NEVER moves — only
+            // downstream (below/right) siblings get pushed. above/left pairs
+            // are just the title-pad underlap and stay put.
+            let ai = i, ti = j;
+            if (group[j].expanded && !group[i].expanded) { ai = j; ti = i; }
+            const A = group[ai], T = group[ti];
+            if (T.x <= A.x && T.y <= A.y) continue;
+            const ra = this.naturalRect(A);
+            const rt = this.naturalRect(T);
+            if (!overlaps(ra, rt)) continue;
+            // direction follows the pair's layout: row-mates slide right,
+            // column-mates slide down; amount rounds UP to whole grid cells
+            const G = FabStore.GRID;
+            const dxs = T.x - A.x;
+            const dys = T.y - A.y;
+            if (dxs > 0 && dxs >= dys) {
+              const dx = Math.ceil((ra.x + ra.w - rt.x) / G) * G;
+              this.applyTempOffset(T.id, dx, 0);
+            } else {
+              const dy = Math.ceil((ra.y + ra.h - rt.y) / G) * G;
+              this.applyTempOffset(T.id, 0, dy);
+            }
+            moved = true;
           }
         }
-        if (dW !== 0 && br.x >= oldRight) {
-          if (insideFolder) {
-            const yOverlap = Math.min(br.y + br.h, after.y + after.h) - Math.max(br.y, after.y);
-            if (yOverlap > 0) this.applyTempOffset(b.id, dW, 0);
-          } else {
-            this.applyTempOffset(b.id, dW, 0);
-          }
-        }
+        if (!moved) break;
       }
     }
   }
@@ -408,12 +393,6 @@ class FabStore extends EventTarget {
       }
       offset += G;
     }
-  }
-
-  nodePathStr(node) {
-    const parts = [node.title];
-    for (let p = node.parent; p; p = this.nodes[p].parent) parts.unshift(this.nodes[p].title);
-    return parts.join("/");
   }
 
   // does node id, at its current coords, overlap any sibling (same parent)?
@@ -468,12 +447,11 @@ class FabStore extends EventTarget {
 FabStore.GRID = 200;
 FabStore.MARGIN = 20;
 FabStore.COLLAPSED = 160;
-FabStore.FUNC_SIZE = 80;
 FabStore.EXPANDED_W = 560;
 FabStore.EXPANDED_H = 360;
 FabStore.FOLDER_PAD = {left: 12, top: 44, right: 12, bottom: 12};
 FabStore.ESCAPE_MARGIN = 80;
-FabStore.ZOOM_LEVELS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4, 5];
+FabStore.ZOOM_LEVELS = [0.02, 0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4, 5];
 FabStore.snap = v => Math.round(v / FabStore.GRID) * FabStore.GRID;
 
 if (typeof module !== "undefined") module.exports = {FabStore};

@@ -40,10 +40,8 @@ class MarkdownEditor extends HTMLElement {
 
   getMd() {
     if (this._md) return this._md;
-    // cybersec: html: false makes markdown-it escape raw HTML in notes — without it a <script> or <img onerror> in markdown would run as code in the page
-    this._md = window.markdownit({ html: false, linkify: true, typographer: false })
-      .use(window.markdownItKatex, { throwOnError: false })
-      .use(wikilinkPlugin);
+    // shared renderer (markdown-render.js) + this component's wikilink plugin
+    this._md = makeMarkdownRenderer().use(wikilinkPlugin);
     return this._md;
   }
 

@@ -8,7 +8,7 @@ from pathlib import Path
 PROJECT_ROOT = Path.cwd()
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from mind.EV0K3.OlMo2_1b import loader
+from mind.EV0K3.OlMo2_1b.run import loader
 from mind.SYN4P5E.probes import static_analysis
 
 

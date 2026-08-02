@@ -4,20 +4,28 @@ Host-side direct calls (no HTTP): agent.py dispatches G* commands here.
 All functions raise ValueError on bad input; the agent turns that into a tool_result error.
 """
 
+import copy
+import math
+
 from fab.TH0UGHTGR4PH.back.config import GRID_SIZE
 from fab.TH0UGHTGR4PH.back.placement import next_position
 from fab.TH0UGHTGR4PH.back import storage
 
-KINDS = ("obj", "func", "folder")
+KINDS = ("doc", "folder")
 STATES = ("todo", "doing", "done")
 MAX_CONTENT_CHARS = 100_000
 
 
 def _validate_type(user: str, kind: str, node_type: str):
     types = storage.load_types(user)
-    registry = types["obj_types"] if kind == "obj" else types["func_types"]
-    if kind != "folder" and node_type not in registry:
-        raise ValueError(f"unknown {kind} type '{node_type}'. known: {sorted(registry)}")
+    if kind != "folder" and node_type not in types["doc_types"]:
+        raise ValueError(f"unknown {kind} type '{node_type}'. known: {sorted(types['doc_types'])}")
+
+
+def _validate_edge_type(user: str, edge_type: str):
+    types = storage.load_types(user)
+    if edge_type not in types["edge_types"]:
+        raise ValueError(f"unknown edge type '{edge_type}'. known: {sorted(types['edge_types'])}")
 
 
 def _validate_state(state):
@@ -49,17 +57,17 @@ def create_node(user: str, board: str, title: str, kind: str, node_type: str,
     _require_board(user, board)
     if kind not in KINDS:
         raise ValueError(f"kind must be one of {KINDS}")
-    if not title or not title.strip():
-        raise ValueError("title cannot be empty")
+    title = storage.validate_title(title)
     _validate_type(user, kind, node_type)
     _validate_state(state)
     meta = storage.load_meta(user, board)
+    storage.require_unique_title(meta, title)
     if parent is not None:
         parent = resolve_node(meta, parent)
         if meta["nodes"][parent]["kind"] != "folder":
             raise ValueError("parent must be a folder")
     if x is None or y is None:
-        pos = next_position(meta, resolve_node(meta, near) if near else None)
+        pos = next_position(meta, resolve_node(meta, near) if near else None, parent=parent)
         x, y = pos["x"], pos["y"]
     nid = storage.new_id(meta["nodes"])
     # root nodes snap to the grid; child coordinates are relative to their folder
@@ -71,7 +79,7 @@ def create_node(user: str, board: str, title: str, kind: str, node_type: str,
         y = int(round(float(y)))
     node = {
         "id": nid,
-        "title": title.strip(),
+        "title": title,
         "kind": kind,
         "node_type": node_type,
         "state": state,
@@ -112,33 +120,37 @@ def read_node(user: str, board: str, ref: str) -> dict:
             })
     return {
         "node": node,
-        "content": storage.read_content(user, board, nid),
+        "content": storage.read_content(user, board, meta, nid),
         "connected": connected,
     }
 
 
 def update_node(user: str, board: str, ref: str, title: str | None = None,
                 node_type: str | None = None, state: str | None = ...,  # ... = leave unchanged
-                content: str | None = None) -> dict:
+                content: str | None = None, expanded: bool | None = None) -> dict:
     _require_board(user, board)
     meta = storage.load_meta(user, board)
+    old_meta = copy.deepcopy(meta)  # for content-path sync after rename
     nid = resolve_node(meta, ref)
     node = meta["nodes"][nid]
     if title is not None:
-        if not title.strip():
-            raise ValueError("title cannot be empty")
-        node["title"] = title.strip()
+        title = storage.validate_title(title)
+        storage.require_unique_title(meta, title, exclude_id=nid)
+        node["title"] = title
     if node_type is not None:
         _validate_type(user, node["kind"], node_type)
         node["node_type"] = node_type
     if state is not ...:
         _validate_state(state)
         node["state"] = state
+    if expanded is not None:
+        node["expanded"] = bool(expanded)
     if content is not None:
         if len(content) > MAX_CONTENT_CHARS:
             raise ValueError(f"content too large (max {MAX_CONTENT_CHARS} chars)")
-        storage.write_content(user, board, nid, content)
+        storage.write_content(user, board, meta, nid, content)
     storage.save_meta(user, board, meta)
+    storage.move_content(user, board, old_meta, meta, nid)
     return node
 
 
@@ -154,9 +166,11 @@ def destroy_node(user: str, board: str, ref: str) -> dict:
             if n["parent"] == cur and o_id not in to_delete:
                 to_delete.add(o_id)
                 stack.append(o_id)
+    # content paths resolve through the meta — delete files before dropping nodes
+    for o_id in to_delete:
+        storage.delete_content(user, board, meta, o_id)
     for o_id in to_delete:
         del meta["nodes"][o_id]
-        storage.delete_content(user, board, o_id)
     meta["edges"] = {
         eid: e for eid, e in meta["edges"].items()
         if e["source"] not in to_delete and e["target"] not in to_delete
@@ -169,6 +183,7 @@ def move_node(user: str, board: str, ref: str, x: float | None = None,
               y: float | None = None, parent: str | None = ...) -> dict:
     _require_board(user, board)
     meta = storage.load_meta(user, board)
+    old_meta = copy.deepcopy(meta)  # for content-path sync after reparenting
     nid = resolve_node(meta, ref)
     node = meta["nodes"][nid]
     if x is not None:
@@ -189,6 +204,7 @@ def move_node(user: str, board: str, ref: str, x: float | None = None,
             parent = resolve_node(meta, parent)
             if meta["nodes"][parent]["kind"] != "folder":
                 raise ValueError("parent must be a folder")
+            # walk up the new parent chain: refuse to move a node into its own subtree
             p = parent
             while p is not None:
                 if p == nid:
@@ -196,24 +212,40 @@ def move_node(user: str, board: str, ref: str, x: float | None = None,
                 p = meta["nodes"][p]["parent"]
             node["parent"] = parent
     storage.save_meta(user, board, meta)
+    storage.move_content(user, board, old_meta, meta, nid)
     return node
 
 
-def link(user: str, board: str, source: str, target: str) -> dict:
+def link(user: str, board: str, source: str, target: str, edge_type: str) -> dict:
     _require_board(user, board)
     meta = storage.load_meta(user, board)
     src = resolve_node(meta, source)
     tgt = resolve_node(meta, target)
     if src == tgt:
         raise ValueError("cannot link a node to itself")
+    # edges are typed argument flow between docs — containment is folder parenting
+    if meta["nodes"][src]["kind"] == "folder" or meta["nodes"][tgt]["kind"] == "folder":
+        raise ValueError("edges connect doc nodes, not folders — use GMOVE parent for containment")
+    _validate_edge_type(user, edge_type)
     for e in meta["edges"].values():
         if e["source"] == src and e["target"] == tgt:
             raise ValueError("edge already exists")
     eid = storage.new_id(meta["edges"])
-    edge = {"id": eid, "source": src, "target": tgt}
+    edge = {"id": eid, "source": src, "target": tgt, "edge_type": edge_type}
     meta["edges"][eid] = edge
     storage.save_meta(user, board, meta)
     return edge
+
+
+def retype_edge(user: str, board: str, edge: str, edge_type: str) -> dict:
+    _require_board(user, board)
+    meta = storage.load_meta(user, board)
+    if edge not in meta["edges"]:
+        raise ValueError(f"edge not found: {edge!r}")
+    _validate_edge_type(user, edge_type)
+    meta["edges"][edge]["edge_type"] = edge_type
+    storage.save_meta(user, board, meta)
+    return meta["edges"][edge]
 
 
 def unlink(user: str, board: str, edge: str) -> dict:
@@ -226,13 +258,113 @@ def unlink(user: str, board: str, edge: str) -> dict:
     return {"ok": True}
 
 
-def list_board(user: str, board: str) -> dict:
-    """Compact board summary for a model: every node (no content) + edge count."""
+def ascii_map(user: str, board: str, ref: str | None = None) -> str:
+    """ASCII 'screenshot' of a folder's contents (or the root level): boxes on a
+    character canvas (─│ objs, ═║ folders, ( ) funcs), a legend with ids/coords
+    for GMOVE, and the edge list. One level deep — nested folders render as boxes.
+    """
     _require_board(user, board)
     meta = storage.load_meta(user, board)
-    nodes = [
-        {k: n[k] for k in ("id", "title", "kind", "node_type", "state", "parent")}
-        for n in meta["nodes"].values()
-    ]
-    nodes.sort(key=lambda n: (n["kind"], n["title"]))
-    return {"board": board, "nodes": nodes, "edges": len(meta["edges"])}
+    nodes = meta["nodes"]
+    if ref is not None:
+        nid = resolve_node(meta, ref)
+        if nodes[nid]["kind"] != "folder":
+            raise ValueError("map target must be a folder")
+        parent = nid
+        label = f'folder "{nodes[nid]["title"]}"'
+    else:
+        parent = None
+        label = "root"
+    children = [n for n in nodes.values() if n["parent"] == parent]
+    if not children:
+        return f"{label} on board '{board}': empty"
+
+    G = GRID_SIZE
+
+    def cell_rect(n):
+        # (x0, y0, x1, y1) in grid-cell units, relative to this map's parent.
+        # folders always render as one cell — maps are one level deep; an
+        # expanded folder's true span goes in the legend instead.
+        x, y = round(n["x"] / G), round(n["y"] / G)
+        if n["kind"] == "doc" and n["expanded"]:
+            return (x, y, x + math.ceil(n.get("width", 560) / G), y + math.ceil(n.get("height", 360) / G))
+        return (x, y, x + 1, y + 1)
+
+    def span(n):
+        # true cell span of an expanded folder's contents (for the legend)
+        kids = [c for c in nodes.values() if c["parent"] == n["id"]]
+        if not kids:
+            return (1, 1)
+        rs = [cell_rect(c) for c in kids]
+        return (max(r[2] for r in rs) - min(r[0] for r in rs),
+                max(r[3] for r in rs) - min(r[1] for r in rs))
+
+    rects = {n["id"]: cell_rect(n) for n in children}
+    offx = min(r[0] for r in rects.values())
+    offy = min(r[1] for r in rects.values())
+    rects = {nid: (r[0] - offx, r[1] - offy, r[2] - offx, r[3] - offy) for nid, r in rects.items()}
+    cells_x = max(r[2] for r in rects.values())
+    cells_y = max(r[3] for r in rects.values())
+
+    cw = 14 if cells_x <= 20 else 8
+    ch = 4 if cells_y <= 12 else 3
+    W, H = cells_x * cw + 1, cells_y * ch + 1
+    oversized = W * H > 120_000
+    canvas = [[" "] * W for _ in range(H)] if not oversized else None
+
+    def put(x, y, text):
+        for i, c in enumerate(text):
+            if 0 <= y < H and 0 <= x + i < W:
+                canvas[y][x + i] = c
+
+    def draw_box(x0, y0, x1, y1, double=False):
+        hz, vt = ("═", "║") if double else ("─", "│")
+        tl, tr, bl, br = ("╔", "╗", "╚", "╝") if double else ("┌", "┐", "└", "┘")
+        for cx in range(x0 + 1, x1):
+            put(cx, y0, hz)
+            put(cx, y1, hz)
+        for cy in range(y0 + 1, y1):
+            put(x0, cy, vt)
+            put(x1, cy, vt)
+        put(x0, y0, tl)
+        put(x1, y0, tr)
+        put(x0, y1, bl)
+        put(x1, y1, br)
+
+    if not oversized:
+        for n in children:
+            x0, y0, x1, y1 = rects[n["id"]]
+            px, py = x0 * cw, y0 * ch
+            pw, ph = (x1 - x0) * cw, (y1 - y0) * ch
+            title = n["title"]
+            draw_box(px, py, px + pw, py + ph, double=n["kind"] == "folder")
+            marker = "▾ " if n["expanded"] else ("▸ " if n["kind"] == "folder" else "")
+            maxw = pw - 2
+            lines, cur = [], ""
+            for word in (marker + title).split(" "):
+                if cur and len(cur) + len(word) + 1 > maxw:
+                    lines.append(cur)
+                    cur = word
+                else:
+                    cur = f"{cur} {word}".strip()
+            if cur:
+                lines.append(cur)
+            for i, line in enumerate(lines[: ph - 1]):
+                put(px + 1, py + 1 + i, line[:maxw])
+
+    out = [f"{label} on board '{board}' — {len(children)} children, {cells_x}x{cells_y} cells"]
+    if oversized:
+        out.append("(canvas too large to draw — legend below is the full layout; map a subfolder for a picture)")
+    else:
+        out.append("\n".join("".join(row).rstrip() for row in canvas))
+    out.append("legend: id kind type (x,y) title")
+    for n in sorted(children, key=lambda n: (n["y"], n["x"])):
+        extra = f" spans {span(n)[0]}x{span(n)[1]} cells" if n["kind"] == "folder" and n["expanded"] else ""
+        out.append(f'  {n["id"]} {n["kind"]} {n["node_type"]} ({n["x"]},{n["y"]}) {n["title"]}{extra}')
+    ids = {n["id"] for n in children}
+    edges = [e for e in meta["edges"].values() if e["source"] in ids and e["target"] in ids]
+    if edges:
+        out.append("edges:")
+        for e in edges:
+            out.append(f'  {nodes[e["source"]]["title"]} -[{e.get("edge_type", "?")}]-> {nodes[e["target"]]["title"]} ({e["id"]})')
+    return "\n".join(out)

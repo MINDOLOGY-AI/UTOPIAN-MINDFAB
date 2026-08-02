@@ -1,5 +1,6 @@
 import json
 import base64
+import time
 import torch
 from pathlib import Path
 
@@ -113,6 +114,10 @@ class Context:
         if raw_messages != self.messages:
             self._persist_working()
 
+        # upload blocks (images/text) injected into the NEXT marshal only — the
+        # bytes never persist into context, so uploads don't bloat future turns
+        self.pending_attachments: list[dict] = []
+
     def _migrate_messages(self, messages: list[dict]) -> list[dict]:
         """Migrate older storage formats to the current internal standard."""
         migrated = []
@@ -204,9 +209,14 @@ class Context:
         """
         self.repair()
 
-        if not self.messages:
+        if not self.messages and not self.pending_attachments:
             return []
         out = [dict(m) for m in self.messages]
+        if self.pending_attachments:
+            out.append({"role": "user", "content": self.pending_attachments})
+            self.pending_attachments = []
+        if not out:
+            return []
         last = out[-1]
         if last.get("role") == "assistant" and not self._has_tool_use(last):
             out.append({"role": "user", "content": [_text_block(f"[SYSTEM]\n{WORK_MSG}")]})
@@ -271,7 +281,7 @@ class Context:
         assert role in ("system", "user", "assistant")
         if isinstance(content, str):
             content = [_text_block(content)]
-        msg = {"role": role, "content": content}
+        msg = {"role": role, "content": content, "ts": time.time()}
         self.messages.append(msg)
         with open(self.original_path, "a") as f:
             f.write(json.dumps(msg) + "\n")

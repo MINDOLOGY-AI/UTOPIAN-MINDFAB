@@ -62,11 +62,13 @@ class FabNode extends HTMLElement {
   }
 }
 
-// ---- obj node: typed rectangle, state dot, ref badge; expands into markdown editor ----
+// ---- doc node: typed rectangle, state dot, ref badge; expands into markdown editor ----
 
-class ObjNode extends FabNode {
+class DocNode extends FabNode {
   updateContent(node) {
-    const color = this.store?.typeColor(node) || node.__color || "#E2E8F0";
+    // store is always set by the board before the first render; typeColor
+    // itself falls back to #E2E8F0 for unknown types
+    const color = this.store.typeColor(node);
     this.style.setProperty("--nc", color);
     if (this.querySelector(".title") && node.expanded === this.__wasExpanded) {
       this.querySelector(".title").textContent = node.title;
@@ -119,31 +121,34 @@ class ObjNode extends FabNode {
   renderStateDot(node) {
     const old = this.querySelector(".state-dot");
     if (old) old.replaceWith(this.makeStateDot(node));
-    this.querySelector(".title").textContent = node.title;
-  }
-}
-
-// ---- func node: circle at grid intersection. funcs have NO names — only type + color ----
-
-class FuncNode extends FabNode {
-  updateContent(node) {
-    const color = this.store?.typeColor(node) || node.__color || "#E2E8F0";
-    this.style.setProperty("--nc", color);
-    if (this.querySelector(".func-type")) {
-      this.querySelector(".func-type").textContent = node.node_type;
-      return;
-    }
-    this.innerHTML = "";
-    const typeLabel = document.createElement("div");
-    typeLabel.className = "func-type";
-    typeLabel.textContent = node.node_type;
-    this.appendChild(typeLabel);
   }
 }
 
 // ---- folder node: collapsed dashed square / expanded container ----
 
 class FolderNode extends FabNode {
+  // expanded folders are grabbable only by the frame + title bar — interior
+  // clicks fall through to the viewport (pan / deselect), so working inside a
+  // folder never accidentally activates it or collapses it via a double-click
+  _onFrame(e) {
+    const r = this.getBoundingClientRect();
+    const B = 14;
+    return e.clientY - r.top < FabStore.FOLDER_PAD.top ||
+           r.bottom - e.clientY < B ||
+           e.clientX - r.left < B ||
+           r.right - e.clientX < B;
+  }
+
+  onMouseDown(e) {
+    if (this._node?.expanded && !this._onFrame(e)) return;
+    super.onMouseDown(e);
+  }
+
+  onDblClick(e) {
+    if (this._node?.expanded && !this._onFrame(e)) return;
+    super.onDblClick(e);
+  }
+
   updateContent(node) {
     this.style.setProperty("--nc", "var(--near-white, #C5C5C5)");
     if (this.querySelector(".title")) {
@@ -158,6 +163,5 @@ class FolderNode extends FabNode {
   }
 }
 
-customElements.define("obj-node", ObjNode);
-customElements.define("func-node", FuncNode);
+customElements.define("doc-node", DocNode);
 customElements.define("folder-node", FolderNode);

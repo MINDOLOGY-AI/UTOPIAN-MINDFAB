@@ -15,6 +15,8 @@ class GLM(Kimi):
     name = "glm"
     adapter = GLMAdapter()
     base_url = OPENROUTER_BASE_URL
+    # one OpenRouter key serves every openrouter-routed provider
+    secret_name = "openrouter"
     models = {
         # OpenRouter model slug — change here if the id changes upstream
         "glm-5.2": "z-ai/glm-5.2",

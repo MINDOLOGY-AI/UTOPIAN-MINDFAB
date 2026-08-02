@@ -11,7 +11,6 @@ class FabBoard extends HTMLElement {
     this.wheelTimer = null;
     this.searchIdx = 0;
     this.selectedVersion = null;
-    this.contentTimer = null;
     this.pollTimer = null;
   }
 
@@ -68,8 +67,7 @@ class FabBoard extends HTMLElement {
         <a href="/" class="home-link" title="back to main page">←</a>
         <span class="brand">TH0UGHTGR4PH</span>
         <span class="sep"></span>
-        <button id="add-obj">add obj</button>
-        <button id="add-func">add func</button>
+        <button id="add-doc">add doc</button>
         <button id="add-folder">add folder</button>
         <button id="add-edge">add edge</button>
         <button id="meta-btn" class="hidden">meta</button>
@@ -86,6 +84,10 @@ class FabBoard extends HTMLElement {
         <button id="search-btn">search</button>
         <button id="zoom-out">−</button>
         <button id="zoom-in">+</button>
+        <span class="sep"></span>
+        <button id="download-board" title="download board (zip)">↓</button>
+        <button id="upload-board" title="upload board (zip)">↑</button>
+        <input type="file" id="upload-input" accept=".zip,application/zip" hidden>
       </div>
       <div id="sidebar">
         <div class="sidebar-scroll">
@@ -99,24 +101,28 @@ class FabBoard extends HTMLElement {
             </div>
           </div>
           <div class="side-section" id="type-section">
-            <div class="side-title collapsible" data-collapse="obj-type-body">obj types <span class="caret">▸</span></div>
-            <div id="obj-type-body" class="type-body collapsed">
-              <div id="obj-type-list"></div>
+            <div class="side-title collapsible" data-collapse="doc-type-body">doc types <span class="caret">▸</span></div>
+            <div id="doc-type-body" class="type-body collapsed">
+              <div id="doc-type-list"></div>
               <div class="type-add">
-                <input id="obj-type-name" placeholder="new obj type" spellcheck="false">
-                <input type="color" id="obj-type-color" value="#6BC4FF">
-                <button id="obj-type-add">+</button>
+                <input id="doc-type-name" placeholder="new doc type" spellcheck="false">
+                <input type="color" id="doc-type-color" value="#6BC4FF">
+                <button id="doc-type-add">+</button>
               </div>
             </div>
-            <div class="side-title collapsible" data-collapse="func-type-body">func types <span class="caret">▸</span></div>
-            <div id="func-type-body" class="type-body collapsed">
-              <div id="func-type-list"></div>
+            <div class="side-title collapsible" data-collapse="edge-type-body">edge types <span class="caret">▸</span></div>
+            <div id="edge-type-body" class="type-body collapsed">
+              <div id="edge-type-list"></div>
               <div class="type-add">
-                <input id="func-type-name" placeholder="new func type" spellcheck="false">
-                <input type="color" id="func-type-color" value="#00FF41">
-                <button id="func-type-add">+</button>
+                <input id="edge-type-name" placeholder="new edge type" spellcheck="false">
+                <input type="color" id="edge-type-color" value="#00FF41">
+                <button id="edge-type-add">+</button>
               </div>
             </div>
+          </div>
+          <div class="side-section" id="edge-panel" hidden>
+            <div class="side-title">edge type</div>
+            <div id="edge-sel-type-list"></div>
           </div>
         </div>
       </div>
@@ -145,6 +151,10 @@ class FabBoard extends HTMLElement {
           <button id="meta-save">save</button>
         </div>
       </div>
+      <div id="edge-popup" class="popup hidden">
+        <div class="popup-title">edge type <button id="edge-cancel" class="x-btn">×</button></div>
+        <div id="edge-types"></div>
+      </div>
       <div id="versions-panel" class="popup hidden">
         <div class="popup-title">versions <button id="versions-close" class="x-btn">×</button></div>
         <div class="popup-row">
@@ -167,8 +177,7 @@ class FabBoard extends HTMLElement {
 
   attachEvents() {
     const $ = (s) => this.querySelector(s);
-    $("#add-obj").addEventListener("click", () => this.openCreatePopup("obj"));
-    $("#add-func").addEventListener("click", () => this.openCreatePopup("func"));
+    $("#add-doc").addEventListener("click", () => this.openCreatePopup("doc"));
     $("#add-folder").addEventListener("click", () => this.createFolder());
     $("#add-edge").addEventListener("click", () => this.toggleEdgeMode());
     $("#zoom-in").addEventListener("click", () => this.zoomIn());
@@ -182,6 +191,12 @@ class FabBoard extends HTMLElement {
     $("#new-board").addEventListener("click", () => this.createBoard());
     $("#rename-board").addEventListener("click", () => this.renameBoard());
     $("#delete-board").addEventListener("click", () => this.deleteBoard());
+    $("#download-board").addEventListener("click", () => this.downloadBoard());
+    $("#upload-board").addEventListener("click", () => this.querySelector("#upload-input").click());
+    $("#upload-input").addEventListener("change", (e) => {
+      if (e.target.files[0]) this.uploadBoard(e.target.files[0]);
+      e.target.value = "";
+    });
     $("#board-select").addEventListener("change", (e) => this.initStore(e.target.value));
     $("#create-ok").addEventListener("click", () => this.confirmCreate());
     $("#create-cancel").addEventListener("click", () => this.hidePanel("create-popup"));
@@ -191,14 +206,15 @@ class FabBoard extends HTMLElement {
     $("#meta-close").addEventListener("click", () => this.hidePanel("meta-popup"));
     $("#meta-title").addEventListener("keydown", (e) => { if (e.key === "Enter") this.saveMeta(); });
     $("#delete-btn").addEventListener("click", () => this.deleteSelected());
-    $("#obj-type-add").addEventListener("click", () => this.addType("obj"));
-    $("#func-type-add").addEventListener("click", () => this.addType("func"));
+    $("#doc-type-add").addEventListener("click", () => this.addType("doc"));
+    $("#edge-type-add").addEventListener("click", () => this.addType("edge"));
+    $("#edge-cancel").addEventListener("click", () => this.hidePanel("edge-popup"));
 
     for (const btn of this.querySelectorAll(".state-btn")) {
       btn.addEventListener("click", () => this.setSelectedState(btn.dataset.state));
     }
 
-    // collapsible sidebar sections (obj types / func types)
+    // collapsible sidebar sections (doc types / edge types)
     for (const title of this.querySelectorAll(".side-title.collapsible")) {
       title.addEventListener("click", () => {
         const body = this.querySelector(`#${title.dataset.collapse}`);
@@ -221,7 +237,7 @@ class FabBoard extends HTMLElement {
     this.nodesContainer.addEventListener("node-dblclick", (e) => this.onNodeDblClick(e.detail.node.id));
     this.nodesContainer.addEventListener("doc-expand", (e) => this.onDocExpand(e.detail.node.id, e.detail.editor));
     this.nodesContainer.addEventListener("content-change", (e) => {
-      const el = e.target.closest("obj-node");
+      const el = e.target.closest("doc-node");
       if (el && el.node) this.onDocContentChange(el.node.id, e.detail);
     });
     this.nodesContainer.addEventListener("wikilink-click", (e) => this.onWikiLinkClick(e.detail));
@@ -257,8 +273,7 @@ class FabBoard extends HTMLElement {
       if (!store.isVisible(node)) continue;
       seen.add(node.id);
       if (!this.nodeEls[node.id]) {
-        const tag = node.kind === "folder" ? "folder-node"
-          : node.kind === "func" ? "func-node" : "obj-node";
+        const tag = node.kind === "folder" ? "folder-node" : "doc-node";
         const el = document.createElement(tag);
         el.store = store;
         this.nodeEls[node.id] = el;
@@ -338,7 +353,7 @@ class FabBoard extends HTMLElement {
     const picker = this.querySelector("#state-picker");
     const id = this.primarySelection();
     const node = id && this.store.nodes[id];
-    const show = node && node.kind === "obj";
+    const show = node && node.kind === "doc";
     picker.classList.toggle("hidden", !show);
     if (show) {
       for (const btn of picker.querySelectorAll(".state-btn")) {
@@ -378,14 +393,11 @@ class FabBoard extends HTMLElement {
     this.createType = null;
     const popup = this.querySelector("#create-popup");
     this.querySelector("#create-popup-title").textContent = `new ${kind}`;
-    // funcs have no names — only a type. hide the title input for them.
     const titleInput = this.querySelector("#create-title");
     titleInput.value = "";
-    titleInput.classList.toggle("hidden", kind === "func");
     const typesDiv = this.querySelector("#create-types");
     typesDiv.innerHTML = "";
-    const registry = kind === "func" ? this.store.types.func_types : this.store.types.obj_types;
-    for (const [name, spec] of Object.entries(registry)) {
+    for (const [name, spec] of Object.entries(this.store.types.doc_types)) {
       const chip = document.createElement("button");
       chip.className = "type-chip";
       chip.textContent = name;
@@ -397,19 +409,12 @@ class FabBoard extends HTMLElement {
       typesDiv.appendChild(chip);
     }
     popup.classList.remove("hidden");
-    if (kind === "func") {
-      // preselect the first func type so Enter/click works immediately
-      typesDiv.querySelector(".type-chip")?.click();
-    } else {
-      titleInput.focus();
-    }
+    titleInput.focus();
   }
 
   async confirmCreate() {
-    const registry = this.createKind === "func" ? this.store.types.func_types : this.store.types.obj_types;
-    const nodeType = this.createType || Object.keys(registry)[0] || (this.createKind === "func" ? "use" : "doc");
-    // funcs are nameless: the type IS the title
-    const title = this.createKind === "func" ? nodeType : this.querySelector("#create-title").value.trim();
+    const nodeType = this.createType || Object.keys(this.store.types.doc_types)[0] || "doc";
+    const title = this.querySelector("#create-title").value.trim();
     if (!title || !this.createKind) return;
     const parent = this.activeFolder();
     let pos = this.createPosition(parent);
@@ -464,15 +469,13 @@ class FabBoard extends HTMLElement {
     this.metaType = node.node_type;
     const popup = this.querySelector("#meta-popup");
     const titleInput = this.querySelector("#meta-title");
-    // funcs are nameless — only a type. folders have a title but no type.
-    titleInput.value = node.kind === "func" ? "" : node.title;
-    titleInput.classList.toggle("hidden", node.kind === "func");
+    // folders have a title but no type; docs have both
+    titleInput.value = node.title;
     const typesDiv = this.querySelector("#meta-types");
     typesDiv.innerHTML = "";
     typesDiv.classList.toggle("hidden", node.kind === "folder");
-    if (node.kind !== "folder") {
-      const registry = node.kind === "func" ? this.store.types.func_types : this.store.types.obj_types;
-      for (const [name, spec] of Object.entries(registry)) {
+    if (node.kind === "doc") {
+      for (const [name, spec] of Object.entries(this.store.types.doc_types)) {
         const chip = document.createElement("button");
         chip.className = "type-chip" + (name === node.node_type ? " active" : "");
         chip.textContent = name;
@@ -486,28 +489,18 @@ class FabBoard extends HTMLElement {
     }
     for (const p of this.querySelectorAll(".popup")) p.classList.add("hidden");
     popup.classList.remove("hidden");
-    if (node.kind !== "func") {
-      titleInput.focus();
-      titleInput.select();
-    }
+    titleInput.focus();
+    titleInput.select();
   }
 
   async saveMeta() {
     const node = this.store.nodes[this.metaId];
     if (!node) return;
     const updates = {};
-    if (node.kind === "func") {
-      // funcs are nameless: the type IS the title
-      if (this.metaType && this.metaType !== node.node_type) {
-        updates.node_type = this.metaType;
-        updates.title = this.metaType;
-      }
-    } else {
-      const title = this.querySelector("#meta-title").value.trim();
-      if (title && title !== node.title) updates.title = title;
-      if (node.kind === "obj" && this.metaType && this.metaType !== node.node_type) {
-        updates.node_type = this.metaType;
-      }
+    const title = this.querySelector("#meta-title").value.trim();
+    if (title && title !== node.title) updates.title = title;
+    if (node.kind === "doc" && this.metaType && this.metaType !== node.node_type) {
+      updates.node_type = this.metaType;
     }
     if (Object.keys(updates).length) {
       try {
@@ -534,15 +527,42 @@ class FabBoard extends HTMLElement {
       return;
     }
     if (this.store.edgeMode.source !== id) {
-      try {
-        await this.store.createEdge(this.store.edgeMode.source, id);
-      } catch (err) {
-        alert(err.message);
-      }
+      this.openEdgePopup(this.store.edgeMode.source, id);
+      return;
     }
+    this.exitEdgeMode();
+  }
+
+  exitEdgeMode() {
     this.store.edgeMode = null;
     this.viewport.classList.remove("edge-mode");
     this.querySelector("#add-edge").classList.remove("active");
+  }
+
+  openEdgePopup(source, target) {
+    const popup = this.querySelector("#edge-popup");
+    const typesDiv = this.querySelector("#edge-types");
+    typesDiv.innerHTML = "";
+    for (const [name, spec] of Object.entries(this.store.types.edge_types)) {
+      const chip = document.createElement("button");
+      chip.className = "type-chip";
+      chip.textContent = name;
+      chip.style.setProperty("--nc", spec.color || "#fff");
+      chip.addEventListener("click", () => this.createTypedEdge(source, target, name));
+      typesDiv.appendChild(chip);
+    }
+    for (const p of this.querySelectorAll(".popup")) p.classList.add("hidden");
+    popup.classList.remove("hidden");
+  }
+
+  async createTypedEdge(source, target, edgeType) {
+    try {
+      await this.store.createEdge(source, target, edgeType);
+    } catch (err) {
+      alert(err.message);
+    }
+    this.hidePanel("edge-popup");
+    this.exitEdgeMode();
   }
 
   // ---- node interactions ----
@@ -591,7 +611,7 @@ class FabBoard extends HTMLElement {
       this.render();
       return;
     }
-    if (node.kind !== "obj") return; // funcs never expand
+    if (node.kind !== "doc") return; // only docs expand
     const wasExpanded = node.expanded;
     if (!wasExpanded) this.expandAncestors(id);
     node.expanded = !wasExpanded;
@@ -610,29 +630,33 @@ class FabBoard extends HTMLElement {
     const data = await this.store.getContent(id);
     editor.content = data.content;
     editor.resolveLink = (title) => {
-      const n = Object.values(this.store.nodes).find(x => x.kind === "obj" && x.title === title);
+      const n = Object.values(this.store.nodes).find(x => x.kind === "doc" && x.title === title);
       return n ? n.id : null;
     };
   }
 
   onDocContentChange(id, content) {
+    // the markdown editor debounces on its side; every change event PUTs straight through
     this.store.putContent(id, content);
-    if (this.contentTimer) clearTimeout(this.contentTimer);
-    this.contentTimer = setTimeout(() => {}, 500);
   }
 
-  onWikiLinkClick(id) {
+  async onWikiLinkClick(id) {
     const node = this.store.nodes[id];
     if (!node) return;
-    this.expandAncestors(id);
+    await this.expandAncestors(id);
     this.selectNode(id);
-    this.centerCameraOn(node);
+    this.render();
+    this.centerCameraOn(this.store.nodes[id]);
   }
 
-  expandAncestors(id) {
+  async expandAncestors(id) {
+    const updates = [];
     for (let p = this.store.nodes[id].parent; p; p = this.store.nodes[p].parent) {
-      if (!this.store.nodes[p].expanded) this.store.updateNode(p, {expanded: true});
+      if (!this.store.nodes[p].expanded) updates.push(this.store.updateNode(p, {expanded: true}));
     }
+    // wait for the expansions to land so content offsets are final before
+    // anyone reads positions (e.g. centerCameraOn after search navigation)
+    await Promise.all(updates);
   }
 
   centerCameraOn(node) {
@@ -646,7 +670,11 @@ class FabBoard extends HTMLElement {
   // ---- viewport interactions ----
 
   onViewportMouseDown(e) {
-    if (e.target !== this.viewport && e.target !== this.world && e.target.id !== "grid") return;
+    // the interior of an expanded folder is empty ground (pan/deselect) —
+    // only its frame/title bar is grabbable (see FolderNode._onFrame)
+    const folderEl = e.target?.closest?.(".fab-node.kind-folder");
+    const folderInterior = folderEl && folderEl.classList.contains("expanded") && !folderEl._onFrame(e);
+    if (e.target !== this.viewport && e.target !== this.world && e.target.id !== "grid" && !folderInterior) return;
     if (this.store.edgeMode) {
       this.store.edgeMode = null;
       this.viewport.classList.remove("edge-mode");
@@ -798,6 +826,8 @@ class FabBoard extends HTMLElement {
   onWheel(e) {
     if (e.target.closest(".md-editor, .popup, #sidebar")) return;
     e.preventDefault();
+    // touchpads emit many small deltas: accumulate and only step a zoom level
+    // once |sum| hits 60; the sum resets after 150ms of wheel silence
     this.wheelAccum += e.deltaY;
     if (this.wheelTimer) clearTimeout(this.wheelTimer);
     this.wheelTimer = setTimeout(() => { this.wheelAccum = 0; }, 150);
@@ -877,8 +907,27 @@ class FabBoard extends HTMLElement {
 
   renderSidebar() {
     this.renderBoardSelect();
-    this.renderTypeList("obj");
-    this.renderTypeList("func");
+    this.renderTypeList("doc");
+    this.renderTypeList("edge");
+    this.renderEdgePanel();
+  }
+
+  renderEdgePanel() {
+    // selected edge -> retype chips in the sidebar
+    const panel = this.querySelector("#edge-panel");
+    const edge = this.store.edges[this.store.selectedEdgeId];
+    panel.hidden = !edge;
+    if (!edge) return;
+    const list = this.querySelector("#edge-sel-type-list");
+    list.innerHTML = "";
+    for (const [name, spec] of Object.entries(this.store.types.edge_types)) {
+      const chip = document.createElement("button");
+      chip.className = "type-chip" + (name === edge.edge_type ? " active" : "");
+      chip.textContent = name;
+      chip.style.setProperty("--nc", spec.color || "#fff");
+      chip.addEventListener("click", () => this.store.updateEdge(edge.id, name));
+      list.appendChild(chip);
+    }
   }
 
   async renderBoardSelect() {
@@ -924,6 +973,32 @@ class FabBoard extends HTMLElement {
     await this.initStore(newId);
   }
 
+  downloadBoard() {
+    // plain navigation: browser handles the zip save dialog with cookies attached
+    window.location.href = `boards/${encodeURIComponent(this.store.boardId)}/download`;
+  }
+
+  async uploadBoard(file) {
+    const send = (override) =>
+      fetch(`boards/upload${override ? "?override=1" : ""}`, {
+        method: "POST",
+        headers: {"Content-Type": "application/zip"},
+        body: file,
+      });
+    let r = await send(false);
+    if (r.status === 409) {
+      const detail = (await r.json()).detail;
+      if (!confirm(`${detail} — overwrite the current board?\n(the current state is saved as a version first; past versions are kept)`)) return;
+      r = await send(true);
+    }
+    if (!r.ok) {
+      const detail = (await r.json().catch(() => ({}))).detail || r.status;
+      return alert(`upload failed: ${detail}`);
+    }
+    const {id} = await r.json();
+    await this.initStore(id);
+  }
+
   async deleteBoard() {
     const id = this.store.boardId;
     if (!confirm(`delete board "${id}" and all its nodes permanently?`)) return;
@@ -943,7 +1018,7 @@ class FabBoard extends HTMLElement {
 
   renderTypeList(kind) {
     const list = this.querySelector(`#${kind}-type-list`);
-    const registry = kind === "func" ? this.store.types.func_types : this.store.types.obj_types;
+    const registry = kind === "edge" ? this.store.types.edge_types : this.store.types.doc_types;
     list.innerHTML = "";
     for (const [name, spec] of Object.entries(registry)) {
       const row = document.createElement("div");
@@ -979,7 +1054,7 @@ class FabBoard extends HTMLElement {
     const colorInput = this.querySelector(`#${kind}-type-color`);
     const name = nameInput.value.trim().replace(/\s+/g, "_");
     if (!name) return;
-    const registry = kind === "func" ? this.store.types.func_types : this.store.types.obj_types;
+    const registry = kind === "edge" ? this.store.types.edge_types : this.store.types.doc_types;
     if (registry[name]) return alert(`type ${name} exists`);
     registry[name] = {color: colorInput.value};
     nameInput.value = "";
@@ -1064,11 +1139,12 @@ class FabBoard extends HTMLElement {
       const row = document.createElement("div");
       row.className = "search-row" + (i === this.searchIdx ? " active" : "");
       row.textContent = `${n.title}  ·  ${n.kind}/${n.node_type}`;
-      row.addEventListener("click", () => {
+      row.addEventListener("click", async () => {
         this.hidePanel("search-panel");
-        this.expandAncestors(n.id);
+        await this.expandAncestors(n.id);
         this.selectNode(n.id);
-        this.centerCameraOn(n);
+        this.render();
+        this.centerCameraOn(this.store.nodes[n.id]);
       });
       results.appendChild(row);
     });

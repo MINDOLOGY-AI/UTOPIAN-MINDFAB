@@ -49,9 +49,10 @@ STARTUP_CMD = (
     "xset s off; xset -dpms; "
     # paint the root window so the screen is never pure black when no apps are visible
     "xsetroot -solid '#1a1a1a' & "
-    # x11 display vnc server display on monitor 99 ; don't shut off when user dcs ; no password; listen on all ports; listen port 5900 for vnc
+    # x11 display vnc server display on monitor 99 ; don't shut off when user dcs ; no password; listen on loopback only; listen port 5900 for vnc
     # shared: allow multiple simultaneous viewers — without it one zombie browser session blocks every later connection
-    "x11vnc -display :99 -forever -shared -nopw -listen 0.0.0.0 -rfbport 5900 & "
+    # localhost: only websockify (same container) may reach raw VNC — other containers on the bridge cannot watch/control this desktop
+    "x11vnc -display :99 -forever -shared -nopw -listen localhost -rfbport 5900 & "
     # serve /usr/share/novnc and listen on 6080, translates websocket to tcp to 5900
     "websockify --web /usr/share/novnc 6080 localhost:5900 & "
     # openbox: lightweight window manager (alt+Tab, alt+F4, window decorations)

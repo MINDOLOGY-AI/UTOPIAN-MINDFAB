@@ -1,7 +1,11 @@
+import io
+import json
+import shutil
+import zipfile
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -55,7 +59,7 @@ class BoardUpdate(BaseModel):
 
 class NodeCreate(BaseModel):
     title: str
-    kind: str  # "obj" | "func" | "folder"
+    kind: str  # "doc" | "folder"
     node_type: str = "doc"
     parent: str | None = None
     state: str | None = None
@@ -86,6 +90,7 @@ class ContentUpdate(BaseModel):
 class EdgeCreate(BaseModel):
     source: str
     target: str
+    edge_type: str
 
 
 # ---- boards ----
@@ -124,6 +129,129 @@ def remove_board(board_id: str, user: str = Depends(current_user)):
     return {"ok": True}
 
 
+# ---- board zip download / upload ----
+
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
+
+def _validate_meta(meta, user: str):
+    """Legality check for an uploaded board: structure, kinds, titles, refs, types."""
+    if not isinstance(meta, dict) or not isinstance(meta.get("nodes"), dict) or not isinstance(meta.get("edges"), dict):
+        raise ValueError("meta.json must be an object with nodes and edges")
+    types = storage.load_types(user)
+    titles = set()
+    for nid, n in meta["nodes"].items():
+        if not isinstance(n, dict) or n.get("id") != nid:
+            raise ValueError(f"node id mismatch or malformed node: {nid}")
+        kind = n.get("kind")
+        if kind not in ("doc", "folder"):
+            raise ValueError(f"bad kind for node {nid}: {kind!r}")
+        storage.validate_title(str(n.get("title", "")))
+        if n["title"] in titles:
+            raise ValueError(f"duplicate title: {n['title']!r}")
+        titles.add(n["title"])
+        if n.get("state") is not None and n["state"] not in ("todo", "doing", "done"):
+            raise ValueError(f"bad state for {n['title']!r}")
+        if kind == "doc" and n.get("node_type") not in types["doc_types"]:
+            raise ValueError(f"unknown doc type: {n.get('node_type')!r}")
+        parent = n.get("parent")
+        if parent is not None:
+            if parent not in meta["nodes"]:
+                raise ValueError(f"parent not found for {n['title']!r}")
+            if meta["nodes"][parent]["kind"] != "folder":
+                raise ValueError(f"parent of {n['title']!r} is not a folder")
+    for eid, e in meta["edges"].items():
+        if e.get("source") not in meta["nodes"] or e.get("target") not in meta["nodes"]:
+            raise ValueError(f"edge {eid} references a missing node")
+        if e.get("edge_type") not in types["edge_types"]:
+            raise ValueError(f"unknown edge type: {e.get('edge_type')!r}")
+        if meta["nodes"][e["source"]]["kind"] == "folder" or meta["nodes"][e["target"]]["kind"] == "folder":
+            raise ValueError("edges cannot touch folders")
+
+
+@app.get("/boards/{board_id}/download")
+def download_board(board_id: str, user: str = Depends(current_user)):
+    board_id = validate_board_id(board_id)
+    d = storage._board_dir(user, board_id)
+    if not d.exists():
+        raise HTTPException(status_code=404, detail="board not found")
+    meta = json.loads((d / "meta.json").read_text())
+    meta["board"] = board_id  # the name travels inside meta.json
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("meta.json", json.dumps(meta, indent=2))
+        tree = d / "tree"
+        if tree.exists():
+            for p in sorted(tree.rglob("*")):
+                if p.is_file():
+                    z.write(p, f"tree/{p.relative_to(tree)}")
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{board_id}.zip"'},
+    )
+
+
+@app.post("/boards/upload")
+async def upload_board(request: Request, user: str = Depends(current_user)):
+    # raw zip body (no multipart) — the board name travels inside meta.json
+    # ('board' field), or ?name= for foreign zips
+    data = await request.body()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="zip too large (max 50MB)")
+    override = request.query_params.get("override") == "1"
+    try:
+        z = zipfile.ZipFile(io.BytesIO(data))
+        names = z.namelist()
+        # tolerate a single wrapping directory around the payload
+        prefix = ""
+        if "meta.json" not in names:
+            candidates = [n for n in names if n.endswith("/meta.json") and n.count("/") == 1]
+            if len(candidates) != 1:
+                raise ValueError("zip must contain meta.json")
+            prefix = candidates[0][:-len("meta.json")]
+        meta = json.loads(z.read(prefix + "meta.json"))
+        board_name = meta.get("board")  # name travels inside meta.json
+        if not board_name and prefix + "board.json" in names:
+            # back-compat with zips from the manifest experiment
+            board_name = json.loads(z.read(prefix + "board.json")).get("name")
+        if not board_name:
+            board_name = request.query_params.get("name", "board")
+        board_id = validate_board_id(board_name)
+        _validate_meta(meta, user)
+    except zipfile.BadZipFile:
+        raise HTTPException(status_code=400, detail="not a zip file")
+    except (ValueError, KeyError, json.JSONDecodeError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    replacing = board_id in storage.list_boards(user)
+    if replacing and not override:
+        return JSONResponse(status_code=409, content={"detail": f"board '{board_id}' already exists"})
+    if replacing:
+        # never wipe versions: snapshot the pre-upload state as the newest
+        # version, THEN overwrite the live board. past versions stay untouched.
+        storage.save_version(user, board_id)
+    else:
+        storage.init_board(user, board_id)
+
+    d = storage._board_dir(user, board_id)
+    meta["board"] = board_id
+    (d / "meta.json").write_text(json.dumps(meta, indent=2))
+    tree = d / "tree"
+    if tree.exists():
+        shutil.rmtree(tree)
+    for name in names:
+        if not name.startswith(prefix + "tree/") or name.endswith("/"):
+            continue
+        rel = name[len(prefix):]
+        dest = (d / rel).resolve()
+        if not dest.is_relative_to(d.resolve()):  # cybersec: zip slip
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(z.read(name))
+    return {"id": board_id}
+
+
 # ---- graph ----
 
 
@@ -152,7 +280,8 @@ def update_node(board_id: str, node_id: str, payload: NodeUpdate, user: str = De
     updates = payload.model_dump(exclude_unset=True)
     node = meta["nodes"][node_id]
 
-    # geometry/expand/color/ref go through graph_actions' move/update paths where applicable
+    # x/y/parent go through graph_actions' move path; title/node_type/state through
+    # update_node (they validate + sync content paths); expand/color/ref are plain fields
     if any(k in updates for k in ("x", "y", "parent")):
         node = ga.move_node(
             user, board_id, node_id,
@@ -187,7 +316,7 @@ def get_content(board_id: str, node_id: str, user: str = Depends(current_user)):
     meta = storage.load_meta(user, board_id)
     if node_id not in meta["nodes"]:
         raise HTTPException(status_code=404, detail="node not found")
-    return {"content": storage.read_content(user, board_id, node_id)}
+    return {"content": storage.read_content(user, board_id, meta, node_id)}
 
 
 @app.put("/boards/{board_id}/nodes/{node_id}/content")
@@ -198,7 +327,7 @@ def put_content(board_id: str, node_id: str, payload: ContentUpdate, user: str =
         raise HTTPException(status_code=404, detail="node not found")
     if len(payload.content) > MAX_CONTENT_CHARS:
         raise HTTPException(status_code=413, detail=f"content too large (max {MAX_CONTENT_CHARS} chars)")
-    storage.write_content(user, board_id, node_id, payload.content)
+    storage.write_content(user, board_id, meta, node_id, payload.content)
     return {"ok": True}
 
 
@@ -208,7 +337,13 @@ def put_content(board_id: str, node_id: str, payload: ContentUpdate, user: str =
 @app.post("/boards/{board_id}/edges")
 def create_edge(board_id: str, payload: EdgeCreate, user: str = Depends(current_user)):
     board_id = validate_board_id(board_id)
-    return ga.link(user, board_id, payload.source, payload.target)
+    return ga.link(user, board_id, payload.source, payload.target, payload.edge_type)
+
+
+@app.put("/boards/{board_id}/edges/{edge_id}")
+def update_edge(board_id: str, edge_id: str, payload: dict, user: str = Depends(current_user)):
+    board_id = validate_board_id(board_id)
+    return ga.retype_edge(user, board_id, edge_id, payload["edge_type"])
 
 
 @app.delete("/boards/{board_id}/edges/{edge_id}")
@@ -228,7 +363,7 @@ def get_types(user: str = Depends(current_user)):
 @app.put("/types")
 def put_types(payload: dict, user: str = Depends(current_user)):
     # cybersec: type names become CSS classes/labels only — but keep them sane anyway
-    for section in ("obj_types", "func_types"):
+    for section in ("doc_types", "edge_types"):
         if section in payload:
             for name, spec in payload[section].items():
                 if not name or "/" in name or "\\" in name:

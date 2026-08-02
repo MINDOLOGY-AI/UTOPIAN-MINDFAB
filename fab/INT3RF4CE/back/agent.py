@@ -1,10 +1,12 @@
 import asyncio
 import json
 import logging
+import time
 import traceback
 from pathlib import Path
 
 from fab.TH0UGHTGR4PH.back import graph_actions
+from fab.INT3RF4CE.back import secrets as secretsmod
 from fab.INT3RF4CE.back.context import Context
 from fab.INT3RF4CE.back.model import Model
 from fab.INT3RF4CE.back.container import Container
@@ -27,18 +29,22 @@ class Agent:
         7. check for summarization
     """
 
-    # commands that produce their own perception output as the tool_result
-    PERCEPTION_TOOLS = {"LOOK", "TERM", "READ"}
     # commands that are keyboard input (trigger auto TERM if no TERM)
     KEYBOARD_TOOLS = {"TYPE", "KEY"}
     # commands that are mouse input (trigger auto LOOK if no LOOK)
     MOUSE_TOOLS = {"MOVE", "LCLICK", "RCLICK", "DCLICK",
                    "LDOWN", "LUP", "RDOWN", "RUP", "SCROLLUP", "SCROLLDOWN"}
     # graph commands (host-side, access-enforced against the agent's graph.json)
-    GRAPH_TOOLS = {"CHECK_GRAPH_ACCESS", "GREAD", "GUPDATE", "GEDIT"}
+    GRAPH_TOOLS = {"CHECK_GRAPH_ACCESS", "GREAD", "GUPDATE", "GEDIT", "GCREATE", "GMOVE", "GLINK", "GMAP", "GDESTROY"}
+    # chat commands (host-side, membership-enforced against chat/channels.json)
+    CHAT_TOOLS = {"CHAT_SEND", "CHAT_READ"}
+    # secrets commands (host-side, grant-enforced against config/specific/{agent}/secrets.json)
+    SECRET_TOOLS = {"READ_SECRETS"}
     DOCKER_TOOLS = {"DOCKER_START", "DOCKER_STOP"}
+    # STOP: the agent halts itself permanently (only the user can restart it)
+    SELF_TOOLS = {"STOP"}
     # in chat mode only docker control + graph tools are advertised — no computer use
-    CHAT_MODE_TOOLS = DOCKER_TOOLS | GRAPH_TOOLS
+    CHAT_MODE_TOOLS = DOCKER_TOOLS | GRAPH_TOOLS | SELF_TOOLS | CHAT_TOOLS | SECRET_TOOLS
 
     def __init__(self, user: str, name: str, model: Model, use_container: bool = True,
                  novnc_port: int = 6080, chat_mode: bool = True):
@@ -56,6 +62,10 @@ class Agent:
 
         # optional status callback: called with {"phase": "api_call", "state": "started"|"ended"}
         self.on_status: callable | None = None
+        # set when the agent calls STOP: blocks self-restart until the user starts it
+        self.stopped = False
+        # server-side hook: called when the agent STOPs itself
+        self.on_stop: callable | None = None
 
     def _notify(self, phase: str, state: str):
         if self.on_status:
@@ -162,6 +172,23 @@ class Agent:
         if name.startswith("G") or name == "CHECK_GRAPH_ACCESS":
             return self._graph_dispatch(name, args), True
 
+        if name == "STOP":
+            self.stopped = True
+            if self.on_stop:
+                self.on_stop()
+            return ("[STOP] you are now stopped. you cannot resume on your own — "
+                    "only the user can start you again. goodbye."), True
+
+        if name.startswith("CHAT_"):
+            return self._chat_dispatch(name, args), True
+
+        if name == "READ_SECRETS":
+            granted = secretsmod.granted(self.user, self.name)
+            if not granted:
+                return ("[READ_SECRETS] no secrets granted — the user grants secrets to you "
+                        "in your settings (secrets section)"), True
+            return "[READ_SECRETS]\n" + json.dumps(granted, indent=2), True
+
         assert self.container
 
         if name == "MOVE":
@@ -229,6 +256,9 @@ class Agent:
         """
         assert self.container
         if name == "DOCKER_START":
+            if self.stopped:
+                return ("[STOPPED] you stopped yourself with STOP earlier — you cannot resume on your own. "
+                        "only the user can start you again."), True
             if not self.container._running:
                 await asyncio.to_thread(self.container.start)
                 self.container._running = True
@@ -249,7 +279,7 @@ class Agent:
         return "[DOCKER_STOP] container stopped. you are back in chat mode.", True
 
     def _graph_settings(self) -> dict | None:
-        """Read this agent's thoughtgraph access: {board, prompt_docs, read, write} or None."""
+        """Read this agent's thoughtgraph access: {prompt_docs, read, write, folders} or None."""
         path = DATA_DIR / self.user / "config" / "specific" / self.name / "graph.json"
         if not path.exists():
             return None
@@ -264,71 +294,138 @@ class Agent:
             return f"[{name}] no thoughtgraph access configured — the user sets it in your context panel on the board"
         read_entries = settings.get("read", [])
         write_entries = settings.get("write", [])
+        folder_entries = settings.get("folders", [])
         readable = read_entries + write_entries  # write access implies read access
+        scope = {(e["board"], e["id"]) for e in folder_entries}
 
-        def entry_of(ref: str, entries: list) -> dict | None:
+        _metas = {}
+
+        def meta_of(board):
+            if board not in _metas:
+                _metas[board] = graph_actions.storage.load_meta(self.user, board)
+            return _metas[board]
+
+        def in_scope(board, nid):
+            # node sits inside a total-control folder (or IS one)
+            seen = set()
+            cur = nid
+            while cur and cur not in seen:
+                seen.add(cur)
+                if (board, cur) in scope:
+                    return True
+                node = meta_of(board)["nodes"].get(cur)
+                cur = node["parent"] if node else None
+            return False
+
+        def entry_of(ref, entries):
             # find the {board, id} entry matching an id or a unique title
             for e in entries:
                 if e.get("id") == ref:
-                    return e
+                    return (e["board"], e["id"])
             matches = []
             for e in entries:
                 try:
-                    meta = graph_actions.storage.load_meta(self.user, e["board"])
+                    node = meta_of(e["board"])["nodes"].get(e["id"])
                 except Exception:
                     continue
-                node = meta["nodes"].get(e["id"])
                 if node and node["title"] == ref:
-                    matches.append(e)
-            if len(matches) == 1:
-                return matches[0]
+                    matches.append((e["board"], e["id"]))
             if len(matches) > 1:
                 raise ValueError(f"ambiguous title {ref!r} — use the id")
-            return None
+            return matches[0] if matches else None
+
+        def resolve(ref, write=False):
+            # resolve an id or unique title to (board, id) within the agent's access
+            e = entry_of(ref, write_entries)
+            if e:
+                return e
+            if not write:
+                e = entry_of(ref, readable)
+                if e:
+                    return e
+            return resolve_in_folders(ref)
+
+        def resolve_in_folders(ref):
+            # folder total control only: any node inside a controlled folder
+            matches = []
+            for board in {b for b, _ in scope}:
+                meta = meta_of(board)
+                if ref in meta["nodes"] and in_scope(board, ref):
+                    matches.append((board, ref))
+                    continue
+                for nid, node in meta["nodes"].items():
+                    if node["title"] == ref and in_scope(board, nid):
+                        matches.append((board, nid))
+            matches = list(dict.fromkeys(matches))
+            if len(matches) > 1:
+                raise ValueError(f"ambiguous title {ref!r} — use the id")
+            return matches[0] if matches else None
+
+        def names(entries):
+            out = []
+            for e in entries:
+                try:
+                    node = meta_of(e["board"])["nodes"].get(e["id"])
+                    if node:
+                        out.append({"board": e["board"], "id": e["id"],
+                                    "title": node["title"], "node_type": node["node_type"],
+                                    "state": node["state"]})
+                except Exception:
+                    continue
+            return out
 
         try:
             if name == "CHECK_GRAPH_ACCESS":
-                def names(entries):
-                    out = []
-                    for e in entries:
-                        try:
-                            meta = graph_actions.storage.load_meta(self.user, e["board"])
-                            node = meta["nodes"].get(e["id"])
-                            if node:
-                                out.append({"board": e["board"], "id": e["id"],
-                                            "title": node["title"], "node_type": node["node_type"],
-                                            "state": node["state"]})
-                        except Exception:
-                            continue
-                    return out
                 return "[CHECK_GRAPH_ACCESS]\n" + json.dumps({
                     "read": names(readable),
                     "write": names(write_entries),
+                    "folder_total_control": names(folder_entries),
                 }, indent=2)
 
             if name == "GREAD":
-                e = entry_of(args["node"], readable)
+                e = resolve(args["node"])
                 if not e:
                     return "[GREAD ERROR] no read access to that node — CHECK_GRAPH_ACCESS shows your access"
-                return f"[GREAD]\n{json.dumps(graph_actions.read_node(self.user, e['board'], e['id']), indent=2)}"
+                return f"[GREAD]\n{json.dumps(graph_actions.read_node(self.user, e[0], e[1]), indent=2)}"
 
             if name == "GUPDATE":
-                e = entry_of(args["node"], write_entries)
+                e = resolve(args["node"], write=True)
                 if not e:
                     return "[GUPDATE ERROR] no write access to that node — CHECK_GRAPH_ACCESS shows your access"
                 node = graph_actions.update_node(
-                    self.user, e["board"], e["id"],
+                    self.user, e[0], e[1],
                     title=args.get("title"),
+                    node_type=args.get("node_type"),
                     state=args["state"] if "state" in args else ...,
                     content=args.get("content"),
+                    expanded=args.get("expanded"),
                 )
-                return f"[GUPDATE] '{node['title']}' (id {e['id']}) updated"
+                return f"[GUPDATE] '{node['title']}' (id {e[1]}) updated"
+
+            if name == "GMAP":
+                ref = args.get("folder")
+                if ref:
+                    e = resolve(ref)
+                    if not e:
+                        return "[GMAP ERROR] no access to that folder — CHECK_GRAPH_ACCESS shows your access"
+                    node = meta_of(e[0])["nodes"].get(e[1])
+                    if not node or node["kind"] != "folder":
+                        return "[GMAP ERROR] map target must be a folder"
+                    return f"[GMAP]\n{graph_actions.ascii_map(self.user, e[0], e[1])}"
+                # root map: any board the agent has folder access to (default: the first)
+                board = args.get("board")
+                if not board:
+                    boards = sorted({b for b, _ in scope})
+                    if not boards:
+                        return "[GMAP ERROR] no folder access — the user grants it in your context panel"
+                    board = boards[0]
+                return f"[GMAP]\n{graph_actions.ascii_map(self.user, board)}"
 
             if name == "GEDIT":
-                e = entry_of(args["node"], write_entries)
+                e = resolve(args["node"], write=True)
                 if not e:
                     return "[GEDIT ERROR] no write access to that node — CHECK_GRAPH_ACCESS shows your access"
-                content = graph_actions.storage.read_content(self.user, e["board"], e["id"])
+                content = graph_actions.storage.read_content(self.user, e[0], meta_of(e[0]), e[1])
                 old, new, which = args["old"], args["new"], str(args.get("which", "0"))
                 count = content.count(old)
                 if count == 0:
@@ -343,11 +440,102 @@ class Agent:
                     for _ in range(n + 1):
                         idx = content.index(old, idx + 1)
                     result = content[:idx] + new + content[idx + len(old):]
-                graph_actions.storage.write_content(self.user, e["board"], e["id"], result)
+                graph_actions.storage.write_content(self.user, e[0], meta_of(e[0]), e[1], result)
                 return "[GEDIT] done"
+
+            if name == "GCREATE":
+                parent_ref = args.get("parent")
+                if not parent_ref:
+                    return "[GCREATE ERROR] parent folder required — nodes are created inside your total-control folders"
+                pe = resolve(parent_ref, write=True)
+                if not pe:
+                    return "[GCREATE ERROR] parent must be a folder inside your access — CHECK_GRAPH_ACCESS shows it"
+                parent_node = meta_of(pe[0])["nodes"].get(pe[1])
+                if not parent_node or parent_node["kind"] != "folder":
+                    return "[GCREATE ERROR] parent must be a folder"
+                node = graph_actions.create_node(
+                    self.user, pe[0], args["title"], args["kind"], args["node_type"],
+                    parent=pe[1], state=args.get("state"),
+                )
+                return f"[GCREATE] created '{node['title']}' (id {node['id']}, kind {node['kind']}) in '{parent_node['title']}'"
+
+            if name == "GMOVE":
+                e = resolve(args["node"], write=True)
+                if not e:
+                    return "[GMOVE ERROR] no write access to that node — CHECK_GRAPH_ACCESS shows your access"
+                parent = ...
+                if "parent" in args:
+                    pe = resolve(args["parent"], write=True) if args["parent"] else None
+                    if not pe or pe[0] != e[0]:
+                        return "[GMOVE ERROR] new parent must be a folder inside your access on the same board"
+                    parent_node = meta_of(pe[0])["nodes"].get(pe[1])
+                    if not parent_node or parent_node["kind"] != "folder":
+                        return "[GMOVE ERROR] parent must be a folder"
+                    parent = pe[1]
+                node = graph_actions.move_node(
+                    self.user, e[0], e[1],
+                    x=args.get("x"), y=args.get("y"), parent=parent,
+                )
+                return f"[GMOVE] '{node['title']}' (id {e[1]}) moved"
+
+            if name == "GLINK":
+                if not args.get("edge_type"):
+                    return "[GLINK ERROR] edge_type required (support|reject|inference|training)"
+                se = resolve(args["source"], write=True)
+                te = resolve(args["target"], write=True)
+                if not se or not te:
+                    return "[GLINK ERROR] both nodes must be in your write access or total-control folders"
+                if se[0] != te[0]:
+                    return "[GLINK ERROR] both nodes must be on the same board"
+                edge = graph_actions.link(self.user, se[0], se[1], te[1], args["edge_type"])
+                return f"[GLINK] linked -[{edge['edge_type']}]-> (edge id {edge['id']})"
+
+            if name == "GDESTROY":
+                # delete is total-control only — write-listed nodes don't qualify
+                e = resolve_in_folders(args["node"])
+                if not e:
+                    return "[GDESTROY ERROR] delete needs folder total control — the node must be inside one of your folders"
+                res = graph_actions.destroy_node(self.user, e[0], e[1])
+                return f"[GDESTROY] deleted {len(res['deleted'])} node(s)"
         except ValueError as err:
             return f"[{name} ERROR] {err}"
         return f"[{name} ERROR] unknown graph command"
+
+    def _chat_dispatch(self, name: str, args: dict) -> str:
+        """CHAT_SEND / CHAT_READ — membership-enforced channel messaging."""
+        from fab.INT3RF4CE.back import chat as chatmod
+        try:
+            if name == "CHAT_SEND":
+                cid = chatmod.resolve_channel(self.user, args["channel"], self.name)
+                text = args.get("text")
+                file_arg = args.get("file")
+                if not text and not file_arg:
+                    return "[CHAT_SEND ERROR] text or file required"
+                file_ref = None
+                if file_arg:
+                    p = self._workspace_path(file_arg)  # confined to own workspace
+                    if not p.is_file():
+                        return f"[CHAT_SEND ERROR] not a file in your workspace: {file_arg}"
+                    file_ref = chatmod.store_file(self.user, cid, p.name, p.read_bytes())
+                msg = chatmod.append_message(self.user, cid, self.name, "file" if file_ref else "text",
+                                             text=text, file=file_ref)
+                ch = chatmod.channel_of(self.user, cid)
+                return f"[CHAT_SEND] sent to #{ch['name']} ({cid})"
+            if name == "CHAT_READ":
+                cid = chatmod.resolve_channel(self.user, args["channel"], self.name)
+                chatmod.mark_read(self.user, self.name, cid, time.time())
+                msgs = chatmod.read_messages(self.user, cid, limit=int(args.get("limit", 20)))
+                ch = chatmod.channel_of(self.user, cid)
+                lines = [f"[CHAT_READ #{ch['name']} — {len(msgs)} messages]"]
+                for m in msgs:
+                    body = m.get("text", "")
+                    if m["type"] == "file":
+                        body = f"{body} [file: {m['file']['name']} ({m['file']['size']} bytes)]".strip()
+                    lines.append(f"  {m['sender']}: {body}")
+                return "\n".join(lines)
+        except (ValueError, KeyError) as err:
+            return f"[{name} ERROR] {err}"
+        return f"[{name} ERROR] unknown chat command"
 
     def _workspace_path(self, file: str) -> Path:
         """Resolve a file argument inside the workspace, rejecting anything that escapes it."""
