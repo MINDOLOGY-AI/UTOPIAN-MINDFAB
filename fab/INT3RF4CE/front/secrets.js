@@ -6,7 +6,7 @@
 let ws = null;
 let secretItems = []; // [{name, cat}]
 
-const CAT_IDS = { llm: 'cat-llm', git: 'cat-git', gitrepo: 'cat-gitrepo', compute: 'cat-compute', account: 'cat-account' };
+const CAT_IDS = { llm: 'cat-llm', git: 'cat-git', gitrepo: 'cat-gitrepo', computerent: 'cat-computerent', compute: 'cat-compute', account: 'cat-account' };
 
 function connect() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -131,8 +131,9 @@ for (const btn of document.querySelectorAll('.add-secret-btn')) {
             document.getElementById('new-git-key').value = '';
             return;
         }
-        const nameEl = document.getElementById(cat === 'llm' ? 'new-llm-name' : `new-${cat}-name`);
-        const valueEl = document.getElementById(cat === 'llm' ? 'new-llm-value' : `new-${cat}-value`);
+        // every non-git add row follows the new-{cat}-name / new-{cat}-value id pattern
+        const nameEl = document.getElementById(`new-${cat}-name`);
+        const valueEl = document.getElementById(`new-${cat}-value`);
         const name = nameEl.value.trim();
         const value = valueEl.value;
         if (!name || !value) return;

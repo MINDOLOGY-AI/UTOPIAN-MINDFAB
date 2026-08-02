@@ -638,6 +638,26 @@ def test_rest_ws():
         chatmod.delete_channel(WEB_USER_A, "dm-agent_d")
         check("explicit channel delete", "dm-agent_d" not in chatmod.load_channels(WEB_USER_A))
 
+        # ...but a deleted dm auto-recreates on get_messages (the agent view expects one)
+        chatmod.delete_channel(WEB_USER_A, "dm-agent_c")
+        async def ws_dm_recreate():
+            cookie = a.cookies.get("mindology_session")
+            headers = [("Cookie", f"mindology_session={cookie}"), ("Origin", BASE)]
+            async with websockets.connect(f"ws://127.0.0.1:{TEST_PORT}/INT3RF4CE/ws", additional_headers=headers) as ws:
+                await ws.recv()
+                await ws.send(json.dumps({"cmd": "get_messages", "channel": "dm-agent_c"}))
+                for _ in range(10):
+                    m = json.loads(await asyncio.wait_for(ws.recv(), 5))
+                    if m.get("type") == "messages":
+                        return m
+                    if m.get("type") == "error":
+                        return m
+                return None
+
+        dm_res = asyncio.run(ws_dm_recreate())
+        check("deleted dm get_messages does not error", dm_res and dm_res.get("type") == "messages")
+        check("deleted dm auto-recreated", "dm-agent_c" in chatmod.load_channels(WEB_USER_A))
+
         # WS: create agent (no docker side effects) + graph settings roundtrip
         async def ws_flow():
             cookie = a.cookies.get("mindology_session")

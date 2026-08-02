@@ -4,11 +4,12 @@ Layout (per user):
   DATA_DIR / {user} / secrets.json                            — {"name": {"value": ..., "cat": ...}}, chmod 600
   DATA_DIR / {user} / config / specific / {agent} / secrets.json — {"grants": ["name", ...]}
 
-Categories: "llm" (api keys the backend hard-resolves by name), "compute" (ssh
-targets), "account" (github tokens etc.), "git" (forced {"account", "key"} pairs:
+Categories: "llm" (api keys the backend hard-resolves by name), "computerent"
+(gpu rental api keys — hardset names like llm), "compute" (ssh targets),
+"account" (github tokens etc.), "git" (forced {"account", "key"} pairs:
 a github identity + its ssh private key), "gitrepo" (repo urls — not actually
 secret, just kept here so everything git lives in one place).
-Only llm names are validated (server-side, against the registered providers).
+llm and computerent names are validated server-side — the rest are free-form.
 
 Two consumers, one store:
   backend code (model providers, etc.) resolves keys by name via resolve() — the
@@ -25,7 +26,10 @@ from fab.INT3RF4CE.back.config import DATA_DIR
 # cybersec: secret names are shown in UIs and used as identifiers — keep them plain
 KEY_RE = re.compile(r"^[a-zA-Z0-9_.-]{1,64}$")
 
-CATEGORIES = ("llm", "compute", "account", "git", "gitrepo")
+CATEGORIES = ("llm", "computerent", "compute", "account", "git", "gitrepo")
+
+# gpu rental providers — hardset like llm names (only autodl for now)
+RENT_PROVIDERS = ("autodl",)
 
 
 def _store_path(user: str) -> Path:

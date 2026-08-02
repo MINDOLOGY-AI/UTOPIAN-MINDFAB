@@ -6,9 +6,9 @@
     <title>INT3RF4CE</title>
     <base href="/INT3RF4CE/">
     <link rel="stylesheet" href="/components/TechnoParadisalTheme.css">
-    <link rel="stylesheet" href="/components/AuthBox/AuthBox.css?v=1">
+    <link rel="stylesheet" href="/components/AuthBox/AuthBox.css?v=2">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
-    <link rel="stylesheet" href="style.css?v=19">
+    <link rel="stylesheet" href="style.css?v=22">
 </head>
 <body>
     <div class="container">
@@ -36,10 +36,8 @@
             <div class="mid-bot">
                 <button id="docker-btn" disabled title="docker">▶ docker</button>
                 <button id="model-btn" disabled title="model">▶ model</button>
-                <button id="docker-save-btn" disabled>docker save</button>
                 <button id="settings-btn">settings</button>
-                <a id="secrets-btn" href="/INT3RF4CE/secrets/" title="secrets store">secrets</a>
-                <button id="chat-mode-btn">chat</button>
+                <button id="chat-mode-btn" title="single-turn mode: one reply per message, no work loop">single turn</button>
             </div>
         </div>
 
@@ -75,7 +73,7 @@
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script src="/components/MarkdownEditor/markdown-it-katex.js"></script>
     <script src="/components/MarkdownEditor/markdown-render.js"></script>
-    <script type="module" src="/components/AuthBox/AuthBox.js"></script>
-    <script src="app.js?v=12"></script>
+    <script type="module" src="/components/AuthBox/AuthBox.js?v=2"></script>
+    <script src="app.js?v=15"></script>
 </body>
 </html>

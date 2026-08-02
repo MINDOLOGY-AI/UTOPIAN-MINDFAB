@@ -92,10 +92,15 @@ function handleMessage(msg) {
 
         case 'agents':
             agents = msg.agents;
-            // preselect agent from ?agent= query param (used by F4B teleport links)
+            // preselect agent from ?agent= query param (used by F4B teleport links),
+            // otherwise just select the first agent so the page is never empty
             if (!selectedAgent) {
                 const want = new URLSearchParams(window.location.search).get('agent');
                 if (want && agents[want]) selectAgent(want);
+                else {
+                    const first = Object.keys(agents)[0];
+                    if (first) selectAgent(first);
+                }
             }
             renderAgentList();
             updateButtons();
@@ -104,7 +109,7 @@ function handleMessage(msg) {
                 modelSelect.value = agents[selectedAgent].model || 'kimi-k3';
                 // sync chat button with the agent's persisted mode
                 chatMode = !!agents[selectedAgent].chat_mode;
-                chatModeBtn.classList.toggle('active', chatMode);
+                chatModeBtn.classList.toggle('on', chatMode);
             }
             break;
 
@@ -216,7 +221,7 @@ function selectAgent(name) {
     if (agents[name]) {
         modelSelect.value = agents[name].model || 'kimi-k3';
         chatMode = !!agents[name].chat_mode;
-        chatModeBtn.classList.toggle('active', chatMode);
+        chatModeBtn.classList.toggle('on', chatMode);
     }
 }
 
@@ -267,12 +272,14 @@ function updateButtons() {
 
     dockerBtn.disabled = !hasSelection;
     modelBtn.disabled = !hasSelection;
-    // both buttons mirror backend state (agents broadcast): docker = container,
-    // model = work loop. click toggles.
-    dockerBtn.textContent = agent?.container_on ? '■ docker' : '▶ docker';
+    // both buttons mirror backend state (agents broadcast): grey play = off,
+    // purple pause = on. click toggles.
+    dockerBtn.textContent = agent?.container_on ? '⏸ docker' : '▶ docker';
     dockerBtn.title = agent?.container_on ? 'stop the docker container' : 'start the docker container';
+    dockerBtn.classList.toggle('on', !!agent?.container_on);
     modelBtn.textContent = agent?.working ? '⏸ model' : '▶ model';
-    modelBtn.title = agent?.working ? 'stop the model (work loop)' : 'start the model (work loop)';
+    modelBtn.title = agent?.working ? 'stop the model' : 'start the model';
+    modelBtn.classList.toggle('on', !!agent?.working);
     chatInput.disabled = !hasSelection;
 
     updateStatusBar();
@@ -356,7 +363,7 @@ function renderDmMessage(m) {
 function renderCtxBlock(role, b) {
     if (role === 'user') {
         if (b.type === 'text') {
-            addTextBlock('user', 'user', b.text || '');
+            addTextBlock('user', 'you', b.text || '');
         } else if (b.type === 'image') {
             const src = b.source || {};
             const img = document.createElement('img');
@@ -393,6 +400,19 @@ function renderCtxBlock(role, b) {
             }
         } else if (b.type === 'tool_use') {
             const name = b.name || 'tool';
+            // CHAT_SEND to a non-DM channel isn't covered by the dm stream —
+            // show it as a normal text block labeled with the channel it went to
+            if (name === 'CHAT_SEND') {
+                const args = b.arguments || {};
+                const ch = args.channel || '';
+                if (ch !== `dm-${selectedAgent}` && ch !== selectedAgent) {
+                    const text = args.text || (args.file ? `↓ file: ${args.file}` : '');
+                    if (text) {
+                        addTextBlock('assistant', `#${ch}`, text);
+                        return;
+                    }
+                }
+            }
             const args = JSON.stringify(b.arguments || {});
             addThinBlock('command', name, `${name} ${args}`);
         }
@@ -484,7 +504,7 @@ document.addEventListener('click', (e) => {
 chatModeBtn.onclick = () => {
     if (!selectedAgent) return;
     chatMode = !chatMode;
-    chatModeBtn.classList.toggle('active', chatMode);
+    chatModeBtn.classList.toggle('on', chatMode);
     send({ cmd: 'chat_mode', name: selectedAgent, enabled: chatMode });
 };
 

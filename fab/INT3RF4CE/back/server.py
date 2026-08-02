@@ -144,6 +144,9 @@ async def upload_chat_file(channel_id: str, request: Request):
     user = user_for_token(request.cookies.get(COOKIE_NAME))
     if not user:
         raise HTTPException(status_code=401, detail="login required")
+    # a deleted dm auto-recreates (see the get_messages ws command)
+    if channel_id.startswith("dm-") and channel_id[3:] in users.get(user, {}):
+        chatmod.ensure_dm(user, channel_id[3:])
     if not chatmod.is_member(user, channel_id, chatmod.USER_SENDER):
         raise HTTPException(status_code=404, detail="channel not found")
     data = await request.body()
@@ -488,6 +491,9 @@ async def websocket_endpoint(ws: WebSocket):
 
             elif cmd == "get_messages":
                 channel = msg.get("channel")
+                # a deleted dm auto-recreates: the agent view always expects one
+                if isinstance(channel, str) and channel.startswith("dm-") and channel[3:] in user_agents:
+                    chatmod.ensure_dm(user, channel[3:])
                 if not chatmod.is_member(user, channel, chatmod.USER_SENDER):
                     await ws.send_text(json.dumps({"type": "error", "msg": "channel not found"}))
                     continue
@@ -497,6 +503,8 @@ async def websocket_endpoint(ws: WebSocket):
             elif cmd == "chat_send":
                 channel = msg.get("channel")
                 text = msg.get("text", "")
+                if isinstance(channel, str) and channel.startswith("dm-") and channel[3:] in user_agents:
+                    chatmod.ensure_dm(user, channel[3:])
                 if not chatmod.is_member(user, channel, chatmod.USER_SENDER):
                     await ws.send_text(json.dumps({"type": "error", "msg": "channel not found"}))
                     continue
@@ -512,16 +520,15 @@ async def websocket_endpoint(ws: WebSocket):
                     continue
 
                 info = user_agents[name]
-                # start is an explicit MODEL request: work loop only, no container
-                # boot (the docker button does that). also the one way back from
-                # an agent's own STOP.
-                info["agent"].chat_mode = False
+                # start = the model is ON. in single-turn mode it answers one turn
+                # per message; otherwise the work loop runs turns back-to-back.
+                # also the one way back from an agent's own STOP.
                 info["agent"].stopped = False
-
                 if not info["working"]:
                     info["working"] = True
-                    info["work_loop"] = asyncio.create_task(work_loop(user, name, info))
-                    logger.info("[start] %s/%s work loop created", user, name)
+                    if not info["agent"].chat_mode:
+                        info["work_loop"] = asyncio.create_task(work_loop(user, name, info))
+                        logger.info("[start] %s/%s work loop created", user, name)
 
                 save_agents(user)
                 await broadcast(user, {"type": "agents", "agents": get_agents_info(user)})
@@ -685,26 +692,15 @@ async def websocket_endpoint(ws: WebSocket):
                     continue
 
                 info = user_agents[name]
+                # single turn is a MODE, not an on/off switch: it only changes how a
+                # running model answers (one turn per message vs continuous work loop)
                 info["agent"].chat_mode = enabled
                 if enabled:
-                    if info["working"]:
-                        info["working"] = False
-                        if info.get("work_loop") and not info["work_loop"].done():
-                            info["work_loop"].cancel()
-                            info["work_loop"] = None
-                    agent = info["agent"]
-                    for text in info.get("pending_chat", []):
-                        agent.context.add_user_text(text)
-                    info["pending_chat"] = []
-                    await broadcast(user, {"type": "context", "name": name, "messages": agent.context.messages})
+                    if info.get("work_loop") and not info["work_loop"].done():
+                        info["work_loop"].cancel()
+                        info["work_loop"] = None
                 else:
-                    if info.get("chat_task") and not info["chat_task"].done():
-                        info["chat_task"].cancel()
-                        info["chat_task"] = None
-                    # user-driven mode switch: also the way back from an agent's STOP
-                    info["agent"].stopped = False
-                    if info["container_on"] and not info["working"]:
-                        info["working"] = True
+                    if info["working"] and not info.get("work_loop"):
                         info["work_loop"] = asyncio.create_task(work_loop(user, name, info))
 
                 save_agents(user)
@@ -719,30 +715,28 @@ async def websocket_endpoint(ws: WebSocket):
                     continue
 
                 info = user_agents[name]
-                # user chat = a message in the DM channel; the agent gets it via
-                # the normal next-turn injection (work loop or immediate chat turn)
-                cid = chatmod.ensure_dm(user, name)
+                # agent-view text goes DIRECTLY into context as plain user text —
+                # the chat system is only for files and real channel messages, so
+                # the agent doesn't mistake a normal conversation for chat traffic.
+                # pending channel messages (file uploads land there) inject first
+                # to keep chronological order.
+                inject_pending(user, name, info)
                 if text.strip():
-                    m = chatmod.append_message(user, cid, chatmod.USER_SENDER, "text", text=text)
-                    await broadcast(user, {"type": "chat_message", "channel": cid, "message": m})
+                    info["agent"].context.add_user_text(text)
+                await broadcast(user, {"type": "context", "name": name, "messages": info["agent"].context.messages})
 
                 if info["working"] and not info["agent"].chat_mode:
-                    continue  # the work loop injects it before its next turn
+                    continue  # the work loop picks the text up next turn
 
-                inject_pending(user, name, info)
-                await broadcast(user, {"type": "context", "name": name, "messages": info["agent"].context.messages})
-                if info["agent"].chat_mode:
+                if info["agent"].chat_mode and info["working"]:
                     agent = info["agent"]
-                    async def do_chat_turn(_name=name, _agent=agent, _cid=cid):
+                    async def do_chat_turn(_name=name, _agent=agent):
                         try:
                             print(f"[chat_mode] calling turn for {_name}")
-                            blocks = await _agent.turn()
-                            # mirror the assistant's reply into the DM channel
-                            texts = [b["text"] for b in blocks
-                                     if b.get("type") == "text" and not b.get("text", "").startswith("[reasoning]")]
-                            if texts:
-                                m = chatmod.append_message(user, _cid, _name, "text", text="\n\n".join(texts))
-                                await broadcast(user, {"type": "chat_message", "channel": _cid, "message": m})
+                            # chat mode = single-turn mode: the reply shows in the
+                            # agent view's context stream; the DM channel only gets
+                            # what the agent explicitly CHAT_SENDs
+                            await _agent.turn()
                             await broadcast(user, {"type": "context", "name": _name, "messages": _agent.context.messages})
                         except Exception as e:
                             print(f"[chat_mode] ERROR: {e}")
@@ -891,6 +885,9 @@ async def websocket_endpoint(ws: WebSocket):
                     if key not in valid:
                         await ws.send_text(json.dumps({"type": "error", "msg": f"llm secret must be one of: {', '.join(sorted(valid))}"}))
                         continue
+                if cat == "computerent" and key not in secretsmod.RENT_PROVIDERS:
+                    await ws.send_text(json.dumps({"type": "error", "msg": f"compute rent secret must be one of: {', '.join(secretsmod.RENT_PROVIDERS)}"}))
+                    continue
                 try:
                     # value is a string for most cats, a forced {"account","key"} dict for git
                     secretsmod.set_secret(user, key, msg.get("value"), cat=cat)

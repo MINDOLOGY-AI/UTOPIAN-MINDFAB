@@ -200,59 +200,15 @@ body {
     transition: all 0.2s;
 }
 
-#docker-btn {
-    background: var(--lavender);
-    color: var(--background);
-}
-
-#docker-btn:hover:not(:disabled) {
-    background: var(--sky);
-}
-
-#model-btn {
-    background: var(--neon-pink);
-    color: var(--background);
-}
-
-#model-btn:hover:not(:disabled) {
-    background: var(--lavender);
-}
-
-#chat-mode-btn, #docker-save-btn {
+/* toggle buttons: grey = off, purple = on (text/icon set in updateButtons) */
+#docker-btn, #model-btn, #chat-mode-btn {
     background: var(--mid-gray);
     color: var(--white);
 }
 
-#secrets-btn {
-    display: inline-flex;
-    align-items: center;
-    padding: 4px 14px;
-    border: none;
-    border-radius: 3px;
-    background: var(--mid-gray);
-    color: var(--white);
-    font-size: 0.75em;
-    font-weight: bold;
-    text-decoration: none;
-    transition: all 0.2s;
-}
-
-#secrets-btn:hover {
-    background: var(--light-gray);
-}
-
-#chat-mode-btn:hover {
-    background: var(--light-gray);
-}
-
-#chat-mode-btn.active {
-    background: var(--mint);
+#docker-btn.on, #model-btn.on, #chat-mode-btn.on {
+    background: var(--lavender);
     color: var(--background);
-}
-
-#docker-save-btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
 }
 
 button:disabled {
@@ -722,14 +678,6 @@ button:disabled {
 
 /* ---- secrets view (/INT3RF4CE/secrets/) ---- */
 .mono { font-family: var(--mono, monospace); }
-
-.secrets-side-hint {
-    padding: 12px 10px;
-    color: var(--light-gray);
-    font-size: 0.75em;
-    line-height: 1.5;
-}
-.secrets-side-hint .mono { color: var(--mint); }
 
 #secrets-list {
     flex: 1;

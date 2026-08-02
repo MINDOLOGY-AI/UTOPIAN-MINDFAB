@@ -42,7 +42,7 @@ everything (context, agent loop, UI) speaks this standard. adapters (`KimiAdapte
 - `config/specific/{agent}/graph.json` — thoughtgraph access: `{prompt_docs, read, write, folders}`, entries `{board, id}`. prompt_docs are injected into the system prompt; read/write/folders are enforced by the G* tool dispatch (write implies read; folders = total control over everything inside).
 - `config/specific/{agent}/secrets.json` — `{grants: [secret_name]}`.
 - `workspace/{agent}/` — the only host dir bind-mounted into the agent's docker (as /home/agent). file tools (READ/WRITE/EDIT) are confined here.
-- `secrets.json` (user level) — `{name: {value, cat: "llm"|"compute"|"account"|"git"|"gitrepo"}}`, chmod 600. llm names are hardset to provider `secret_name`s (moonshot, deepseek, openrouter). git values are forced `{"account", "key"}` pairs (github identity + ssh private key); gitrepo values are plain urls (not secret, just co-located).
+- `secrets.json` (user level) — `{name: {value, cat: "llm"|"computerent"|"compute"|"account"|"git"|"gitrepo"}}`, chmod 600. llm names are hardset to provider `secret_name`s (moonshot, deepseek, openrouter); computerent names are hardset to RENT_PROVIDERS (autodl). git values are forced `{"account", "key"}` pairs (github identity + ssh private key); gitrepo values are plain urls (not secret, just co-located).
 - `chat/` — `channels.json` `{id: {id, name, members, dm}}`, `readers.json` (read cursors per agent), per-channel `messages.jsonl` + `files/`. every agent gets a `dm-{agent}` channel with the user.
 
 # function flow
@@ -51,15 +51,14 @@ everything (context, agent loop, UI) speaks this standard. adapters (`KimiAdapte
 `fab.hub.back.app` mounts auth + TH0UGHTGR4PH (REST) + INT3RF4CE (WS + static) + components. INT3RF4CE's `server.py` runs `load_agents()` at import: reads every user's agents.json, builds Agent objects (model instance, context loaded from disk, container handle — container NOT started), wires status callbacks.
 
 ## a user chat message (the main loop)
-1. browser → WS `{"cmd": "chat", "name", "text"}` → appended to the agent's DM channel, broadcast to open chat views.
-2. `inject_pending` gathers the agent's unread channel messages into a user text block (files become one-turn image/text attachment blocks), marks them read.
-3. `agent.turn()`: builds system prompt (`prompt.build_system_prompt`: global prompt + prompt docs + chat-mode prompt), marshals context, calls `model.call`.
-4. adapter converts messages → provider payload; response parsed back into internal blocks.
-5. assistant message appended to context; each tool_use dispatched by name (`agent._dispatch`), each producing a tool_result user message.
-6. auto-feedback: keyboard commands without TERM → last result replaced with fresh TERM output; mouse without LOOK → fresh screenshot.
-7. context persisted to working.jsonl; broadcast to the frontend. if `context.needs_summary()`, the model summarizes and context collapses to summary + last 5 messages.
+1. browser → WS `{"cmd": "chat", "name", "text"}` → text goes DIRECTLY into the agent's context as plain user text (agent-view conversation is not chat traffic). only file uploads route through the chat system: each becomes a DM channel message, delivered by `inject_pending` before the next turn (image blocks for images, inline text for text files).
+2. `agent.turn()`: builds system prompt (`prompt.build_system_prompt`: global prompt + prompt docs + chat-mode prompt), marshals context, calls `model.call`.
+3. adapter converts messages → provider payload; response parsed back into internal blocks.
+4. assistant message appended to context; each tool_use dispatched by name (`agent._dispatch`), each producing a tool_result user message.
+5. auto-feedback: keyboard commands without TERM → last result replaced with fresh TERM output; mouse without LOOK → fresh screenshot.
+6. context persisted to working.jsonl; broadcast to the frontend. if `context.needs_summary()`, the model summarizes and context collapses to summary + last 5 messages.
 
-chat mode vs work mode: agents start in chat mode (only DOCKER/GRAPH/CHAT/SECRETS/STOP tools advertised). `DOCKER_START` (agent tool or user button) boots the container and flips chat_mode off → the server's status handler starts `work_loop`, which runs turns back-to-back until paused/stopped/STOP.
+model on/off vs single turn: `working` is the master switch (the model button) — off means the agent does nothing at all. `chat_mode` ("single turn" in the ui) is a pure MODE with no on/off semantics: on = the running model answers one turn per user message; off = the work loop runs turns back-to-back. agents start in single-turn mode with the model off. `DOCKER_START` (agent tool or user button) boots the container and flips single turn off → the server's status handler starts the work loop. STOP (agent tool) halts the agent permanently until the user starts it.
 
 ## computer use (container.py)
 the docker is a desktop: Xvfb :99 → x11vnc (localhost only) → websockify :6080 → server proxies it (login + per-user port ownership checked) → noVNC iframe. agent tools drive it: MOVE/CLICK/TYPE/KEY via xdotool, LOOK = screenshot, TERM = tail of term.log (xterm logs via `script -f`). READ/WRITE/EDIT bypass the desktop entirely and hit the host-side workspace bind directly.

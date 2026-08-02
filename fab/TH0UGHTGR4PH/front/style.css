@@ -543,6 +543,29 @@ fab-board {
   font-size: 8px;
 }
 
+/* white button to the secrets tab, between the granted list and the pool */
+#ctx-secrets-link {
+  display: inline-block;
+  align-self: flex-start;
+  margin: 6px 0 2px;
+  background: var(--white, #fff);
+  color: #000;
+  text-decoration: none;
+  font-size: 10px;
+  font-weight: bold;
+  padding: 4px 12px;
+  border-radius: 3px;
+}
+#ctx-secrets-link:hover { background: var(--sky, #6BC4FF); }
+
+/* panel error line (validation failures from the server) */
+.ctx-error {
+  color: var(--red, #FF0055);
+  font-size: 10px;
+  min-height: 14px;
+  padding: 4px;
+}
+
 .ctx-hint {
   color: var(--light-gray, #5C5C5C);
   font-size: 10px;

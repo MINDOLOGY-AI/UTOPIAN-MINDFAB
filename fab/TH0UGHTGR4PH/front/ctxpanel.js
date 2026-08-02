@@ -28,20 +28,19 @@ class CtxPanel {
         <span class="ctx-agent">${this.agent}</span>
         <button id="ctx-close" class="x-btn">×</button>
       </div>
-      <div class="ctx-sub">prompts — in order, part of the system prompt</div>
+      <div class="ctx-sub">prompts</div>
       <div class="ctx-list ctx-drop" data-key="prompt_docs" id="ctx-prompts"></div>
       <div class="ctx-sub">read access</div>
       <div class="ctx-list ctx-drop" data-key="read" id="ctx-read"></div>
-      <div class="ctx-sub">write access (implies read)</div>
+      <div class="ctx-sub">write access</div>
       <div class="ctx-list ctx-drop" data-key="write" id="ctx-write"></div>
-      <div class="ctx-sub">folder total control access</div>
+      <div class="ctx-sub">folder total control</div>
       <div class="ctx-list ctx-drop" data-key="folders" id="ctx-folders"></div>
-      <div class="ctx-hint">drag docs from the board into a section; folders into total control</div>
-      <div class="ctx-sub">secrets — granted to this agent (READ_SECRETS)</div>
+      <div class="ctx-sub">secrets</div>
       <div class="ctx-list ctx-secret-drop" id="ctx-secrets"></div>
-      <div class="ctx-sub">secret pool (manage in the secrets tab)</div>
+      <div class="ctx-sub">secret pool</div>
       <div class="ctx-list ctx-secret-drop" id="ctx-secret-pool"></div>
-      <div class="ctx-hint">drag secrets between the pool and the granted list</div>
+      <a id="ctx-secrets-link" href="/INT3RF4CE/secrets/">secrets</a>
       <div class="ctx-sub">settings file</div>
       <div class="ctx-file-row">
         <input id="ctx-file-name" placeholder="settings name" spellcheck="false">
@@ -51,6 +50,7 @@ class CtxPanel {
         <select id="ctx-file-select"></select>
         <button id="ctx-file-load">load</button>
       </div>
+      <div class="ctx-error"></div>
       <a id="ctx-done" href="/INT3RF4CE/?agent=${encodeURIComponent(this.agent)}">done →</a>
     `;
     this.el.querySelector("#ctx-close").addEventListener("click", () => this.close());
@@ -102,8 +102,8 @@ class CtxPanel {
         this.renderSecrets();
       }
       if (msg.type === "error") {
-        const hint = this.el.querySelector(".ctx-hint");
-        if (hint) hint.textContent = msg.msg;
+        const err = this.el.querySelector(".ctx-error");
+        if (err) err.textContent = msg.msg;
       }
     };
     this.ws.onclose = () => {
@@ -262,7 +262,7 @@ class CtxPanel {
     if (!this.secretNames.length) {
       const hint = document.createElement("span");
       hint.className = "ctx-hint";
-      hint.textContent = "no secrets yet — add them in the secrets tab";
+      hint.textContent = "empty";
       poolEl.appendChild(hint);
     }
   }
@@ -270,8 +270,8 @@ class CtxPanel {
   addEntry(key, boardId, nodeId) {
     const node = this.board.store.nodes[nodeId];
     if (key === "folders" && node && node.kind !== "folder") {
-      const hint = this.el.querySelector(".ctx-hint");
-      if (hint) hint.textContent = "total control only accepts folders";
+      const err = this.el.querySelector(".ctx-error");
+      if (err) err.textContent = "total control only accepts folders";
       return;
     }
     const entries = this.settings[key];
