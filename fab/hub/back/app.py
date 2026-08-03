@@ -60,6 +60,7 @@ from fastapi.staticfiles import StaticFiles
 from mind.interp_journey.function_approximator.back.router import router as function_approximator_router
 from fab.INT3RF4CE.back.server import app as INT3RF4CE_app
 from fab.TH0UGHTGR4PH.back.api import app as TH0UGHTGR4PH_app
+from mind.INT3RPV1Z.back.server import app as INT3RPV1Z_app
 from fab.hub.auth.routes import router as auth_router
 
 HOST = "0.0.0.0"
@@ -106,6 +107,7 @@ def hub_index():
 # specific frontend apps only — no .git, venv, or source code exposed
 # more specific mounts must come before the catch-all root mount
 app.mount("/TH0UGHTGR4PH", TH0UGHTGR4PH_app, name="TH0UGHTGR4PH")
+app.mount("/INT3RPV1Z", INT3RPV1Z_app, name="INT3RPV1Z")
 app.mount("/INT3RF4CE", INT3RF4CE_app, name="INT3RF4CE")
 app.mount("/interp_journey/function_approximator/front", StaticFiles(directory=fa_front, html=True), name="fa_front")
 app.mount("/components", StaticFiles(directory=hub_components), name="hub_components")

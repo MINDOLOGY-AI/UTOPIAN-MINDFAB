@@ -93,7 +93,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..encoding.RoPE import RoPE
 from ..encoding.rope_utils import apply_rotary_pos_emb
 
 
@@ -107,7 +106,6 @@ class GQA(nn.Module):
         num_kv_heads,
         head_dim,
         max_seq_len,
-        rope_base=10000.0,
         attention_bias=False,
         attention_dropout=0.0,
         qk_norm=False,
@@ -135,8 +133,6 @@ class GQA(nn.Module):
             from ..basic.RMSnorm import RMSNorm
             self.q_norm = RMSNorm(q_out, eps=rms_norm_eps)
             self.k_norm = RMSNorm(kv_out, eps=rms_norm_eps)
-
-        self.rope = RoPE(head_dim, max_seq_len=max_seq_len, base=rope_base)
 
     def forward(self, x, position_embeddings, attention_mask=None, past_key_value=None):
         """

@@ -1,9 +1,10 @@
 # fab/DOC.md
 
-the web layer of the monorepo: three apps under one fastapi server.
+the web layer of the monorepo: four apps under one fastapi server.
 - **hub** (`fab/hub/`) — entry point: auth, index page, shared components, mounts the other apps.
 - **TH0UGHTGR4PH** (`fab/TH0UGHTGR4PH/`) — knowledge graph: boards of doc/folder nodes with typed edges.
 - **INT3RF4CE** (`fab/INT3RF4CE/`) — llm agents: each agent = a model + a context + a docker desktop + thoughtgraph access + chat channels + secrets.
+- **INT3RPV1Z** (`mind/INT3RPV1Z/`) — FX-graph tensor visualizer for pytorch models. lives in mind/ but mounts under the hub like the rest; has its own `mind/INT3RPV1Z/doc.md`.
 
 all user data lives in `fab/data/{app}/{user}/...` — never in the code dirs.
 
@@ -15,7 +16,9 @@ all user data lives in `fab/data/{app}/{user}/...` — never in the code dirs.
 4. `fab/TH0UGHTGR4PH/front/` — `store.js` (client state + fetch) → `nodes.js` / `edges.js` (web components) → `board.js` (interaction) → `ctxpanel.js` (agent settings sidebar).
 5. `fab/INT3RF4CE/back/` — `adapter.py` (**the internal data standard — read this first**) → `context.py` → `model.py` + `models/` → `agent.py` (the brain) → `server.py` (all WS commands) → `chat.py`, `secrets.py` → `container.py`, `prompt.py`.
 6. `fab/INT3RF4CE/front/` — `app.js` (agent view), `chat.js` (chat view), `secrets.js`.
-7. `fab/TH0UGHTGR4PH/tests/headless_test.py` — executable spec of most of the above.
+7. `fab/hub/components/` — shared web components: `BoardCanvas` (infinite pan/zoom board + svg edge layer, used by INT3RPV1Z), `MarkdownEditor`, `AuthBox`.
+8. `mind/INT3RPV1Z/` — `back/inspector.py` (torch.export trace + tensor capture) → `back/layout.py` → `back/routing.py` → `back/server.py`; then `mind/INT3RPV1Z/doc.md`.
+9. `fab/TH0UGHTGR4PH/tests/headless_test.py` — executable spec of most of the above.
 
 # data types
 
@@ -48,7 +51,7 @@ everything (context, agent loop, UI) speaks this standard. adapters (`KimiAdapte
 # function flow
 
 ## boot
-`fab.hub.back.app` mounts auth + TH0UGHTGR4PH (REST) + INT3RF4CE (WS + static) + components. INT3RF4CE's `server.py` runs `load_agents()` at import: reads every user's agents.json, builds Agent objects (model instance, context loaded from disk, container handle — container NOT started), wires status callbacks.
+`fab.hub.back.app` mounts auth + TH0UGHTGR4PH (REST) + INT3RPV1Z (WS + static) + INT3RF4CE (WS + static) + interp_journey static + components. INT3RF4CE's `server.py` runs `load_agents()` at import: reads every user's agents.json, builds Agent objects (model instance, context loaded from disk, container handle — container NOT started), wires status callbacks. the hub runs with `reload=True` — .py edits auto-restart it (wiping in-memory state: agent loops, loaded intvrpviz models); frontend edits just need a hard refresh.
 
 ## a user chat message (the main loop)
 1. browser → WS `{"cmd": "chat", "name", "text"}` → text goes DIRECTLY into the agent's context as plain user text (agent-view conversation is not chat traffic). only file uploads route through the chat system: each becomes a DM channel message, delivered by `inject_pending` before the next turn (image blocks for images, inline text for text files).
@@ -70,7 +73,7 @@ every G* command resolves its target against graph.json access: explicit read/wr
 `store.js` mirrors meta.json client-side and does all REST calls. `board.js` owns interaction (pan/zoom/drag/expand), `nodes.js`/`edges.js` are the web components it renders. edits go browser → REST `api.py` → `graph_actions` (validation + autoplace via `placement.py`) → `storage` (meta.json + tree/ disk sync). versions are whole-board folder copies.
 
 ## chat channels (chat.py)
-append-only `messages.jsonl` per channel + read cursors. `pending_messages(user, agent)` = messages newer than the agent's cursor in channels it belongs to — that's what `inject_pending` delivers before turns. files go to `files/` with extension allowlisting; agents attach via CHAT_SEND from their own workspace only.
+append-only `messages.jsonl` per channel + read cursors. `pending_messages(user, agent)` = messages newer than the agent's cursor in channels it belongs to — that's what `inject_pending` delivers before turns. files go to `files/` with extension allowlisting; agents attach via CHAT_SEND from their own workspace only. deleting a dm channel is safe — it auto-recreates the next time anything (agent view fetch, chat_send, file upload) needs it.
 
 ## secrets (secrets.py)
 two consumers, one store. backend: `server._make_model` passes each provider a `get_key` that resolves its `secret_name` from the store (env var fallback) — values never enter agent context this way. agent: `READ_SECRETS` returns only the granted subset (grants drag-dropped in the ctx panel / secrets tab). values never go over the websocket — the UI is write-only.

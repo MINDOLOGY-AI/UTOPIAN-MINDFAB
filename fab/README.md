@@ -16,8 +16,8 @@ get users first before offering a paid option where i rent AWS and AutoDL and Op
 
 this can wait since im not using this actually.  
 
-we do need a CLI version that can edit local files. maybe just start with forking openCode.  
+we do need a CLI version that can edit local files. maybe just start with forking Aider.  
+we choose Aider cause it's the simplest.  
 because the goal is to make the best harness i dont want to switch between kimicode and this.  
 
-/remote? to literally ssh into remote machines see what is up?  
-
+remote? to literally ssh into remote machines see what is up?  

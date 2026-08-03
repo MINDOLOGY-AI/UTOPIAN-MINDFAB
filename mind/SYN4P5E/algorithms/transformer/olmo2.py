@@ -40,7 +40,6 @@ class Olmo2DecoderLayer(nn.Module):
             num_kv_heads=config.num_key_value_heads,
             head_dim=config.head_dim,
             max_seq_len=config.max_position_embeddings,
-            rope_base=config.rope_theta,
             attention_bias=config.attention_bias,
             attention_dropout=config.attention_dropout,
             qk_norm=config.qk_norm,

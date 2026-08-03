@@ -316,7 +316,14 @@ fab-board {
 .fab-node .md-editor .preview {
   min-height: 100%;
   padding: 6px 10px;
+  /* doc text size is user-tunable via the toolbar input (--doc-font-size);
+     headers/code scale proportionally off it */
+  font-size: var(--doc-font-size, 13.5px) !important;
 }
+.fab-node .md-editor .preview h1 { font-size: 1.4em !important; }
+.fab-node .md-editor .preview h2 { font-size: 1.19em !important; }
+.fab-node .md-editor .preview h3 { font-size: 1.04em !important; }
+.fab-node .md-editor .preview code { font-size: 0.93em !important; }
 .fab-node .md-editor textarea.content {
   width: 100%;
   height: 100%;
@@ -328,8 +335,25 @@ fab-board {
   resize: none;
   padding: 6px 10px;
   font-family: var(--mono, monospace);
-  font-size: 13px;
+  font-size: calc(var(--doc-font-size, 13.5px) - 0.5px);
   line-height: 1.55;
+}
+
+#doc-font-label {
+  color: var(--light-gray, #5C5C5C);
+  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+#doc-font-size {
+  width: 44px;
+  background: var(--dark-gray, #212121);
+  border: 1px solid var(--mid-gray, #4c4c4c);
+  color: var(--white, #fff);
+  border-radius: 3px;
+  font-size: 11px;
+  padding: 2px 4px;
 }
 
 /* folder */

@@ -37,3 +37,4 @@ fab/INT3RF4CE/docker_build/build.log
 
 # draw-io
 fab/drawio
+.aider*

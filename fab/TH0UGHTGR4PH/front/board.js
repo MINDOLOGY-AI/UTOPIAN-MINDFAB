@@ -84,6 +84,7 @@ class FabBoard extends HTMLElement {
         <button id="search-btn">search</button>
         <button id="zoom-out">−</button>
         <button id="zoom-in">+</button>
+        <label id="doc-font-label" title="text size inside doc nodes (px)">text <input id="doc-font-size" type="number" min="8" max="32" step="1"></label>
         <span class="sep"></span>
         <button id="download-board" title="download board (zip)">↓</button>
         <button id="upload-board" title="upload board (zip)">↑</button>
@@ -182,6 +183,18 @@ class FabBoard extends HTMLElement {
     $("#add-edge").addEventListener("click", () => this.toggleEdgeMode());
     $("#zoom-in").addEventListener("click", () => this.zoomIn());
     $("#zoom-out").addEventListener("click", () => this.zoomOut());
+    // doc text size: scales ONLY the markdown inside doc nodes (not ui, not titles).
+    // stored as a css var so preview + editor scale together; persisted per user.
+    const fontInput = $("#doc-font-size");
+    const applyDocFont = (v) => {
+      const px = Math.min(32, Math.max(8, Number(v) || 13.5));
+      document.documentElement.style.setProperty("--doc-font-size", px + "px");
+      if (String(px) !== fontInput.value) fontInput.value = px;
+      localStorage.setItem("tg-doc-font-size", String(px));
+    };
+    fontInput.value = localStorage.getItem("tg-doc-font-size") || "13.5";
+    applyDocFont(fontInput.value);
+    fontInput.addEventListener("change", () => applyDocFont(fontInput.value));
     $("#search-btn").addEventListener("click", () => this.openSearch());
     $("#versions-btn").addEventListener("click", () => this.togglePanel("versions-panel", () => this.renderVersions()));
     $("#versions-close").addEventListener("click", () => this.hidePanel("versions-panel"));
