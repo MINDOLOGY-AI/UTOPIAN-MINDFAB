@@ -1,5 +1,4 @@
 import json
-import tempfile
 import numpy as np
 from pathlib import Path
 from mind.EV0K3.OlMo2_1b.run.loader import load_olmo2_tokenizer
@@ -25,22 +24,32 @@ def main():
         shards = sorted(d.glob("shard_*.txt"))
         print(f"  {d.name}: {len(shards)} shards")
 
-    tmp_path = Path(tempfile.mktemp(suffix=".bin"))
+    tmp_path = OUT_DIR / "tokenized.tmp"
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
     total_tokens = 0
 
     print("\n--- tokenizing ---")
     with open(tmp_path, "wb") as f:
         for ds_dir in datasets:
+            shards_list = sorted(ds_dir.glob("shard_*.txt"))
+            total_shards = len(shards_list)
             ds_total = 0
-            for shard in sorted(ds_dir.glob("shard_*.txt")):
+            for shard_idx, shard in enumerate(shards_list, 1):
                 text = shard.read_text()
                 docs = [d.strip() for d in text.split("--DOCSPLIT--") if d.strip()]
-                for doc in docs:
+                shard_tokens = 0
+                print(f"  {ds_dir.name}: shard {shard_idx}/{total_shards} — tokenizing {len(docs):,} docs")
+                for doc_idx, doc in enumerate(docs, 1):
                     ids = [bos] + tok.encode(doc) + [eos]
                     arr = np.array(ids, dtype=np.int32)
                     arr.tofile(f)
-                    ds_total += len(ids)
+                    shard_tokens += len(ids)
+                    if doc_idx % 100 == 0:
+                        print(f"    doc {doc_idx}/{len(docs)}")
+                ds_total += shard_tokens
+                print(f"    done — {shard_tokens:,} tokens")
             total_tokens += ds_total
+            print(f"  {ds_dir.name}: {ds_total:,} tokens")
             print(f"  {ds_dir.name}: {ds_total:,} tokens")
 
     print(f"\ntotal tokens: {total_tokens:,}")
