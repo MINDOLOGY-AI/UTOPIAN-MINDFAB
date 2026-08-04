@@ -128,7 +128,7 @@ class SlabConeSAE(nn.Module):
 
         # angle between the centered input and each encoder row
         cos_sim = projection / (centered.norm(dim=-1, keepdim=True) * self.encoder_weight.norm(dim=-1))
-        angles = torch.acos(cos_sim.clamp(-1 + 1e-5, 1 - 1e-5))      # (B, feature_dim)
+        angles = torch.acos(cos_sim.clamp(-1 + 1e-7, 1 - 1e-7))      # (B, feature_dim)
 
         # three hard gates; each theta learns via GateSTE, scores stay blocked
         slab_lower_gate = GateSTE.apply(pre_gate_features, self.slab_gate_lower_bound, self.band_eps, True)

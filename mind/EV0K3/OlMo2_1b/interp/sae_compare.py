@@ -73,7 +73,12 @@ class ActivationTrainer(nn.Module):
         for p in self.lm.parameters():
             p.requires_grad = False
         self._acts = None
-        self.lm.model.layers[layer_idx].register_forward_hook(self._capture)
+        self._hook_handle = self.lm.model.layers[layer_idx].register_forward_hook(self._capture)
+
+    def remove_hook(self):
+        if self._hook_handle is not None:
+            self._hook_handle.remove()
+            self._hook_handle = None
 
     def _capture(self, module, input, output):
         # output: (hidden_states, present_kv) from Olmo2DecoderLayer.forward
@@ -142,7 +147,8 @@ def main():
         )
 
         print(f"\n--- {name} final eval ---")
-        eval_metrics = simple_eval(trainer, eval_ds, BATCH_SIZE)
+        eval_metrics = simple_eval(trainer, eval_ds, BATCH_SIZE, batches=10000)
+        trainer.remove_hook()
         results[name] = eval_metrics
         for k, v in eval_metrics.items():
             print(f"  {k}: {v:.4f}")
