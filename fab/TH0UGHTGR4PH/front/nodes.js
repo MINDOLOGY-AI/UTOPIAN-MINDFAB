@@ -55,6 +55,7 @@ class FabNode extends HTMLElement {
   onDblClick(e) {
     if (e.target.tagName === "TEXTAREA" || e.target.tagName === "BUTTON") return;
     if (e.target.closest(".md-editor")) return; // double-clicking inside the editor must not collapse the node
+    if (e.target.closest(".resize-grip")) return; // gripping the corner is not a collapse
     e.stopPropagation();
     this.dispatchEvent(new CustomEvent("node-dblclick", {
       detail: {node: this._node}, bubbles: true,
@@ -73,6 +74,7 @@ class DocNode extends FabNode {
     if (this.querySelector(".title") && node.expanded === this.__wasExpanded) {
       this.querySelector(".title").textContent = node.title;
       this.renderStateDot(node);
+      this.renderAssignee(node);
       return;
     }
     this.__wasExpanded = node.expanded;
@@ -82,6 +84,7 @@ class DocNode extends FabNode {
     title.textContent = node.title;
     this.appendChild(title);
     this.appendChild(this.makeStateDot(node));
+    this.renderAssignee(node);
     if (node.ref && !node.expanded) {
       const badge = document.createElement("div");
       badge.className = "ref-badge";
@@ -105,6 +108,19 @@ class DocNode extends FabNode {
       });
       editor.addEventListener("mousedown", (e) => e.stopPropagation());
       this.appendChild(editor);
+      // bottom-right grip: temporarily stretch the expanded doc (glides
+      // mid-drag, snaps to whole grid cells on release); the size lives on
+      // node.width/height only, so collapsing forgets it
+      const grip = document.createElement("div");
+      grip.className = "resize-grip";
+      grip.addEventListener("mousedown", (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        this.dispatchEvent(new CustomEvent("node-resize-start", {
+          detail: {node: this._node, originalEvent: e}, bubbles: true,
+        }));
+      });
+      this.appendChild(grip);
       this.dispatchEvent(new CustomEvent("doc-expand", {
         detail: {node, editor}, bubbles: true,
       }));
@@ -122,18 +138,36 @@ class DocNode extends FabNode {
     const old = this.querySelector(".state-dot");
     if (old) old.replaceWith(this.makeStateDot(node));
   }
+
+  // who claimed the task: small gray label under the dot, same style as the
+  // node type label — always visible, no hover. only exists while doing.
+  renderAssignee(node) {
+    let label = this.querySelector(".assignee-label");
+    if (node.state !== "doing" || !node.assignee) {
+      if (label) label.remove();
+      return;
+    }
+    if (!label) {
+      label = document.createElement("div");
+      label.className = "assignee-label";
+      this.appendChild(label);
+    }
+    label.textContent = node.assignee;
+  }
 }
 
 // ---- folder node: collapsed dashed square / expanded container ----
 
 class FolderNode extends FabNode {
-  // expanded folders are grabbable only by the frame + title bar — interior
-  // clicks fall through to the viewport (pan / deselect), so working inside a
-  // folder never accidentally activates it or collapses it via a double-click
+  // expanded folders are grabbable only by the frame + floating title —
+  // interior clicks fall through to the viewport (pan / deselect), so working
+  // inside a folder never accidentally activates it or collapses it via a
+  // double-click. the top band is MARGIN deep: exactly the exposed strip
+  // between the frame line and the top row of children
   _onFrame(e) {
     const r = this.getBoundingClientRect();
     const B = 14;
-    return e.clientY - r.top < FabStore.FOLDER_PAD.top ||
+    return e.clientY - r.top < FabStore.MARGIN ||
            r.bottom - e.clientY < B ||
            e.clientX - r.left < B ||
            r.right - e.clientX < B;
@@ -151,15 +185,31 @@ class FolderNode extends FabNode {
 
   updateContent(node) {
     this.style.setProperty("--nc", "var(--near-white, #C5C5C5)");
-    if (this.querySelector(".title")) {
-      this.querySelector(".title").textContent = node.title;
+    const existing = this.querySelector(".title");
+    if (existing) {
+      existing.textContent = node.title;
+      this.applyLadder(existing, node);
       return;
     }
     this.innerHTML = "";
     const title = document.createElement("div");
     title.className = "title";
     title.textContent = node.title;
+    this.applyLadder(title, node);
     this.appendChild(title);
+  }
+
+  // expanded folder titles float above the frame line as pure text; a shared
+  // corner stacks them: deepest right above the line, each outer level higher
+  applyLadder(title, node) {
+    if (!node.expanded) {
+      title.classList.remove("floating");
+      title.style.top = "";
+      return;
+    }
+    const idx = this.ladderIndex || 0;
+    title.classList.add("floating");
+    title.style.top = `${-24 - idx * 20}px`;
   }
 }
 

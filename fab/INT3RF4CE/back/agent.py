@@ -35,9 +35,9 @@ class Agent:
     MOUSE_TOOLS = {"MOVE", "LCLICK", "RCLICK", "DCLICK",
                    "LDOWN", "LUP", "RDOWN", "RUP", "SCROLLUP", "SCROLLDOWN"}
     # graph commands (host-side, access-enforced against the agent's graph.json)
-    GRAPH_TOOLS = {"CHECK_GRAPH_ACCESS", "GREAD", "GUPDATE", "GEDIT", "GCREATE", "GMOVE", "GLINK", "GMAP", "GDESTROY"}
+    GRAPH_TOOLS = {"CHECK_ACCESS", "GREAD", "GUPDATE", "GEDIT", "GCREATE", "GMOVE", "GLINK", "GMAP", "ASCII_MAP"}
     # chat commands (host-side, membership-enforced against chat/channels.json)
-    CHAT_TOOLS = {"CHAT_SEND", "CHAT_READ"}
+    CHAT_TOOLS = {"CHAT_SEND", "CHAT_READ", "CHECK_CHANNELS"}
     # secrets commands (host-side, grant-enforced against config/specific/{agent}/secrets.json)
     SECRET_TOOLS = {"READ_SECRETS"}
     DOCKER_TOOLS = {"DOCKER_START", "DOCKER_STOP"}
@@ -169,7 +169,7 @@ class Agent:
         # tool_result_content: str (action ack / text) OR list[dict] (image blocks)
 
         # graph commands are host-side and work without a container
-        if name.startswith("G") or name == "CHECK_GRAPH_ACCESS":
+        if name.startswith("G") or name.startswith("ASCII_") or name == "CHECK_ACCESS":
             return self._graph_dispatch(name, args), True
 
         if name == "STOP":
@@ -279,7 +279,7 @@ class Agent:
         return "[DOCKER_STOP] container stopped. you are back in chat mode.", True
 
     def _graph_settings(self) -> dict | None:
-        """Read this agent's thoughtgraph access: {prompt_docs, read, write, folders} or None."""
+        """Read this agent's thoughtgraph access: {prompt_docs, read, write, time, folders} or None."""
         path = DATA_DIR / self.user / "config" / "specific" / self.name / "graph.json"
         if not path.exists():
             return None
@@ -294,8 +294,11 @@ class Agent:
             return f"[{name}] no thoughtgraph access configured — the user sets it in your context panel on the board"
         read_entries = settings.get("read", [])
         write_entries = settings.get("write", [])
+        time_entries = settings.get("time", [])
         folder_entries = settings.get("folders", [])
-        readable = read_entries + write_entries  # write access implies read access
+        # write implies read; to-do (time) access implies read — but write does
+        # NOT imply time: flipping task states is its own grant
+        readable = read_entries + write_entries + time_entries
         scope = {(e["board"], e["id"]) for e in folder_entries}
 
         _metas = {}
@@ -361,37 +364,68 @@ class Agent:
                 raise ValueError(f"ambiguous title {ref!r} — use the id")
             return matches[0] if matches else None
 
-        def names(entries):
-            out = []
-            for e in entries:
-                try:
-                    node = meta_of(e["board"])["nodes"].get(e["id"])
-                    if node:
-                        out.append({"board": e["board"], "id": e["id"],
-                                    "title": node["title"], "node_type": node["node_type"],
-                                    "state": node["state"]})
-                except Exception:
-                    continue
-            return out
+        def path_of(board, nid):
+            # folder-joined title path, e.g. mind/mech interp/train SAE
+            parts = []
+            cur = nid
+            meta = meta_of(board)
+            while cur:
+                n = meta["nodes"].get(cur)
+                if not n:
+                    break
+                parts.append(n["title"])
+                cur = n["parent"]
+            return "/".join(reversed(parts))
+
+        def visible_set(board):
+            # every node the agent may see on this board: listed entries +
+            # everything inside total-control folders
+            meta = meta_of(board)
+            listed = {(e["board"], e["id"]) for e in readable}
+            return {nid for nid in meta["nodes"] if (board, nid) in listed or in_scope(board, nid)}
 
         try:
-            if name == "CHECK_GRAPH_ACCESS":
-                return "[CHECK_GRAPH_ACCESS]\n" + json.dumps({
-                    "read": names(readable),
-                    "write": names(write_entries),
-                    "folder_total_control": names(folder_entries),
-                }, indent=2)
+            if name == "CHECK_ACCESS":
+                boards = sorted({e["board"] for e in readable + folder_entries})
+                if not boards:
+                    return "[CHECK_ACCESS] no thoughtgraph access — the user grants it in your context panel on the board"
+                out = ["boards: " + ", ".join(boards)]
+                for b in boards:
+                    lines = []
+                    for label, entries in (("read", read_entries), ("write", write_entries), ("time", time_entries)):
+                        for e in entries:
+                            if e["board"] == b and meta_of(b)["nodes"].get(e["id"]):
+                                lines.append(f"  {label:<6} {path_of(b, e['id'])}")
+                    for e in folder_entries:
+                        if e["board"] == b and meta_of(b)["nodes"].get(e["id"]):
+                            lines.append(f"  total  {path_of(b, e['id'])}/ (everything inside)")
+                    out.append("")
+                    out.append(f"{b}:")
+                    out.extend(lines or ["  (nothing)"])
+                return "[CHECK_ACCESS]\n" + "\n".join(out)
 
             if name == "GREAD":
                 e = resolve(args["node"])
                 if not e:
-                    return "[GREAD ERROR] no read access to that node — CHECK_GRAPH_ACCESS shows your access"
+                    return "[GREAD ERROR] no read access to that node — CHECK_ACCESS shows your access"
                 return f"[GREAD]\n{json.dumps(graph_actions.read_node(self.user, e[0], e[1]), indent=2)}"
 
             if name == "GUPDATE":
-                e = resolve(args["node"], write=True)
+                wants_state = "state" in args
+                wants_write = any(k in args for k in ("title", "node_type", "content", "expanded"))
+                e = None
+                if wants_write:
+                    e = resolve(args["node"], write=True)
+                    if not e:
+                        return "[GUPDATE ERROR] no write access to that node — CHECK_ACCESS shows your access"
+                if wants_state:
+                    # state flips need to-do (time) access — write does NOT imply it
+                    te = entry_of(args["node"], time_entries) or resolve_in_folders(args["node"])
+                    if not te:
+                        return "[GUPDATE ERROR] no to-do (time) access to that node — CHECK_ACCESS shows your access"
+                    e = e or te
                 if not e:
-                    return "[GUPDATE ERROR] no write access to that node — CHECK_GRAPH_ACCESS shows your access"
+                    return "[GUPDATE ERROR] nothing to update — pass title, node_type, expanded, and/or state"
                 node = graph_actions.update_node(
                     self.user, e[0], e[1],
                     title=args.get("title"),
@@ -399,32 +433,55 @@ class Agent:
                     state=args["state"] if "state" in args else ...,
                     content=args.get("content"),
                     expanded=args.get("expanded"),
+                    actor=self.name,  # claiming/completing tasks records WHO did it
                 )
                 return f"[GUPDATE] '{node['title']}' (id {e[1]}) updated"
 
             if name == "GMAP":
+                # dry listing — the primary picture of the graph
                 ref = args.get("folder")
                 if ref:
                     e = resolve(ref)
                     if not e:
-                        return "[GMAP ERROR] no access to that folder — CHECK_GRAPH_ACCESS shows your access"
+                        return "[GMAP ERROR] no access to that folder — CHECK_ACCESS shows your access"
                     node = meta_of(e[0])["nodes"].get(e[1])
                     if not node or node["kind"] != "folder":
                         return "[GMAP ERROR] map target must be a folder"
-                    return f"[GMAP]\n{graph_actions.ascii_map(self.user, e[0], e[1])}"
-                # root map: any board the agent has folder access to (default: the first)
+                    return f"[GMAP]\n{graph_actions.gmap(self.user, e[0], e[1], visible=visible_set(e[0]))}"
+                board = args.get("board")
+                if board:
+                    if board not in {b for b, _ in scope} | {e["board"] for e in readable}:
+                        return "[GMAP ERROR] no access to that board — CHECK_ACCESS shows your boards"
+                    return f"[GMAP]\n{graph_actions.gmap(self.user, board, visible=visible_set(board))}"
+                boards = sorted({e["board"] for e in readable} | {b for b, _ in scope})
+                if not boards:
+                    return "[GMAP ERROR] no access — the user grants it in your context panel"
+                return "[GMAP]\n" + "\n\n".join(
+                    graph_actions.gmap(self.user, b, visible=visible_set(b)) for b in boards)
+
+            if name == "ASCII_MAP":
+                # spatial picture — only for placement/layout work
+                ref = args.get("folder")
+                if ref:
+                    e = resolve(ref)
+                    if not e:
+                        return "[ASCII_MAP ERROR] no access to that folder — CHECK_ACCESS shows your access"
+                    node = meta_of(e[0])["nodes"].get(e[1])
+                    if not node or node["kind"] != "folder":
+                        return "[ASCII_MAP ERROR] map target must be a folder"
+                    return f"[ASCII_MAP]\n{graph_actions.ascii_map(self.user, e[0], e[1])}"
                 board = args.get("board")
                 if not board:
                     boards = sorted({b for b, _ in scope})
                     if not boards:
-                        return "[GMAP ERROR] no folder access — the user grants it in your context panel"
+                        return "[ASCII_MAP ERROR] no folder access — the user grants it in your context panel"
                     board = boards[0]
-                return f"[GMAP]\n{graph_actions.ascii_map(self.user, board)}"
+                return f"[ASCII_MAP]\n{graph_actions.ascii_map(self.user, board)}"
 
             if name == "GEDIT":
                 e = resolve(args["node"], write=True)
                 if not e:
-                    return "[GEDIT ERROR] no write access to that node — CHECK_GRAPH_ACCESS shows your access"
+                    return "[GEDIT ERROR] no write access to that node — CHECK_ACCESS shows your access"
                 content = graph_actions.storage.read_content(self.user, e[0], meta_of(e[0]), e[1])
                 old, new, which = args["old"], args["new"], str(args.get("which", "0"))
                 count = content.count(old)
@@ -449,7 +506,7 @@ class Agent:
                     return "[GCREATE ERROR] parent folder required — nodes are created inside your total-control folders"
                 pe = resolve(parent_ref, write=True)
                 if not pe:
-                    return "[GCREATE ERROR] parent must be a folder inside your access — CHECK_GRAPH_ACCESS shows it"
+                    return "[GCREATE ERROR] parent must be a folder inside your access — CHECK_ACCESS shows it"
                 parent_node = meta_of(pe[0])["nodes"].get(pe[1])
                 if not parent_node or parent_node["kind"] != "folder":
                     return "[GCREATE ERROR] parent must be a folder"
@@ -462,7 +519,7 @@ class Agent:
             if name == "GMOVE":
                 e = resolve(args["node"], write=True)
                 if not e:
-                    return "[GMOVE ERROR] no write access to that node — CHECK_GRAPH_ACCESS shows your access"
+                    return "[GMOVE ERROR] no write access to that node — CHECK_ACCESS shows your access"
                 parent = ...
                 if "parent" in args:
                     pe = resolve(args["parent"], write=True) if args["parent"] else None
@@ -489,14 +546,6 @@ class Agent:
                     return "[GLINK ERROR] both nodes must be on the same board"
                 edge = graph_actions.link(self.user, se[0], se[1], te[1], args["edge_type"])
                 return f"[GLINK] linked -[{edge['edge_type']}]-> (edge id {edge['id']})"
-
-            if name == "GDESTROY":
-                # delete is total-control only — write-listed nodes don't qualify
-                e = resolve_in_folders(args["node"])
-                if not e:
-                    return "[GDESTROY ERROR] delete needs folder total control — the node must be inside one of your folders"
-                res = graph_actions.destroy_node(self.user, e[0], e[1])
-                return f"[GDESTROY] deleted {len(res['deleted'])} node(s)"
         except ValueError as err:
             return f"[{name} ERROR] {err}"
         return f"[{name} ERROR] unknown graph command"
@@ -532,6 +581,18 @@ class Agent:
                     if m["type"] == "file":
                         body = f"{body} [file: {m['file']['name']} ({m['file']['size']} bytes)]".strip()
                     lines.append(f"  {m['sender']}: {body}")
+                return "\n".join(lines)
+            if name == "CHECK_CHANNELS":
+                channels = chatmod.load_channels(self.user)
+                my = [(cid, ch) for cid, ch in channels.items() if self.name in ch["members"]]
+                readers = chatmod._load_readers(self.user).get(self.name, {})
+                lines = [f"[CHECK_CHANNELS — {len(my)} channels]"]
+                for cid, ch in my:
+                    since = readers.get(cid, 0)
+                    unread = len([m for m in chatmod.read_messages(self.user, cid, limit=200, since_ts=since)
+                                  if m["sender"] != self.name])
+                    dm_tag = " (DM with user)" if ch.get("dm") else ""
+                    lines.append(f"  #{ch['name']} (id: {cid}) — {len(ch['members'])} members, {unread} unread{dm_tag}")
                 return "\n".join(lines)
         except (ValueError, KeyError) as err:
             return f"[{name} ERROR] {err}"

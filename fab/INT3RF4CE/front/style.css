@@ -67,7 +67,7 @@ body {
 
 .agent-controls input {
     flex: 1;
-    min-width: 0;
+    min-width: 90px; /* never collapse below a usable width */
     padding: 5px 7px;
     background: var(--background);
     border: 1px solid var(--mid-gray);
@@ -91,6 +91,8 @@ body {
 .agent-controls button:hover {
     background: var(--sky);
 }
+
+.agent-controls .hub-link { flex-shrink: 0; }
 
 .left-bottom {
     flex: 1;
@@ -541,9 +543,15 @@ button:disabled {
     border: 1px solid var(--mid-gray);
     border-radius: 3px;
     font-family: inherit;
-    font-size: 0.8em;
-    padding: 5px;
+    font-size: 11px;
+    white-space: nowrap; /* never wrap onto two lines */
+    padding: 5px 4px;
     cursor: pointer;
+}
+.chat-left-top .hub-link {
+    flex-shrink: 0;
+    font-size: 11px;
+    padding: 5px 8px;
 }
 #channel-list {
     list-style: none;
@@ -564,6 +572,43 @@ button:disabled {
 }
 .channel-row:hover { background: var(--dark-gray); color: var(--white); }
 .channel-row.active { background: var(--dark-gray); color: var(--mint); }
+
+/* ---- tasks popup: every agent's to-do queue at a glance ---- */
+#tasks-btn.on { border-color: var(--mint); color: var(--mint); }
+#tasks-popup {
+    max-height: 40vh;
+    overflow-y: auto;
+    border-bottom: 1px solid var(--dark-gray);
+    padding: 6px;
+    font-size: 0.8em;
+}
+.tasks-empty { color: var(--light-gray); padding: 4px 6px; }
+.tasks-agent {
+    color: var(--mint);
+    font-weight: bold;
+    padding: 6px 6px 2px;
+}
+.tasks-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 6px;
+    color: var(--near-white);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.tasks-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.tasks-todo .tasks-dot { background: var(--near-white); }
+.tasks-doing .tasks-dot { background: var(--green); animation: tg-pulse 1.2s infinite; }
+.tasks-done { color: var(--light-gray); }
+.tasks-done .tasks-dot { background: var(--sky); }
+@keyframes tg-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
 
 .chat-main {
     flex: 1;

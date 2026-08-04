@@ -26,12 +26,19 @@ fab-board {
   height: 40px;
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 6px;
-  padding: 0 90px 0 12px; /* right padding keeps the auth chip clear of toolbar buttons */
+  padding: 0 12px;
   background: #050505;
   border-bottom: 1px solid var(--dark-gray, #212121);
   z-index: 30;
+  overflow: hidden;
 }
+
+/* buttons never wrap or squish — selection buttons appearing must not
+   reflow the bar onto two lines */
+#toolbar > * { flex-shrink: 0; }
+#toolbar button, #doc-font-label { white-space: nowrap; }
 
 #toolbar .brand {
   color: var(--neon-pink, #FF80BF);
@@ -60,7 +67,9 @@ fab-board {
 
 #state-picker { display: flex; gap: 4px; }
 #state-picker.hidden { display: none; }
-.state-btn.active { border-color: var(--green, #00FF41) !important; color: var(--green, #00FF41) !important; }
+.state-btn.active[data-state="todo"] { border-color: var(--near-white, #C5C5C5) !important; color: var(--near-white, #C5C5C5) !important; }
+.state-btn.active[data-state="doing"] { border-color: var(--green, #00FF41) !important; color: var(--green, #00FF41) !important; }
+.state-btn.active[data-state="done"] { border-color: var(--sky, #6BC4FF) !important; color: var(--sky, #6BC4FF) !important; }
 
 /* ---- sidebar ---- */
 
@@ -290,15 +299,24 @@ fab-board {
 
 .state-dot {
   position: absolute;
-  top: 8px; right: 8px;
-  width: 8px; height: 8px;
+  top: 7px; right: 7px;
+  width: 12px; height: 12px;
   border-radius: 50%;
   background: transparent;
   pointer-events: none;
 }
-.state-dot.state-todo { background: #94A3B8; }
+.state-dot.state-todo { background: var(--near-white, #C5C5C5); }
 .state-dot.state-doing { background: var(--green, #00FF41); animation: pulse 1.2s infinite; }
-.state-dot.state-done { background: #475569; }
+.state-dot.state-done { background: var(--sky, #6BC4FF); }
+
+/* who is doing the task — sits under the dot, same gray as the type label */
+.assignee-label {
+  position: absolute;
+  top: 23px; right: 7px;
+  font-size: 11px;
+  color: var(--light-gray, #5C5C5C);
+  pointer-events: none;
+}
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
@@ -307,6 +325,19 @@ fab-board {
 
 /* expanded obj: markdown editor */
 .fab-node.expanded { background: #0a0a0a; z-index: 3; }
+/* bottom-right grip to temporarily stretch an expanded doc */
+.fab-node .resize-grip {
+  position: absolute;
+  right: 0; bottom: 0;
+  width: 14px; height: 14px;
+  cursor: nwse-resize;
+  z-index: 4;
+  background: linear-gradient(135deg, transparent 50%, var(--light-gray, #5C5C5C) 50%);
+  border-bottom-right-radius: 4px;
+}
+.fab-node .resize-grip:hover {
+  background: linear-gradient(135deg, transparent 50%, var(--near-white, #C5C5C5) 50%);
+}
 .fab-node .md-editor {
   position: absolute;
   top: 30px; left: 0; right: 0; bottom: 0;
@@ -378,6 +409,21 @@ fab-board {
 .fab-node.kind-folder.expanded {
   background: rgba(197, 197, 197, 0.03);
   z-index: 0;
+}
+
+/* expanded folder titles float above the frame line as pure text — no box.
+   when corners coincide they stack: deepest right above the line, outer
+   levels higher. pointer-events on so the title stays grabbable */
+.fab-node.kind-folder .title.floating {
+  right: auto;
+  max-width: none;
+  max-height: 20px;
+  white-space: nowrap;
+  overflow: visible;
+  text-align: left;
+  background: none;
+  border: none;
+  pointer-events: auto;
 }
 
 /* active folder: the current drop target / escape source. mint corners + glow

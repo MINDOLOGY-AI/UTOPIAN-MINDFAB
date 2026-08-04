@@ -304,6 +304,25 @@ class Context:
             "content": content,
         }])
 
+    def close_dangling_tool_calls(self, note: str = "[interrupted] this tool call was cancelled before it finished"):
+        """A turn cancelled mid-execution (pause, single-turn switch) can leave an
+        assistant message with tool_use blocks that never got their tool_result.
+        Provider APIs reject that dangling state, so every later turn fails
+        silently. close any unanswered tool_use with a note result."""
+        answered = {
+            b.get("tool_use_id")
+            for msg in self.messages if msg.get("role") == "user"
+            for b in msg.get("content", []) if b.get("type") == "tool_result"
+        }
+        dangling = [
+            (b["id"], b.get("name", "?"))
+            for msg in self.messages if msg.get("role") == "assistant"
+            for b in msg.get("content", [])
+            if b.get("type") == "tool_use" and b.get("id") not in answered
+        ]
+        for tid, name in dangling:
+            self.add_tool_result(tid, name, note)
+
     @staticmethod
     def image_block(image_bytes: bytes) -> dict:
         return _image_block(image_bytes)

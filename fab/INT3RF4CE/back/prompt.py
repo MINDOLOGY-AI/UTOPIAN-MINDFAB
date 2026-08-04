@@ -77,10 +77,10 @@ keyboard: TYPE text, KEY list-of-X11-keysyms (e.g. ["ctrl","shift","s"], ["Retur
 perception: LOOK (screenshot), TERM (last 5000 chars of terminal)
 file (workspace files): READ file [start] [end], WRITE file content, EDIT file old new which
 special: WAIT secs, STOP (stop yourself completely — you CANNOT resume on your own, only the user can start you again. call this ONLY when all tasks are fully done: implemented, tested, reviewed)
-chat (channels with the user and other agents): CHAT_SEND channel [text] [file] (file = path in your workspace; to reach the user use your DM channel dm-<your name>), CHAT_READ channel [limit]. ONLY use CHAT_SEND for specific things: a file, a final report, or an important one-off message (blocked, question). do NOT flood chat with normal messages or progress commentary — the user can see you responding normally in plain text. incoming chats inject automatically before your turns — you never poll for them.
+chat (channels with the user and other agents): CHECK_CHANNELS (list your channels: name, id, members, unread count — your DM has __user__ as a member), CHAT_SEND channel [text] [file] (file = path in your workspace; to reach the user send to your DM channel — call CHECK_CHANNELS to find it), CHAT_READ channel [limit]. ONLY use CHAT_SEND for specific things: a file, a final report, or an important one-off message (blocked, question). do NOT flood chat with normal messages or progress commentary — the user can see you responding normally in plain text. incoming chats inject automatically before your turns — you never poll for them.
 secrets: READ_SECRETS — read the api keys / secrets the user granted you as JSON name -> value pairs (git entries are objects {"account", "key"}). the user manages the grant list in your settings; empty until they grant some. when a task needs an api key (calling an llm, github, etc.), check READ_SECRETS first before asking the user.
 docker: DOCKER_START (start your computer, switches to work mode), DOCKER_STOP (release it, back to chat mode)
-graph (thoughtgraph docs, if the user configured access in your settings): CHECK_GRAPH_ACCESS (show your read/write/folder access), GREAD node, GUPDATE node [title] [node_type] [state] [expanded], GEDIT node old new which, GCREATE title kind(doc|folder) node_type parent, GMOVE node [x] [y] [parent], GLINK source target edge_type, GMAP [folder] (ascii picture of a folder's layout, or the board root), GDESTROY node (delete, recursive for folders). you can only touch nodes you have access to — write access implies read access; folder total control = full control over everything inside that folder (read, create, edit, retype, move, link, map, destroy). when you finish a doc's task, GUPDATE its state to 'done' ('todo' -> 'doing' -> 'done')
+graph (thoughtgraph docs, if the user configured access in your settings): CHECK_ACCESS (print your boards and what access you have on each), GMAP [board] [folder] (your PRIMARY picture of the graph: every node one per line — path (type) [state] — then every edge one per line; use it constantly to orient), ASCII_MAP [board] [folder] (NICHE: ascii art of the spatial layout with coordinates — only when you need to see or fix layout before GMOVE-ing), GREAD node, GUPDATE node [title] [node_type] [state] [expanded], GEDIT node old new which, GCREATE title kind(doc|folder) node_type parent, GMOVE node [x] [y] [parent], GLINK source target edge_type. you can only touch nodes you have access to — write access implies read access; folder total control = full control over everything inside that folder. task states are their own grant: flipping state needs to-do (time) access, which write does NOT imply. YOUR TO-DO LIST IS YOUR TO-DO (time) ACCESS LIST — the user assigns you tasks by putting nodes there; the one marked 'doing' is your current task, the 'todo' ones are your queue. work the queue: finish your doing task, mark it 'done', then pick the next 'todo' and mark it 'doing'. how to pick: GMAP first and look at the graph structure — if your todos have edges between them, they are a chain: do them in edge order, following edges out from the task you just finished. if your todos have no edges between them they are probably unrelated — do them in whatever order you see fit tasks are single-assignee: marking 'doing' claims the task under your name; only the assignee can then mark it 'done' or release it. if a task you want is claimed by someone else, do NOT fight over it — split the task or pick another
 
 rules:
 - use tools whenever you need to act on the computer.
@@ -105,7 +105,7 @@ all tool_calls in your response are executed in order before you get back any to
 _DEFAULT_CHAT_MODE_PROMPT = """\
 you are now in chat mode: a conversation with the user, no computer use. you do NOT have a docker computer right now — that is fine, a docker is just a tool.
 if you genuinely need a computer (to run code, browse, or use a GUI), call DOCKER_START — it starts your container and switches you to work mode with computer tools. call DOCKER_STOP to release it when done.
-if the user configured thoughtgraph access in your settings, graph commands (CHECK_GRAPH_ACCESS, GREAD, GUPDATE, GEDIT, GCREATE, GMOVE, GLINK, GMAP, GDESTROY) still work in chat mode. READ_SECRETS also works in chat mode.
+if the user configured thoughtgraph access in your settings, graph commands (CHECK_ACCESS, GMAP, ASCII_MAP, GREAD, GUPDATE, GEDIT, GCREATE, GMOVE, GLINK) still work in chat mode. READ_SECRETS also works in chat mode.
 when everything the user asked for is completely done — implemented, tested, and reviewed — call STOP. it halts you permanently: you CANNOT resume on your own, only the user can start you again.
 """
 
@@ -152,8 +152,8 @@ continue working. whether that is more thinking, terminal control, GUI control, 
 def _prompt_docs_block(user: str, agent_name: str) -> str | None:
     """Append the agent's prompt docs: thoughtgraph docs dragged into its prompts
     section, in order, content included. From config/specific/{agent}/graph.json
-    ({prompt_docs, read, write, folders}). Read/write/folder access is NOT injected
-    — the agent queries it with CHECK_GRAPH_ACCESS."""
+    ({prompt_docs, read, write, time, folders}). Read/write/time/folder access is
+    NOT injected — the agent queries it with CHECK_ACCESS."""
     path = _specific_dir(user) / agent_name / "graph.json"
     if not path.exists():
         return None

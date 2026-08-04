@@ -58,6 +58,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from fab.TH0UGHTGR4PH.back import storage as tg_storage
+from fab.TH0UGHTGR4PH.back import graph_actions as tg_actions
 from fab.INT3RF4CE.back import chat as chatmod
 from fab.INT3RF4CE.back import secrets as secretsmod
 from fab.INT3RF4CE.back.agent import Agent
@@ -364,6 +365,95 @@ async def work_loop(user: str, name: str, info: dict):
     logger.info("[work_loop] %s/%s stopped", user, name)
 
 
+async def cancel_and_settle(info: dict, key: str):
+    """Cancel a running task (work loop / chat turn) and WAIT for it to settle.
+    task.cancel() only schedules the CancelledError — touching the agent's
+    context before the task actually stops would race its final writes."""
+    task = info.get(key)
+    if task and not task.done():
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    info[key] = None
+
+
+def reconcile_task_assignment(user: str, agent_name: str, old_settings: dict | None, new_settings: dict):
+    """The to-do (time) list IS the agent's task queue: dragging a node in assigns
+    it, taking one out unassigns it. Assigning a node already marked 'doing'
+    transfers the claim to the agent; unassigning releases the agent's doing
+    task back to todo. Runs as the owner — no transition guard needed here."""
+    old_time = {(e["board"], e["id"]) for e in (old_settings or {}).get("time", [])}
+    new_time = {(e["board"], e["id"]) for e in new_settings.get("time", [])}
+    for board in {b for b, _ in old_time | new_time}:
+        meta = tg_storage.load_meta(user, board)
+        dirty = False
+        for b, nid in new_time - old_time:
+            if b != board:
+                continue
+            node = meta["nodes"].get(nid)
+            if node and node.get("state") == "doing" and node.get("assignee") != agent_name:
+                node["assignee"] = agent_name
+                dirty = True
+        for b, nid in old_time - new_time:
+            if b != board:
+                continue
+            node = meta["nodes"].get(nid)
+            if node and node.get("state") == "doing" and node.get("assignee") == agent_name:
+                node["state"] = "todo"
+                node["assignee"] = None
+                dirty = True
+        if dirty:
+            tg_storage.save_meta(user, board, meta)
+
+
+def agent_task_list(user: str, agent_name: str) -> list[dict]:
+    """One agent's task queue for the chat popup: stateful nodes from its to-do
+    (time) list, plus stateful nodes inside its total-control folders (folder
+    total implies time). doing first, then todo, then done; sorted by path."""
+    path = DATA_DIR / user / "config" / "specific" / agent_name / "graph.json"
+    if not path.exists():
+        return []
+    try:
+        settings = json.loads(path.read_text())
+    except Exception:
+        return []
+    time_entries = settings.get("time", [])
+    folder_entries = settings.get("folders", [])
+    metas = {}
+    for b in {e["board"] for e in time_entries + folder_entries}:
+        try:
+            metas[b] = tg_storage.load_meta(user, b)
+        except Exception:
+            pass
+    tasks, seen = [], set()
+
+    def add(board, nid):
+        node = metas[board]["nodes"].get(nid)
+        if not node or not node.get("state") or (board, nid) in seen:
+            return
+        seen.add((board, nid))
+        tasks.append({"board": board, "path": tg_actions.node_path(metas[board], nid),
+                      "state": node["state"], "assignee": node.get("assignee")})
+
+    for e in time_entries:
+        if e["board"] in metas:
+            add(e["board"], e["id"])
+    for e in folder_entries:
+        meta = metas.get(e["board"])
+        if not meta:
+            continue
+        for nid in meta["nodes"]:
+            cur = nid
+            while cur:  # walk up: is nid inside the controlled folder?
+                if cur == e["id"]:
+                    add(e["board"], nid)
+                    break
+                parent = meta["nodes"].get(cur)
+                cur = parent["parent"] if parent else None
+    order = {"doing": 0, "todo": 1, "done": 2}
+    tasks.sort(key=lambda t: (order.get(t["state"], 3), t["path"].lower()))
+    return tasks
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     # cybersec: block cross-site WebSocket hijacking — browsers send Origin, and if it doesn't match our Host another site is driving the victim's session. closing before accept makes the handshake fail with 403
@@ -556,19 +646,22 @@ async def websocket_endpoint(ws: WebSocket):
                 if info["working"]:
                     info["working"] = False
                     if info.get("work_loop") and not info["work_loop"].done():
-                        info["work_loop"].cancel()
-                        info["work_loop"] = None
                         logger.info("[pause] %s/%s work loop cancelled", user, name)
+                    await cancel_and_settle(info, "work_loop")
                     agent = info["agent"]
+                    # a cancelled turn can leave dangling tool_use — close them or
+                    # every later API call rejects the context (silent failure)
+                    agent.context.close_dangling_tool_calls()
                     for text in info.get("pending_chat", []):
                         agent.context.add_user_text(text)
                     info["pending_chat"] = []
                     await broadcast(user, {"type": "context", "name": name, "messages": agent.context.messages})
                 # stop also halts an in-flight chat-mode turn
                 if info.get("chat_task") and not info["chat_task"].done():
-                    info["chat_task"].cancel()
-                    info["chat_task"] = None
                     logger.info("[pause] %s/%s chat turn cancelled", user, name)
+                await cancel_and_settle(info, "chat_task")
+                if not info["working"]:
+                    info["agent"].context.close_dangling_tool_calls()
 
                 await broadcast(user, {"type": "agents", "agents": get_agents_info(user)})
 
@@ -696,9 +789,11 @@ async def websocket_endpoint(ws: WebSocket):
                 # running model answers (one turn per message vs continuous work loop)
                 info["agent"].chat_mode = enabled
                 if enabled:
-                    if info.get("work_loop") and not info["work_loop"].done():
-                        info["work_loop"].cancel()
-                        info["work_loop"] = None
+                    # settle the work loop before sanitizing, then close any
+                    # dangling tool calls the interrupted turn left behind —
+                    # otherwise the next single-turn reply dies on a rejected context
+                    await cancel_and_settle(info, "work_loop")
+                    info["agent"].context.close_dangling_tool_calls()
                 else:
                     if info["working"] and not info.get("work_loop"):
                         info["work_loop"] = asyncio.create_task(work_loop(user, name, info))
@@ -793,7 +888,7 @@ async def websocket_endpoint(ws: WebSocket):
                     continue
                 # entries are {"board": b, "id": nid} — validate every board exists and every id is on it
                 bad = None
-                for key in ("prompt_docs", "read", "write", "folders"):
+                for key in ("prompt_docs", "read", "write", "time", "folders"):
                     for e in settings.get(key) or []:
                         try:
                             meta = tg_storage.load_meta(user, e["board"])
@@ -814,13 +909,28 @@ async def websocket_endpoint(ws: WebSocket):
                     continue
                 specific = DATA_DIR / user / "config" / "specific" / name
                 specific.mkdir(parents=True, exist_ok=True)
-                (specific / "graph.json").write_text(json.dumps({
+                graph_path = specific / "graph.json"
+                old_settings = json.loads(graph_path.read_text()) if graph_path.exists() else None
+                # the to-do list is the agent's task queue: dragging nodes in/out
+                # assigns/unassigns them BEFORE the new settings land
+                reconcile_task_assignment(user, name, old_settings, settings)
+                graph_path.write_text(json.dumps({
                     "prompt_docs": settings.get("prompt_docs", []),
                     "read": settings.get("read", []),
                     "write": settings.get("write", []),
+                    "time": settings.get("time", []),
                     "folders": settings.get("folders", []),
                 }))
                 await ws.send_text(json.dumps({"type": "graph_settings", "name": name, "settings": settings}))
+
+            elif cmd == "get_agent_tasks":
+                # the chat popup's view of every agent's task queue
+                tasks = {}
+                for agent_name in user_agents:
+                    t = agent_task_list(user, agent_name)
+                    if t:
+                        tasks[agent_name] = t
+                await ws.send_text(json.dumps({"type": "agent_tasks", "tasks": tasks}))
 
             elif cmd == "list_settings_files":
                 files_dir = DATA_DIR / user / "config" / "settings_files"

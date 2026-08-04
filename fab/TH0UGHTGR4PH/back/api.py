@@ -295,6 +295,7 @@ def update_node(board_id: str, node_id: str, payload: NodeUpdate, user: str = De
             title=updates.get("title"),
             node_type=updates.get("node_type"),
             state=updates["state"] if "state" in updates else ...,
+            actor=user,  # human flips claim/release tasks under their own name
         )
         meta = storage.load_meta(user, board_id)
     for k in ("expanded", "width", "height", "color", "ref"):

@@ -57,21 +57,22 @@ COMMANDS: list[dict[str, Any]] = [
     {"name": "WRITE", "description": "Overwrite a file in workspace with content. No escaping needed.", "parameters": {"type": "object", "properties": {"file": {"type": "string"}, "content": {"type": "string"}}, "required": ["file", "content"]}},
     {"name": "EDIT", "description": "Replace text in a workspace file. 'which' is '0','1',... (0-indexed occurrence) or 'all'.", "parameters": {"type": "object", "properties": {"file": {"type": "string"}, "old": {"type": "string"}, "new": {"type": "string"}, "which": {"type": "string"}}, "required": ["file", "old", "new", "which"]}},
     # graph (host-side, thoughtgraph docs — access-enforced by the agent's context-management settings)
-    {"name": "CHECK_GRAPH_ACCESS", "description": "Return your thoughtgraph access: nodes you can read/write, and folders you have total control over (everything inside them). Write access implies read access.", "parameters": {"type": "object", "properties": {}}},
+    {"name": "CHECK_ACCESS", "description": "Print your thoughtgraph access: your boards, then each granted node/folder with its level (read, write, time, total). Write implies read; to-do (time) access implies read but write does NOT imply time; folder total control covers everything inside, including time.", "parameters": {"type": "object", "properties": {}}},
+    {"name": "GMAP", "description": "Your primary picture of the graph: a dry listing of every node you can see (path (type) [state], one per line) followed by every edge (path -(edge_type)-> path, one per line). Optional 'board' (default: all your boards) and 'folder' (scope to a subtree). Use this constantly to orient.", "parameters": {"type": "object", "properties": {"folder": {"type": "string"}, "board": {"type": "string"}}}},
+    {"name": "ASCII_MAP", "description": "Spatial ASCII picture of a folder's layout (or the board root): boxes on a grid plus node ids and coordinates. NICHE tool — use only when you need to see or fix spatial layout before GMOVE-ing things. For understanding the graph use GMAP.", "parameters": {"type": "object", "properties": {"folder": {"type": "string"}, "board": {"type": "string"}}}},
     {"name": "GREAD", "description": "Read a thoughtgraph node you have access to (id or unique title): its fields and full content.", "parameters": {"type": "object", "properties": {"node": {"type": "string"}}, "required": ["node"]}},
-    {"name": "GUPDATE", "description": "Update a node you have WRITE access to: title, node_type, expanded (true/false), and/or state ('todo'|'doing'|'done' or null to clear). Use state to mark docs done when you finish them. For content edits use GEDIT.", "parameters": {"type": "object", "properties": {"node": {"type": "string"}, "title": {"type": "string"}, "node_type": {"type": "string"}, "state": {"type": ["string", "null"]}, "expanded": {"type": "boolean"}}, "required": ["node"]}},
+    {"name": "GUPDATE", "description": "Update a node: title, node_type, expanded (true/false) need WRITE access; state ('todo'|'doing'|'done' or null to clear) needs TO-DO (time) access — write does NOT imply it. Marking 'doing' claims the task under your name; only the assignee can then complete or release it. For content edits use GEDIT.", "parameters": {"type": "object", "properties": {"node": {"type": "string"}, "title": {"type": "string"}, "node_type": {"type": "string"}, "state": {"type": ["string", "null"]}, "expanded": {"type": "boolean"}}, "required": ["node"]}},
     {"name": "GEDIT", "description": "Replace text in a node you have WRITE access to. 'which' is '0','1',... (0-indexed occurrence) or 'all'. Same semantics as the EDIT file tool.", "parameters": {"type": "object", "properties": {"node": {"type": "string"}, "old": {"type": "string"}, "new": {"type": "string"}, "which": {"type": "string"}}, "required": ["node", "old", "new", "which"]}},
     {"name": "GCREATE", "description": "Create a node inside a folder you have total control over. kind is 'doc'|'folder'; node_type must be a known doc type (or 'folder' for folders); parent is the folder (id or unique title).", "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "kind": {"type": "string"}, "node_type": {"type": "string"}, "parent": {"type": "string"}, "state": {"type": ["string", "null"]}}, "required": ["title", "kind", "node_type", "parent"]}},
     {"name": "GMOVE", "description": "Move a node you have WRITE access to: new grid position (x, y) and/or new parent folder (inside your access, same board).", "parameters": {"type": "object", "properties": {"node": {"type": "string"}, "x": {"type": "integer"}, "y": {"type": "integer"}, "parent": {"type": "string"}}, "required": ["node"]}},
     {"name": "GLINK", "description": "Create a typed, colored edge between two doc nodes on the same board (never to/from folders — containment is GMOVE parent). edge_type is one of the board's edge types (support|reject|inference|training by default). Both nodes must be in your write access or total-control folders.", "parameters": {"type": "object", "properties": {"source": {"type": "string"}, "target": {"type": "string"}, "edge_type": {"type": "string"}}, "required": ["source", "target", "edge_type"]}},
-    {"name": "GMAP", "description": "ASCII picture of the graph layout: a folder's contents (or the board root if no folder given) drawn as boxes, plus a legend of node ids + positions and the edge list. Use it to see the layout before GMOVE-ing things.", "parameters": {"type": "object", "properties": {"folder": {"type": "string"}, "board": {"type": "string"}}}},
-    {"name": "GDESTROY", "description": "Delete a node (id or unique title) inside a folder you have total control over. Deleting a folder deletes its whole subtree. Irreversible — be sure.", "parameters": {"type": "object", "properties": {"node": {"type": "string"}}, "required": ["node"]}},
     # docker (host-side, controls this agent's own computer)
     {"name": "DOCKER_START", "description": "Start your docker computer (Linux desktop with terminal + chromium). Use when you genuinely need to run code, browse, or control a GUI. Starts the container and switches you to work mode with computer tools.", "parameters": {"type": "object", "properties": {}}},
     {"name": "DOCKER_STOP", "description": "Stop your docker computer when you no longer need it, to save resources. Returns you to chat mode.", "parameters": {"type": "object", "properties": {}}},
     # chat (host-side, channels with the user and other agents — membership-enforced)
     {"name": "CHAT_SEND", "description": "Send a message to a chat channel you are a member of (id or name). Use ONLY for: sending a file, a final report/deliverable, or an important one-off message (blocked, question). Do NOT use it for normal conversation or progress commentary — the user already sees your plain text responses. To reach the user, send to your DM channel (dm-<your name>).", "parameters": {"type": "object", "properties": {"channel": {"type": "string"}, "text": {"type": "string"}, "file": {"type": "string"}}}},
     {"name": "CHAT_READ", "description": "Read recent messages from a chat channel you are a member of (marks them read). Incoming chats also inject automatically before your turns.", "parameters": {"type": "object", "properties": {"channel": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["channel"]}},
+    {"name": "CHECK_CHANNELS", "description": "List every channel you are a member of: name, id, member count, and unread message count. Your DM channel with the user has __user__ as a member — use it for CHAT_SEND to the user.", "parameters": {"type": "object", "properties": {}}},
     # secrets (host-side, only the subset the user granted this agent)
     {"name": "READ_SECRETS", "description": "Read the secrets (API keys etc.) the user granted you, as JSON name -> value pairs. The user manages the grant list in your settings; empty until they grant some.", "parameters": {"type": "object", "properties": {}}},
 ]
@@ -101,8 +102,10 @@ class Adapter(ABC):
         return {}
 
 
-class KimiAdapter(Adapter):
-    """Moonshot Kimi / OpenAI-compatible adapter.
+class OpenAICompatAdapter(Adapter):
+    """OpenAI-compatible chat-completions adapter — the shared wire format for
+    Kimi (Moonshot), GLM (OpenRouter) and DeepSeek. Provider subclasses only
+    override reasoning_params.
 
     Native format uses role-based messages and tool_calls/tool roles.
     """
@@ -112,7 +115,7 @@ class KimiAdapter(Adapter):
         return [{"type": "function", "function": dict(cmd)} for cmd in cmds]
 
     def reasoning_params(self, model: str) -> dict:
-        # k3 uses reasoning_effort; k2.7 uses reasoning object.
+        # moonshot kimi: k3 uses reasoning_effort; k2.7 uses reasoning object.
         if "k3" in model:
             return {"reasoning_effort": "max"}
         return {"reasoning": {"type": "enabled", "keep": "all"}}
@@ -291,7 +294,7 @@ class KimiAdapter(Adapter):
         return blocks
 
 
-class GLMAdapter(KimiAdapter):
+class GLMAdapter(OpenAICompatAdapter):
     """GLM-via-OpenRouter adapter: OpenAI-compatible wire format, unified reasoning param."""
 
     def reasoning_params(self, model: str) -> dict:

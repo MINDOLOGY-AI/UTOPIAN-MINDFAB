@@ -146,27 +146,49 @@ test("expanding a node inside a folder grows the folder without moving it", () =
   s.computeFolderContentOffsets();
   s.resolveCollisions();
   const b = s.folderBounds(s.nodes.f);
-  // children render from the folder's stored pos; bounds = bbox + border pad
-  eq(b.x, -FabStore.FOLDER_PAD.left, "folder x");
-  eq(b.y, -FabStore.FOLDER_PAD.top, "folder y");
+  // children render from the folder's stored pos; bounds = the exact bbox,
+  // edges on grid lines (no pad — the title floats above the frame)
+  eq(b.x, 0, "folder x");
+  eq(b.y, 0, "folder y");
   if (b.h < FabStore.EXPANDED_H + 200) throw new Error(`folder should engulf expanded child, h=${b.h}`);
   const p2 = s.renderPos(s.nodes.c2);
   // pushed a whole grid cell down (margins preserved), not edge-to-edge
   eq(p2.y, 400, "sibling pushed a full grid cell to clear the collision");
 });
 
-test("expansion does not push nodes in other columns", () => {
+test("expansion shifts everything right and everything below, corners get both", () => {
   const s = makeStore();
   addDoc(s, "a", 0, 0);
+  addDoc(s, "right", 600, 0);
   addDoc(s, "below", 0, 200);
-  addDoc(s, "far", 600, 200);
+  addDoc(s, "corner", 600, 200);
   s.nodes.a.expanded = true;
   s.nodes.a.width = FabStore.EXPANDED_W;
   s.nodes.a.height = FabStore.EXPANDED_H;
   s.computeFolderContentOffsets();
   s.resolveCollisions();
-  eq(s.renderPos(s.nodes.far).y, 200, "far-column node must not move");
-  if (s.renderPos(s.nodes.below).y <= 200) throw new Error("colliding node should move");
+  // default expanded doc claims 400px extra width, 200px extra height
+  const dW = FabStore.MARGIN + FabStore.EXPANDED_W + FabStore.MARGIN - FabStore.GRID;
+  const dH = FabStore.MARGIN + FabStore.EXPANDED_H + FabStore.MARGIN - FabStore.GRID;
+  eq(s.renderPos(s.nodes.right).x, 600 + dW, "right sibling shifts right");
+  eq(s.renderPos(s.nodes.right).y, 0, "right sibling stays in its row");
+  eq(s.renderPos(s.nodes.below).y, 200 + dH, "below sibling shifts down");
+  eq(s.renderPos(s.nodes.below).x, 0, "below sibling stays in its column");
+  eq(s.renderPos(s.nodes.corner).x, 600 + dW, "corner sibling shifts right too");
+  eq(s.renderPos(s.nodes.corner).y, 200 + dH, "corner sibling shifts down too");
+});
+
+test("shifts are exact pixels, not grid-rounded", () => {
+  const s = makeStore();
+  addDoc(s, "a", 0, 0);
+  addDoc(s, "b", 600, 0);
+  s.nodes.a.expanded = true;
+  s.nodes.a.width = FabStore.EXPANDED_W + 137; // grip-resized to a non-grid size
+  s.nodes.a.height = FabStore.EXPANDED_H;
+  s.computeFolderContentOffsets();
+  s.resolveCollisions();
+  const dW = FabStore.MARGIN + FabStore.EXPANDED_W + 137 + FabStore.MARGIN - FabStore.GRID;
+  eq(s.renderPos(s.nodes.b).x, 600 + dW, "sibling must glide by the exact extra pixels");
 });
 
 test("expansion pushes same-row siblings rightward, not down", () => {
@@ -225,7 +247,7 @@ test("expanding a folder never moves the folder, only downstream siblings move",
   if (s.renderPos(s.nodes.below).y <= 200) throw new Error("downstream sibling should be pushed");
 });
 
-test("pushes cascade through chains of collisions", () => {
+test("shifts reach every sibling below, not just overlapping ones", () => {
   const s = makeStore();
   addDoc(s, "a", 0, 0);
   addDoc(s, "b", 0, 200);
@@ -235,8 +257,8 @@ test("pushes cascade through chains of collisions", () => {
   s.nodes.a.height = FabStore.EXPANDED_H;
   s.computeFolderContentOffsets();
   s.resolveCollisions();
-  // c never touches a directly (a bottom 380, c top 420) but b's push hits c
-  if (s.renderPos(s.nodes.c).y <= 400) throw new Error("cascade should push c");
+  // c never touched a even before (a bottom 380, c top 420) — it still shifts
+  if (s.renderPos(s.nodes.c).y <= 400) throw new Error("shift should reach c");
 });
 
 test("collapsing a folder hides its descendants", () => {
@@ -274,15 +296,15 @@ test("freeChildPosition never hands out an occupied cell", () => {
   if (p.x === 12 && p.y === 44) throw new Error("occupied cell handed out");
 });
 
-test("empty expanded folder renders one grid cell plus border pad", () => {
+test("empty expanded folder renders exactly one grid cell", () => {
   const s = makeStore();
   addFolder(s, "f", 600, 400, true);
   s.computeFolderContentOffsets();
   const b = s.folderBounds(s.nodes.f);
-  eq(b.x, 600 - FabStore.FOLDER_PAD.left, "x");
-  eq(b.y, 400 - FabStore.FOLDER_PAD.top, "y");
-  eq(b.w, FabStore.GRID + FabStore.FOLDER_PAD.left + FabStore.FOLDER_PAD.right, "w");
-  eq(b.h, FabStore.GRID + FabStore.FOLDER_PAD.top + FabStore.FOLDER_PAD.bottom, "h");
+  eq(b.x, 600, "x");
+  eq(b.y, 400, "y");
+  eq(b.w, FabStore.GRID, "w");
+  eq(b.h, FabStore.GRID, "h");
 });
 
 test("nested child renders through both folder offsets", () => {
@@ -330,6 +352,33 @@ test("expanded folder bounds count for overlap", () => {
   s.computeFolderContentOffsets();
   eq(s.wouldOverlap("b", 0, 0, null), true, "dropping onto the folder's bounds must overlap");
   eq(s.wouldOverlap("b", 400, 0, null), false, "next to the folder must not overlap");
+});
+
+test("nested folders sharing a corner get ladder steps for their titles", () => {
+  const s = makeStore();
+  addFolder(s, "outer", 0, 0, true);
+  addFolder(s, "inner", 12, 44, true, "outer");
+  addDoc(s, "c", 12, 44, "inner");
+  s.computeFolderContentOffsets();
+  // sanity: the corners really do coincide
+  const ro = s.nodeRect(s.nodes.outer), ri = s.nodeRect(s.nodes.inner);
+  eq(ro.x, ri.x, "corner x should coincide");
+  eq(ro.y, ri.y, "corner y should coincide");
+  const ladder = s.folderTitleLadder();
+  eq(ladder.inner, 0, "deepest folder sits right above the frame line");
+  eq(ladder.outer, 1, "outer folder floats one step higher");
+});
+
+test("folders with distinct corners are not laddered", () => {
+  const s = makeStore();
+  addFolder(s, "f1", 0, 0, true);
+  addFolder(s, "f2", 2000, 2000, true);
+  addDoc(s, "c1", 12, 44, "f1");
+  addDoc(s, "c2", 12, 44, "f2");
+  s.computeFolderContentOffsets();
+  const ladder = s.folderTitleLadder();
+  eq(ladder.f1, undefined, "f1 must not be laddered");
+  eq(ladder.f2, undefined, "f2 must not be laddered");
 });
 
 // ---------------------------------------------------------------------------

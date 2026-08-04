@@ -6,7 +6,7 @@
 // static circular import with nodes.js — safe for function declarations;
 // NEVER dynamic-import sibling modules: an unversioned url spawns a second
 // module instance with its own state (this bug wiped the board on expand)
-import { updateNodeShapes } from "./nodes.js?v=11";
+import { updateNodeShapes } from "./nodes.js";
 
 const board = document.getElementById("board");
 // popups live in the node layer so they pan/zoom with the board

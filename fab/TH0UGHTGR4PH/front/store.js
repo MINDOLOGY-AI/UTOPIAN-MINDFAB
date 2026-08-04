@@ -204,22 +204,6 @@ class FabStore extends EventTarget {
     return {x: p.x + m, y: p.y + m, w: s, h: s};
   }
 
-  naturalRect(node) {
-    // footprint used for push-aside and overlap checks
-    if (node.kind === "folder") {
-      if (node.expanded) return this.folderBounds(node);
-      return this.collapsedRect(node);
-    }
-    if (node.expanded) {
-      const p = this.renderPos(node);
-      return {
-        x: p.x + FabStore.MARGIN, y: p.y + FabStore.MARGIN,
-        w: node.width || FabStore.EXPANDED_W, h: node.height || FabStore.EXPANDED_H,
-      };
-    }
-    return this.collapsedRect(node);
-  }
-
   gridRect(node) {
     // grid-aligned bounding box (used for folder bounds and overlap checks)
     const p = this.renderPos(node);
@@ -249,7 +233,9 @@ class FabStore extends EventTarget {
   }
 
   folderBounds(folder) {
-    // expanded folder engulfs its children; anchored at the folder's stored pos
+    // expanded folder engulfs its children. children are grid-aligned and the
+    // title floats above the frame, so the frame needs NO padding — its edges
+    // land exactly on grid lines and never bleed into adjacent cells
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const n of Object.values(this.nodes)) {
       if (n.parent !== folder.id) continue;
@@ -260,17 +246,11 @@ class FabStore extends EventTarget {
       maxY = Math.max(maxY, r.y + r.h);
     }
     if (minX === Infinity) {
+      // empty folder: exactly its one home cell
       const p = this.renderPos(folder);
-      const P = FabStore.FOLDER_PAD;
-      return {x: p.x - P.left, y: p.y - P.top, w: FabStore.GRID + P.left + P.right, h: FabStore.GRID + P.top + P.bottom};
+      return {x: p.x, y: p.y, w: FabStore.GRID, h: FabStore.GRID};
     }
-    const P = FabStore.FOLDER_PAD;
-    return {
-      x: minX - P.left,
-      y: minY - P.top,
-      w: maxX - minX + P.left + P.right,
-      h: maxY - minY + P.top + P.bottom,
-    };
+    return {x: minX, y: minY, w: maxX - minX, h: maxY - minY};
   }
 
   nodeCenter(node) {
@@ -307,58 +287,66 @@ class FabStore extends EventTarget {
     this.tempOffsets[id].dy += dy;
   }
 
-  resolveCollisions() {
-    // collision-based push-aside: a node only moves if some sibling's rect
-    // actually overlaps it, by just enough to clear the overlap, cascading
-    // downward. nodes that would never collide stay put (things just get
-    // closer). upper nodes anchor, lower nodes move.
-    this.tempOffsets = {};
-    const visible = Object.values(this.nodes).filter(n => this.isVisible(n));
-    const groups = new Map(); // parent key -> sibling list
-    for (const n of visible) {
-      const key = n.parent || "";
+  folderTitleLadder() {
+    // expanded folder titles float above the frame line. folders whose frames
+    // share the exact same top-left corner pixel (nested or aligned) would
+    // pile their titles onto each other, so within a shared corner each level
+    // gets a step: the DEEPEST folder sits right above the line (step 0),
+    // each outer level one step higher. lone folders are untouched (step 0).
+    const ladder = {};
+    const groups = new Map();
+    for (const n of Object.values(this.nodes)) {
+      if (n.kind !== "folder" || !n.expanded || !this.isVisible(n)) continue;
+      const r = this.nodeRect(n);
+      const key = `${Math.round(r.x)},${Math.round(r.y)}`;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(n);
     }
-    // deepest groups first: inner pushes settle before parent bounds are read
-    const sorted = [...groups.values()].sort((g1, g2) => this.nodeDepth(g2[0]) - this.nodeDepth(g1[0]));
-    const overlaps = (r1, r2) =>
-      r1.x < r2.x + r2.w && r1.x + r1.w > r2.x && r1.y < r2.y + r2.h && r1.y + r1.h > r2.y;
-    for (const group of sorted) {
-      for (let iter = 0; iter < 50; iter++) {
-        let moved = false;
-        group.sort((a, b) => {
-          const ra = this.naturalRect(a), rb = this.naturalRect(b);
-          return ra.y - rb.y || ra.x - rb.x;
-        });
-        for (let i = 0; i < group.length; i++) {
-          for (let j = i + 1; j < group.length; j++) {
-            // the expanded node is always the anchor and NEVER moves — only
-            // downstream (below/right) siblings get pushed. above/left pairs
-            // are just the title-pad underlap and stay put.
-            let ai = i, ti = j;
-            if (group[j].expanded && !group[i].expanded) { ai = j; ti = i; }
-            const A = group[ai], T = group[ti];
-            if (T.x <= A.x && T.y <= A.y) continue;
-            const ra = this.naturalRect(A);
-            const rt = this.naturalRect(T);
-            if (!overlaps(ra, rt)) continue;
-            // direction follows the pair's layout: row-mates slide right,
-            // column-mates slide down; amount rounds UP to whole grid cells
-            const G = FabStore.GRID;
-            const dxs = T.x - A.x;
-            const dys = T.y - A.y;
-            if (dxs > 0 && dxs >= dys) {
-              const dx = Math.ceil((ra.x + ra.w - rt.x) / G) * G;
-              this.applyTempOffset(T.id, dx, 0);
-            } else {
-              const dy = Math.ceil((ra.y + ra.h - rt.y) / G) * G;
-              this.applyTempOffset(T.id, 0, dy);
-            }
-            moved = true;
-          }
-        }
-        if (!moved) break;
+    for (const group of groups.values()) {
+      if (group.length < 2) continue;
+      group.sort((a, b) => this.nodeDepth(b) - this.nodeDepth(a));
+      group.forEach((n, i) => { ladder[n.id] = i; });
+    }
+    return ladder;
+  }
+
+  resolveCollisions() {
+    // grid-stretch shifts: an expanded node claims extra room past its home
+    // cell. every sibling at/past the cell's right edge shifts right by the
+    // extra width; every sibling at/past the bottom edge shifts down by the
+    // extra height; corner siblings get both. amounts are EXACT pixels (no
+    // grid rounding) so grip-resizes glide; offsets recompute fresh every
+    // render, so collapsing or shrinking back restores the grid exactly.
+    this.tempOffsets = {};
+    const visible = Object.values(this.nodes).filter(n => this.isVisible(n));
+    // deepest first: inner shifts settle before outer folders read bounds
+    const expanded = visible.filter(n => n.expanded).sort((a, b) => {
+      const da = this.nodeDepth(a), db = this.nodeDepth(b);
+      if (da !== db) return db - da;
+      if (a.y !== b.y) return a.y - b.y;
+      return a.x - b.x;
+    });
+    const G = FabStore.GRID, M = FabStore.MARGIN;
+    for (const a of expanded) {
+      const p = this.renderPos(a);
+      // full visual footprint (node + its margins) measured from the home cell
+      let fw, fh;
+      if (a.kind === "folder") {
+        const b = this.folderBounds(a);
+        fw = b.x + b.w - p.x;
+        fh = b.y + b.h - p.y;
+      } else {
+        fw = M + (a.width || FabStore.EXPANDED_W) + M;
+        fh = M + (a.height || FabStore.EXPANDED_H) + M;
+      }
+      const dW = fw - G, dH = fh - G;
+      if (dW <= 0 && dH <= 0) continue;
+      const right = p.x + G, bottom = p.y + G;
+      for (const b of visible) {
+        if (b.id === a.id || b.parent !== a.parent) continue;
+        const br = this.gridRect(b);
+        if (dW > 0 && br.x >= right) this.applyTempOffset(b.id, dW, 0);
+        if (dH > 0 && br.y >= bottom) this.applyTempOffset(b.id, 0, dH);
       }
     }
   }
@@ -449,7 +437,8 @@ FabStore.MARGIN = 20;
 FabStore.COLLAPSED = 160;
 FabStore.EXPANDED_W = 560;
 FabStore.EXPANDED_H = 360;
-FabStore.FOLDER_PAD = {left: 12, top: 44, right: 12, bottom: 12};
+FabStore.MIN_EXPANDED_W = 360; // 2 grid cells minus margins
+FabStore.MIN_EXPANDED_H = 160; // 1 grid cell minus margins
 FabStore.ESCAPE_MARGIN = 80;
 FabStore.ZOOM_LEVELS = [0.02, 0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4, 5];
 FabStore.snap = v => Math.round(v / FabStore.GRID) * FabStore.GRID;

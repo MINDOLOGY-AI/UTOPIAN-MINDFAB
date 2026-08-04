@@ -3,13 +3,13 @@
 // double click: open popup (tensor or group). on group nodes: expand if collapsed.
 // in selection mode (groups.js), clicking non-group nodes toggles them for group creation
 
-import { showTensorPopup } from "./popup.js?v=11";
-import { highlightEdges } from "./highlight.js?v=11";
-import { isSelectionMode, toggleNodeSelection, refreshGroupsPanel } from "./groups.js?v=11";
+import { showTensorPopup } from "./popup.js";
+import { highlightEdges } from "./highlight.js";
+import { isSelectionMode, toggleNodeSelection, refreshGroupsPanel } from "./groups.js";
 // static circular import — safe for function declarations (live bindings),
-// and CRITICAL: never dynamic-import main.js — a url without ?v= spawns a
-// SECOND module instance with its own empty state + websocket
-import { fullRender, showError } from "./main.js?v=11";
+// and CRITICAL: never dynamic-import main.js by a different specifier — a
+// mismatched url spawns a SECOND module instance with its own empty state + websocket
+import { fullRender, showError } from "./main.js";
 
 const board = document.getElementById("board");
 // world-space layer inside <board-canvas> — node divs go here

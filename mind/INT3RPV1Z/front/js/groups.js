@@ -4,9 +4,10 @@
 // used by: nodes.js (isSelectionMode, toggleNodeSelection), main.js (initGroups, refreshGroupsPanel)
 
 // static circular import — safe for function declarations; never dynamic-import
-// main.js (a url without ?v= spawns a second module instance, see nodes.js)
-import { showError } from "./main.js?v=11";
-import { refreshStars } from "./nodes.js?v=11";
+// main.js by a different specifier (a mismatched url spawns a second module
+// instance, see nodes.js)
+import { showError } from "./main.js";
+import { refreshStars } from "./nodes.js";
 
 let sendFn = null;
 let stateRef = null;

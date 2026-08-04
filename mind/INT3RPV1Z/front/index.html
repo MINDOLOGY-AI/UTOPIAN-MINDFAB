@@ -6,12 +6,13 @@
     <title>INT3RPV1Z</title>
     <base href="/INT3RPV1Z/">
     <link rel="stylesheet" href="/components/TechnoParadisalTheme.css">
-    <link rel="stylesheet" href="/components/AuthBox/AuthBox.css?v=2">
-    <link rel="stylesheet" href="/components/BoardCanvas/BoardCanvas.css?v=1">
-    <link rel="stylesheet" href="style.css?v=5">
+    <link rel="stylesheet" href="/components/AuthBox/AuthBox.css">
+    <link rel="stylesheet" href="/components/BoardCanvas/BoardCanvas.css">
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <header>
+        <a href="/" class="hub-link" title="back to hub">hub</a>
         <h1>INT3RPV1Z</h1>
         <div id="controls">
             <input id="meta-folder" type="text" value="mind/INT3RPV1Z/models/olmo2_1b" placeholder="meta folder (e.g. mind/INT3RPV1Z/models/olmo2_1b)">
@@ -30,7 +31,6 @@
             <span class="sep"></span>
             <button id="btn-capture-mode">show all</button>
         </div>
-        <a href="/" class="hub-link" title="back to hub">hub</a>
     </header>
     <board-canvas id="board"></board-canvas>
 
@@ -41,9 +41,9 @@
         <div class="auth-overlay-msg">please log in — top right</div>
     </div>
 
-    <script type="module" src="/components/AuthBox/AuthBox.js?v=2"></script>
-    <script type="module" src="/components/BoardCanvas/BoardCanvas.js?v=1"></script>
-    <script type="module" src="js/main.js?v=11"></script>
+    <script type="module" src="/components/AuthBox/AuthBox.js"></script>
+    <script type="module" src="/components/BoardCanvas/BoardCanvas.js"></script>
+    <script type="module" src="js/main.js"></script>
     <script type="module">
         // login gate: cover the app until authed; reload once logged in
         const overlay = document.getElementById('auth-overlay');

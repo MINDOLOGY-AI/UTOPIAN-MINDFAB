@@ -2,13 +2,13 @@ import os
 
 from fab.INT3RF4CE.back.model import register_provider
 from fab.INT3RF4CE.back.models.kimi import Kimi
-from fab.INT3RF4CE.back.adapter import KimiAdapter
+from fab.INT3RF4CE.back.adapter import OpenAICompatAdapter
 
 # DeepSeek's official OpenAI-compatible endpoint (api-docs.deepseek.com)
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/chat/completions"
 
 
-class DeepSeekAdapter(KimiAdapter):
+class DeepSeekAdapter(OpenAICompatAdapter):
     """DeepSeek uses its own thinking toggle instead of moonshot's reasoning params."""
 
     def reasoning_params(self, model: str) -> dict:

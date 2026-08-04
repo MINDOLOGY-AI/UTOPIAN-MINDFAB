@@ -2,11 +2,11 @@
 // all other modules import from here: send() for WebSocket calls, state for shared data
 // flow: Load Meta -> Load Model -> (optional) Forward -> click nodes to inspect
 
-import { renderNodes, clearNodes, updateNodeShapes, initNodes, setMarkMode, toggleMarksPanel } from "./nodes.js?v=11";
-import { renderEdges, clearEdges } from "./edges.js?v=11";
-import { initPopup, closeAllPopups } from "./popup.js?v=11";
-import { initHighlight } from "./highlight.js?v=11";
-import { initGroups, refreshGroupsPanel } from "./groups.js?v=11";
+import { renderNodes, clearNodes, updateNodeShapes, initNodes, setMarkMode, toggleMarksPanel } from "./nodes.js";
+import { renderEdges, clearEdges } from "./edges.js";
+import { initPopup, closeAllPopups } from "./popup.js";
+import { initHighlight } from "./highlight.js";
+import { initGroups, refreshGroupsPanel } from "./groups.js";
 
 // the <board-canvas> element — pan/zoom/grid/edges all live in the component
 const board = document.getElementById("board");

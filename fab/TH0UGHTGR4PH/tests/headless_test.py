@@ -1,8 +1,8 @@
 """Headless tests for TH0UGHTGR4PH + INT3RF4CE integration.
 
 Part 1 (agent POV, no server): graph_actions CRUD + the agent's access-enforced
-graph dispatch (CHECK_GRAPH_ACCESS / GREAD / GUPDATE / GDESTROY) + the prompt
-docs block, against a throwaway user. Asserts data changes on disk.
+graph dispatch (CHECK_ACCESS / GMAP / GREAD / GUPDATE / single-assignee tasks) +
+the prompt docs block, against a throwaway user. Asserts data changes on disk.
 
 Part 2 (REST/auth): boots the hub on a test port, registers throwaway users,
 exercises the TH0UGHTGR4PH REST API (boards/nodes/content/edges/types/versions)
@@ -120,10 +120,23 @@ def test_agent_pov():
     check("mid reads theory as input", ins == {"ML theory"})
     check("mid reads code as output", outs == {"jump_relu.py"})
 
-    graph_actions.update_node(AGENT_USER, board, theory["id"], content="# ML theory\ndot products and relus", state="doing")
+    graph_actions.update_node(AGENT_USER, board, theory["id"], content="# ML theory\ndot products and relus", state="doing", actor="tester")
     check("content persisted", storage.read_content(AGENT_USER, board, storage.load_meta(AGENT_USER, board), theory["id"]).startswith("# ML theory"))
     meta = storage.load_meta(AGENT_USER, board)
     check("state persisted", meta["nodes"][theory["id"]]["state"] == "doing")
+    check("claim recorded assignee", meta["nodes"][theory["id"]]["assignee"] == "tester")
+    try:
+        graph_actions.update_node(AGENT_USER, board, theory["id"], state="done")
+        check("state change without actor rejected", False)
+    except ValueError:
+        check("state change without actor rejected", True)
+    try:
+        graph_actions.update_node(AGENT_USER, board, theory["id"], state="done", actor="intruder")
+        check("non-assignee cannot complete a claimed task", False)
+    except ValueError:
+        check("non-assignee cannot complete a claimed task", True)
+    graph_actions.update_node(AGENT_USER, board, theory["id"], state="todo", actor="tester")
+    check("assignee released the task", storage.load_meta(AGENT_USER, board)["nodes"][theory["id"]]["assignee"] is None)
 
     moved = graph_actions.move_node(AGENT_USER, board, theory["id"], x=0, y=600)
     check("move persisted + snapped", storage.load_meta(AGENT_USER, board)["nodes"][theory["id"]]["y"] == 600)
@@ -194,19 +207,20 @@ def test_agent_pov():
         "write": [{"board": board, "id": theory["id"]}],
     })
 
-    out = agent._graph_dispatch("CHECK_GRAPH_ACCESS", {})
-    check("CHECK_GRAPH_ACCESS lists board", f'"board": "{board}"' in out)
-    check("CHECK_GRAPH_ACCESS: write implies read", "ML theory" in out and "jump_relu.py" in out)
-    check("CHECK_GRAPH_ACCESS prints node_type + state", '"node_type": "theory"' in out and '"state":' in out)
+    out = agent._graph_dispatch("CHECK_ACCESS", {})
+    check("CHECK_ACCESS lists board", "boards: main" in out)
+    check("CHECK_ACCESS: write implies read listing", "ML theory" in out and "jump_relu.py" in out)
 
     out = agent._graph_dispatch("GREAD", {"node": code["id"]})
     check("GREAD allowed on read-listed node", "jump_relu.py" in out)
     out = agent._graph_dispatch("GREAD", {"node": mid["id"]})
     check("GREAD rejected on unlisted node", "no read access" in out)
 
-    out = agent._graph_dispatch("GUPDATE", {"node": theory["id"], "state": "done"})
+    out = agent._graph_dispatch("GUPDATE", {"node": theory["id"], "expanded": True})
     check("GUPDATE allowed on write-listed node", "updated" in out)
-    check("state done persisted", storage.load_meta(AGENT_USER, board)["nodes"][theory["id"]]["state"] == "done")
+    agent._graph_dispatch("GUPDATE", {"node": theory["id"], "expanded": False})
+    out = agent._graph_dispatch("GUPDATE", {"node": theory["id"], "state": "done"})
+    check("GUPDATE state rejected: write is NOT time access", "time" in out and "ERROR" in out)
     out = agent._graph_dispatch("GEDIT", {"node": code["id"], "old": "x", "new": "y", "which": "0"})
     check("GEDIT rejected on read-only node", "no write access" in out)
 
@@ -217,9 +231,53 @@ def test_agent_pov():
     check("GEDIT reports text not found", "text not found" in out)
 
     out = agent._graph_dispatch("GDESTROY", {"node": theory["id"]})
-    check("GDESTROY rejected without folder control (write list is not enough)", "folder total control" in out)
+    check("GDESTROY is gone", "unknown graph command" in out)
     out = agent._graph_dispatch("GCREATE", {"title": "x", "kind": "doc", "node_type": "doc"})
     check("GCREATE without parent folder rejected", "parent folder required" in out)
+
+    # ---- to-do (time) access: a separate grant; tasks are single-assignee ----
+    write_graph_settings(AGENT_USER, "agent_x", {
+        "prompt_docs": [{"board": board, "id": theory["id"]}],
+        "read": [{"board": board, "id": code["id"]}],
+        "write": [{"board": board, "id": theory["id"]}],
+        "time": [{"board": board, "id": theory["id"]}],
+    })
+    out = agent._graph_dispatch("GUPDATE", {"node": theory["id"], "state": "doing"})
+    check("time access: claim task as doing", "updated" in out)
+    meta = storage.load_meta(AGENT_USER, board)
+    check("claim records the agent as assignee", meta["nodes"][theory["id"]]["assignee"] == "agent_x")
+    agent_y = make_agent(AGENT_USER, "agent_y")
+    write_graph_settings(AGENT_USER, "agent_y", {"time": [{"board": board, "id": theory["id"]}]})
+    out = agent_y._graph_dispatch("GUPDATE", {"node": theory["id"], "state": "done"})
+    check("other agent cannot complete a claimed task", "being done by agent_x" in out)
+    out = agent_y._graph_dispatch("GUPDATE", {"node": theory["id"], "state": "doing"})
+    check("other agent cannot re-claim a claimed task", "being done by agent_x" in out)
+    out = agent._graph_dispatch("GUPDATE", {"node": theory["id"], "state": "done"})
+    check("assignee completes the task", "updated" in out)
+    node = storage.load_meta(AGENT_USER, board)["nodes"][theory["id"]]
+    check("completion clears the assignee", node["state"] == "done" and node["assignee"] is None)
+
+    # a cancelled turn must not leave dangling tool_use (the single-turn bug):
+    # the provider rejects that context and every later reply dies silently
+    agent.context.add_assistant_message([{"type": "tool_use", "id": "t1", "name": "WAIT", "arguments": {"secs": 1}}])
+    agent.context.close_dangling_tool_calls()
+    last = agent.context.messages[-1]
+    check("dangling tool_use closed after interrupt",
+          last["role"] == "user" and last["content"][0]["tool_use_id"] == "t1")
+    agent.context.close_dangling_tool_calls()
+    check("already-answered calls are untouched", len(agent.context.messages) == 2)
+
+    # the to-do (time) list IS the agent's queue: dragging in assigns, out unassigns
+    from fab.INT3RF4CE.back.server import reconcile_task_assignment, agent_task_list
+    graph_actions.update_node(AGENT_USER, board, theory["id"], state="doing", actor="drift")
+    reconcile_task_assignment(AGENT_USER, "agent_x", None, {"time": [{"board": board, "id": theory["id"]}]})
+    node = storage.load_meta(AGENT_USER, board)["nodes"][theory["id"]]
+    check("dragging a doing task in transfers the claim", node["assignee"] == "agent_x")
+    reconcile_task_assignment(AGENT_USER, "agent_x", {"time": [{"board": board, "id": theory["id"]}]}, {"time": []})
+    node = storage.load_meta(AGENT_USER, board)["nodes"][theory["id"]]
+    check("dragging out releases the task to todo", node["state"] == "todo" and node["assignee"] is None)
+    tasks = agent_task_list(AGENT_USER, "agent_x")
+    check("agent task list shows queued tasks", any(t["state"] == "todo" and "ML theory" in t["path"] for t in tasks))
 
     # prompt docs block: only prompt_docs content is injected, not access lists
     block = _prompt_docs_block(AGENT_USER, "agent_x")
@@ -243,8 +301,8 @@ def test_agent_pov():
         "folders": [{"board": board, "id": folder["id"]}],
     })
 
-    out = agent._graph_dispatch("CHECK_GRAPH_ACCESS", {})
-    check("CHECK lists folder total control", "folder_total_control" in out and "project" in out)
+    out = agent._graph_dispatch("CHECK_ACCESS", {})
+    check("CHECK lists folder total control", "total  project/ (everything inside)" in out)
 
     out = agent._graph_dispatch("GREAD", {"node": inside["id"]})
     check("folder access: GREAD inside", "inside doc" in out)
@@ -260,7 +318,7 @@ def test_agent_pov():
     out = agent._graph_dispatch("GUPDATE", {"node": inside["id"], "node_type": "theory"})
     check("folder access: GUPDATE retype inside", "updated" in out)
     out = agent._graph_dispatch("GUPDATE", {"node": outside["id"], "state": "done"})
-    check("folder access: GUPDATE outside rejected", "no write access" in out)
+    check("folder access: GUPDATE outside rejected", "no to-do (time) access" in out)
 
     out = agent._graph_dispatch("GEDIT", {"node": deep["id"], "old": "x", "new": "y", "which": "0"})
     check("folder access: GEDIT nested allowed", "text not found" in out)
@@ -289,40 +347,36 @@ def test_agent_pov():
     out = agent._graph_dispatch("GLINK", {"source": deep["id"], "target": folder["id"], "edge_type": "support"})
     check("GLINK to folder hard-blocked", "not folders" in out)
 
-    # ---- GMAP: ascii layout picture + expand/collapse control ----
+    # ---- GMAP: dry listing (primary lens); ASCII_MAP: spatial picture (niche) ----
     out = agent._graph_dispatch("GUPDATE", {"node": inside["id"], "expanded": True})
     check("GUPDATE expanded toggle", "updated" in out)
     check("expanded persisted", storage.load_meta(AGENT_USER, board)["nodes"][inside["id"]]["expanded"] is True)
     agent._graph_dispatch("GUPDATE", {"node": inside["id"], "expanded": False})
 
     out = agent._graph_dispatch("GMAP", {"folder": folder["id"]})
-    check("GMAP renders folder", "[GMAP]" in out and "sub" in out and "╔" in out)
-    out = agent._graph_dispatch("GMAP", {"folder": subfolder["id"]})
-    check("GMAP legend has ids", deep["id"] in out and inside["id"] in out)
-    check("GMAP lists edges", "deep doc -[support]-> inside doc" in out)
+    check("GMAP dry listing renders", "[GMAP]" in out and "nodes:" in out and "edges:" in out)
+    check("GMAP shows folder-joined paths", "project/sub/deep doc (doc)" in out)
+    check("GMAP shows assignee in the state bracket", "[doing: agent_x]" in out)
+    check("GMAP lists edges dry", "-(support)->" in out)
     out = agent._graph_dispatch("GMAP", {})
-    check("GMAP root renders", "root" in out and "project" in out)
-    check("GMAP lists typed edges", "-[" in out or "root" in out)
+    check("GMAP root lists the accessible board", f"board '{board}'" in out and "project/" in out)
+    check("GMAP hides nodes outside access", "outside doc" not in out)
+    out = agent._graph_dispatch("ASCII_MAP", {"folder": folder["id"]})
+    check("ASCII_MAP renders boxes", "[ASCII_MAP]" in out and "╔" in out)
+    out = agent._graph_dispatch("ASCII_MAP", {"folder": subfolder["id"]})
+    check("ASCII_MAP legend has ids", deep["id"] in out and inside["id"] in out)
+    check("ASCII_MAP lists edges", "deep doc -[support]-> inside doc" in out)
     out = agent._graph_dispatch("GMAP", {"folder": inside["id"]})
     check("GMAP rejects non-folder", "must be a folder" in out)
     outfolder = graph_actions.create_node(AGENT_USER, board, "out folder", "folder", "folder")
     out = agent._graph_dispatch("GMAP", {"folder": outfolder["id"]})
     check("GMAP rejects out-of-scope folder", "no access" in out)
 
-    # ---- GDESTROY: folder total control only ----
+    # ---- GDESTROY is gone: agents cannot delete nodes, period ----
     out = agent._graph_dispatch("GDESTROY", {"node": "new idea"})
-    check("GDESTROY inside folder scope (by title)", "deleted 1 node" in out)
+    check("GDESTROY rejected everywhere (tool removed)", "unknown graph command" in out)
     meta = storage.load_meta(AGENT_USER, board)
-    check("GDESTROY removed from disk", all(n["title"] != "new idea" for n in meta["nodes"].values()))
-    out = agent._graph_dispatch("GDESTROY", {"node": outfolder["id"]})
-    check("GDESTROY out-of-scope folder rejected", "folder total control" in out)
-    out = agent._graph_dispatch("GDESTROY", {"node": code["id"]})
-    check("GDESTROY read-listed node rejected", "folder total control" in out)
-    out = agent._graph_dispatch("GDESTROY", {"node": subfolder["id"]})
-    check("GDESTROY folder is recursive", "deleted 3 node" in out)
-    meta = storage.load_meta(AGENT_USER, board)
-    check("subtree gone from disk", subfolder["id"] not in meta["nodes"] and deep["id"] not in meta["nodes"] and inside["id"] not in meta["nodes"])
-    check("subtree edges cleaned", all(e["source"] in meta["nodes"] and e["target"] in meta["nodes"] for e in meta["edges"].values()))
+    check("node untouched after GDESTROY attempt", any(n["title"] == "new idea" for n in meta["nodes"].values()))
 
     res = graph_actions.destroy_node(AGENT_USER, board, theory["id"])
     meta = storage.load_meta(AGENT_USER, board)
@@ -670,6 +724,7 @@ def test_rest_ws():
                     "prompt_docs": [{"board": "main", "id": obj["id"]}],
                     "read": [{"board": "main", "id": mid2["id"]}],
                     "write": [{"board": "main", "id": obj["id"]}],
+                    "time": [{"board": "main", "id": obj["id"]}],
                     "folders": [{"board": "main", "id": folder["id"]}],
                 }}))
                 await ws.send(json.dumps({"cmd": "get_graph_settings", "name": "agent_a"}))
@@ -683,6 +738,7 @@ def test_rest_ws():
         check("WS graph settings roundtrip", settings
               and settings["prompt_docs"] == [{"board": "main", "id": obj["id"]}]
               and settings["write"] == [{"board": "main", "id": obj["id"]}]
+              and settings["time"] == [{"board": "main", "id": obj["id"]}]
               and settings["folders"] == [{"board": "main", "id": folder["id"]}])
         graph_json = PROJECT_ROOT / "fab" / "data" / "INT3RF4CE" / WEB_USER_A / "config" / "specific" / "agent_a" / "graph.json"
         check("graph.json written on disk", graph_json.exists())

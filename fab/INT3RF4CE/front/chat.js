@@ -32,6 +32,10 @@ function connect() {
             agentStatus = msg.agents;
             renderChannels();
             renderHeader();
+            if (tasksOpen) send({ cmd: 'get_agent_tasks' }); // live-refresh the popup
+        }
+        if (msg.type === 'agent_tasks') {
+            renderTasks(msg.tasks || {});
         }
         if (msg.type === 'channels') {
             channels = msg.channels;
@@ -50,6 +54,49 @@ function connect() {
     ws.onopen = () => send({ cmd: 'list_channels' });
     ws.onclose = () => setTimeout(connect, 2000);
 }
+
+// ---- tasks popup: what each agent is working on (their to-do queues) ----
+
+const tasksBtn = document.getElementById('tasks-btn');
+const tasksPopup = document.getElementById('tasks-popup');
+let tasksOpen = false;
+
+function renderTasks(tasks) {
+    tasksPopup.innerHTML = '';
+    const names = Object.keys(tasks).sort();
+    if (!names.length) {
+        const hint = document.createElement('div');
+        hint.className = 'tasks-empty';
+        hint.textContent = 'no tasks assigned — drag nodes into an agent\'s to do section on the board';
+        tasksPopup.appendChild(hint);
+        return;
+    }
+    for (const name of names) {
+        const head = document.createElement('div');
+        head.className = 'tasks-agent';
+        head.textContent = name;
+        tasksPopup.appendChild(head);
+        for (const t of tasks[name]) {
+            const row = document.createElement('div');
+            row.className = `tasks-row tasks-${t.state}`;
+            const dot = document.createElement('span');
+            dot.className = 'tasks-dot';
+            row.appendChild(dot);
+            const label = document.createElement('span');
+            label.textContent = t.path + (t.state === 'doing' && t.assignee ? ` — ${t.assignee}` : '');
+            row.appendChild(label);
+            row.title = `${t.state} · ${t.board}`;
+            tasksPopup.appendChild(row);
+        }
+    }
+}
+
+tasksBtn.onclick = () => {
+    tasksOpen = !tasksOpen;
+    tasksPopup.style.display = tasksOpen ? 'block' : 'none';
+    tasksBtn.classList.toggle('on', tasksOpen);
+    if (tasksOpen) send({ cmd: 'get_agent_tasks' });
+};
 
 function send(cmd) {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(cmd));

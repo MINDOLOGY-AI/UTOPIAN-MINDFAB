@@ -5,7 +5,7 @@ import os
 import httpx
 
 from fab.INT3RF4CE.back.model import Model, KVCache, register_provider
-from fab.INT3RF4CE.back.adapter import KimiAdapter
+from fab.INT3RF4CE.back.adapter import OpenAICompatAdapter
 from fab.INT3RF4CE.back.prompt import CONTEXT_SUMMARIZATION_PROMPT
 
 API_TIMEOUT = 180
@@ -18,7 +18,7 @@ class Kimi(Model):
     """Moonshot Kimi API wrapper using the Kimi native OpenAI-compatible adapter."""
 
     name = "kimi"
-    adapter = KimiAdapter()
+    adapter = OpenAICompatAdapter()
     base_url = KIMI_BASE_URL
     # name of this provider's key in the user's secrets store (secrets.json)
     secret_name = "moonshot"

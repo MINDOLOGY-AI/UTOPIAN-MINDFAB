@@ -91,6 +91,17 @@ async def limit_body_size(request: Request, call_next):
         return JSONResponse({"error": "request body too large"}, status_code=413)
     return await call_next(request)
 
+
+@app.middleware("http")
+async def revalidate_statics(request: Request, call_next):
+    # statics carry no cache-busting query params; force revalidation so code
+    # edits show up on a plain refresh (ETag/Last-Modified make it a cheap 304)
+    response = await call_next(request)
+    ext = request.url.path.rsplit(".", 1)[-1]
+    if ext in ("html", "js", "css", "json"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
 # backend routes
 app.include_router(function_approximator_router, prefix="/api")
 app.include_router(auth_router)

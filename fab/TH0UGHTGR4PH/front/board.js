@@ -64,12 +64,13 @@ class FabBoard extends HTMLElement {
   build() {
     this.innerHTML = `
       <div id="toolbar">
-        <a href="/" class="home-link" title="back to main page">←</a>
+        <a href="/" class="home-link" title="back to hub">hub</a>
         <span class="brand">TH0UGHTGR4PH</span>
         <span class="sep"></span>
         <button id="add-doc">add doc</button>
         <button id="add-folder">add folder</button>
         <button id="add-edge">add edge</button>
+        <button id="delete-btn" class="hidden">delete</button>
         <button id="meta-btn" class="hidden">meta</button>
         <span class="sep"></span>
         <span id="state-picker" class="hidden">
@@ -77,7 +78,6 @@ class FabBoard extends HTMLElement {
           <button class="state-btn" data-state="doing">doing</button>
           <button class="state-btn" data-state="done">done</button>
         </span>
-        <button id="delete-btn" class="hidden">delete</button>
         <span class="sep"></span>
         <button id="versions-btn">versions</button>
         <span class="sep" style="margin-left:auto"></span>
@@ -248,6 +248,7 @@ class FabBoard extends HTMLElement {
 
     this.nodesContainer.addEventListener("node-mousedown", (e) => this.onNodeMouseDown(e.detail.originalEvent, e.detail.node.id, e));
     this.nodesContainer.addEventListener("node-dblclick", (e) => this.onNodeDblClick(e.detail.node.id));
+    this.nodesContainer.addEventListener("node-resize-start", (e) => this.onResizeStart(e.detail));
     this.nodesContainer.addEventListener("doc-expand", (e) => this.onDocExpand(e.detail.node.id, e.detail.editor));
     this.nodesContainer.addEventListener("content-change", (e) => {
       const el = e.target.closest("doc-node");
@@ -282,6 +283,7 @@ class FabBoard extends HTMLElement {
   syncNodes() {
     const store = this.store;
     const seen = new Set();
+    const ladder = store.folderTitleLadder();
     for (const node of Object.values(store.nodes)) {
       if (!store.isVisible(node)) continue;
       seen.add(node.id);
@@ -295,6 +297,7 @@ class FabBoard extends HTMLElement {
       const el = this.nodeEls[node.id];
       el.node = node;
       el.rect = store.nodeRect(node);
+      el.ladderIndex = ladder[node.id] || 0;
       el.selected = store.selectedNodeIds.has(node.id);
       el.active = node.id === store.activeFolderId;
     }
@@ -379,7 +382,12 @@ class FabBoard extends HTMLElement {
     const id = this.primarySelection();
     if (!id) return;
     const node = this.store.nodes[id];
-    await this.store.updateNode(id, {state: node.state === state ? null : state});
+    try {
+      await this.store.updateNode(id, {state: node.state === state ? null : state});
+    } catch (err) {
+      // e.g. flipping someone else's claimed task — the backend names the assignee
+      alert(err.message);
+    }
   }
 
   // ---- create nodes ----
@@ -606,6 +614,21 @@ class FabBoard extends HTMLElement {
     };
   }
 
+  // bottom-right grip drag on an expanded doc: width/height are render-time
+  // only, never sent to the server — collapsing the doc forgets the size
+  onResizeStart({node, originalEvent: e}) {
+    this.store.dragging = {
+      resize: true,
+      nodeId: node.id,
+      startMouseX: e.clientX,
+      startMouseY: e.clientY,
+      origX: node.x,
+      origY: node.y,
+      origW: node.width || FabStore.EXPANDED_W,
+      origH: node.height || FabStore.EXPANDED_H,
+    };
+  }
+
   async onNodeDblClick(id) {
     const node = this.store.nodes[id];
     if (node.kind === "folder") {
@@ -718,6 +741,19 @@ class FabBoard extends HTMLElement {
       this.applyCamera();
       return;
     }
+    if (drag.resize) {
+      const node = this.store.nodes[drag.nodeId];
+      // raw pixels mid-drag so the stretch glides with the cursor;
+      // the snap to whole grid cells happens on mouseup
+      node.width = Math.max(FabStore.MIN_EXPANDED_W, Math.round(drag.origW + dx / this.store.camera.zoom));
+      node.height = Math.max(FabStore.MIN_EXPANDED_H, Math.round(drag.origH + dy / this.store.camera.zoom));
+      // re-run layout so siblings get pushed aside as the doc grows
+      this.store.computeFolderContentOffsets();
+      this.store.resolveCollisions();
+      this.syncNodes();
+      this.syncEdges();
+      return;
+    }
     if (!drag.moved) return;
     if (this.ctxPanel) this.ctxPanel.setDropActive(true);
     const wdx = dx / this.store.camera.zoom, wdy = dy / this.store.camera.zoom;
@@ -736,6 +772,19 @@ class FabBoard extends HTMLElement {
     if (this.ctxPanel) this.ctxPanel.setDropActive(false);
     if (drag.pan) {
       this.store.dragging = null;
+      return;
+    }
+    if (drag.resize) {
+      // snap the result to whole grid cells (footprint = integer multiple of
+      // GRID) so the board lands back in alignment; temporary by design:
+      // nothing is persisted
+      const node = this.store.nodes[drag.nodeId];
+      const M = FabStore.MARGIN;
+      const snapCells = (v, min) => Math.max(min, FabStore.snap(v + 2 * M) - 2 * M);
+      node.width = snapCells(node.width, FabStore.MIN_EXPANDED_W);
+      node.height = snapCells(node.height, FabStore.MIN_EXPANDED_H);
+      this.store.dragging = null;
+      this.render();
       return;
     }
     const node = this.store.nodes[drag.nodeId];

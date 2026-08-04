@@ -2,8 +2,8 @@
 // orange = clicked node, pink = input edges/nodes, purple = output edges/nodes
 // click empty board space to clear (except during selection mode)
 
-import { highlightEdge, resetAllEdges } from "./edges.js?v=11";
-import { isSelectionMode } from "./groups.js?v=11";
+import { highlightEdge, resetAllEdges } from "./edges.js";
+import { isSelectionMode } from "./groups.js";
 
 // theme colors (svg attributes can't read css vars, so resolve them once)
 const rootStyle = getComputedStyle(document.documentElement);

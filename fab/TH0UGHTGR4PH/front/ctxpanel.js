@@ -1,8 +1,10 @@
 // === ctx-panel: context management for an INT3RF4CE agent, on the board page ===
 // opened via /TH0UGHTGR4PH/?agent=<name>. right sidebar on top of the normal board.
-// settings = {prompt_docs, read, write, folders} of {"board": b, "id": nid} entries,
+// settings = {prompt_docs, read, write, time, folders} of {"board": b, "id": nid} entries,
 // stored in INT3RF4CE config/specific/{agent}/graph.json via its websocket.
 // folders = total control: the agent can read/create/edit/move/link everything inside.
+// time = to-do access: the agent may flip task states (todo/doing/done) on those
+// nodes. write does NOT imply time.
 // secrets: names dragged from the pool into the granted list, stored in
 // config/specific/{agent}/secrets.json — the agent reads them with READ_SECRETS.
 
@@ -10,7 +12,7 @@ class CtxPanel {
   constructor(board, agentName) {
     this.board = board;          // FabBoard instance
     this.agent = agentName;
-    this.settings = {prompt_docs: [], read: [], write: [], folders: []};
+    this.settings = {prompt_docs: [], read: [], write: [], time: [], folders: []};
     this.files = [];
     this.secretNames = [];       // every secret name in the user's store
     this.secretGrants = [];      // names granted to this agent
@@ -34,6 +36,8 @@ class CtxPanel {
       <div class="ctx-list ctx-drop" data-key="read" id="ctx-read"></div>
       <div class="ctx-sub">write access</div>
       <div class="ctx-list ctx-drop" data-key="write" id="ctx-write"></div>
+      <div class="ctx-sub">to do (time access)</div>
+      <div class="ctx-list ctx-drop" data-key="time" id="ctx-time"></div>
       <div class="ctx-sub">folder total control</div>
       <div class="ctx-list ctx-drop" data-key="folders" id="ctx-folders"></div>
       <div class="ctx-sub">secrets</div>
@@ -85,8 +89,8 @@ class CtxPanel {
       let msg;
       try { msg = JSON.parse(event.data); } catch (e) { return; }
       if (msg.type === "graph_settings" && msg.name === this.agent) {
-        this.settings = msg.settings || {prompt_docs: [], read: [], write: [], folders: []};
-        for (const k of ["prompt_docs", "read", "write", "folders"]) this.settings[k] = this.settings[k] || [];
+        this.settings = msg.settings || {prompt_docs: [], read: [], write: [], time: [], folders: []};
+        for (const k of ["prompt_docs", "read", "write", "time", "folders"]) this.settings[k] = this.settings[k] || [];
         this.loadGraphsThenRender();
       }
       if (msg.type === "settings_files") {
@@ -121,7 +125,7 @@ class CtxPanel {
 
   async loadGraphsThenRender() {
     const boards = new Set();
-    for (const k of ["prompt_docs", "read", "write", "folders"]) {
+    for (const k of ["prompt_docs", "read", "write", "time", "folders"]) {
       for (const e of this.settings[k]) boards.add(e.board);
     }
     await Promise.all([...boards].map(async (b) => {
@@ -145,7 +149,7 @@ class CtxPanel {
   }
 
   render() {
-    for (const [key, elId] of [["prompt_docs", "#ctx-prompts"], ["read", "#ctx-read"], ["write", "#ctx-write"], ["folders", "#ctx-folders"]]) {
+    for (const [key, elId] of [["prompt_docs", "#ctx-prompts"], ["read", "#ctx-read"], ["write", "#ctx-write"], ["time", "#ctx-time"], ["folders", "#ctx-folders"]]) {
       const list = this.el.querySelector(elId);
       list.innerHTML = "";
       const entries = this.settings[key];

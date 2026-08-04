@@ -83,6 +83,7 @@ def create_node(user: str, board: str, title: str, kind: str, node_type: str,
         "kind": kind,
         "node_type": node_type,
         "state": state,
+        "assignee": None,  # who claimed the task — set while state == "doing"
         "ref": ref,
         "x": x,
         "y": y,
@@ -125,9 +126,27 @@ def read_node(user: str, board: str, ref: str) -> dict:
     }
 
 
+def _apply_state(node: dict, new_state, actor: str | None):
+    """Single-assignee task rules. todo -> doing claims the task for `actor`;
+    only the assignee may move a task OUT of doing (complete, release, clear).
+    Contention means the task should be split, not shared."""
+    if actor is None:
+        raise ValueError("changing state requires an actor (who is flipping it)")
+    old = node.get("state")
+    assignee = node.get("assignee")
+    if old == "doing" and assignee and assignee != actor:
+        # covers stealing, completing, releasing AND re-claiming someone else's task
+        raise ValueError(f"'{node['title']}' is being done by {assignee} — only they can change its state")
+    if new_state == old:
+        return
+    node["assignee"] = actor if new_state == "doing" else None
+    node["state"] = new_state
+
+
 def update_node(user: str, board: str, ref: str, title: str | None = None,
                 node_type: str | None = None, state: str | None = ...,  # ... = leave unchanged
-                content: str | None = None, expanded: bool | None = None) -> dict:
+                content: str | None = None, expanded: bool | None = None,
+                actor: str | None = None) -> dict:
     _require_board(user, board)
     meta = storage.load_meta(user, board)
     old_meta = copy.deepcopy(meta)  # for content-path sync after rename
@@ -142,7 +161,7 @@ def update_node(user: str, board: str, ref: str, title: str | None = None,
         node["node_type"] = node_type
     if state is not ...:
         _validate_state(state)
-        node["state"] = state
+        _apply_state(node, state, actor)
     if expanded is not None:
         node["expanded"] = bool(expanded)
     if content is not None:
@@ -256,6 +275,70 @@ def unlink(user: str, board: str, edge: str) -> dict:
     del meta["edges"][edge]
     storage.save_meta(user, board, meta)
     return {"ok": True}
+
+
+def node_path(meta: dict, nid: str) -> str:
+    """Folder-joined title path, e.g. mind/mech interp/train SAE."""
+    parts = []
+    cur = nid
+    while cur:
+        n = meta["nodes"][cur]
+        parts.append(n["title"])
+        cur = n["parent"]
+    return "/".join(reversed(parts))
+
+
+def gmap(user: str, board: str, ref: str | None = None, visible: set | None = None) -> str:
+    """Dry graph listing — the model's primary picture of the graph.
+    nodes: one per line, `path (type) [state]`, sorted by path (folders carry a
+    trailing /). edges: one per line, full `path (type) [state] -(type)-> ...`.
+    ref scopes to a folder's subtree (edges shown when either endpoint is
+    inside); visible scopes to an access set (edges need BOTH endpoints visible).
+    """
+    _require_board(user, board)
+    meta = storage.load_meta(user, board)
+    nodes = meta["nodes"]
+    scope = None
+    label = f"board '{board}'"
+    if ref is not None:
+        nid = resolve_node(meta, ref)
+        if nodes[nid]["kind"] != "folder":
+            raise ValueError("map target must be a folder")
+        scope = {nid}
+        stack = [nid]
+        while stack:
+            cur = stack.pop()
+            for o_id, n in nodes.items():
+                if n["parent"] == cur and o_id not in scope:
+                    scope.add(o_id)
+                    stack.append(o_id)
+        label = f'{nodes[nid]["title"]}/ on board \'{board}\''
+
+    def path_of(nid):
+        return node_path(meta, nid)
+
+    def fmt(nid):
+        n = nodes[nid]
+        p = path_of(nid) + ("/" if n["kind"] == "folder" else "")
+        s = n.get("state")
+        bracket = f" [doing: {n['assignee']}]" if s == "doing" and n.get("assignee") else (f" [{s}]" if s else "")
+        return f"{p} ({n['node_type']}){bracket}"
+
+    shown = [nid for nid in nodes
+             if (scope is None or nid in scope) and (visible is None or nid in visible)]
+    edges = [e for e in meta["edges"].values()
+             if e["source"] in nodes and e["target"] in nodes
+             and (visible is None or (e["source"] in visible and e["target"] in visible))
+             and (scope is None or e["source"] in scope or e["target"] in scope)]
+
+    out = [f"{label} — {len(shown)} nodes, {len(edges)} edges"]
+    out.append("nodes:")
+    for nid in sorted(shown, key=lambda i: path_of(i).lower()):
+        out.append(f"  {fmt(nid)}")
+    out.append("edges:")
+    for e in sorted(edges, key=lambda e: (path_of(e["source"]).lower(), path_of(e["target"]).lower())):
+        out.append(f'  {fmt(e["source"])} -({e.get("edge_type", "?")})-> {fmt(e["target"])}')
+    return "\n".join(out)
 
 
 def ascii_map(user: str, board: str, ref: str | None = None) -> str:
