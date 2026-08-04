@@ -4,10 +4,11 @@ import torch
 import torch.nn as nn
 
 class SAE (nn.Module):
-    def __init__ (self,embed_dim, expansion_factor):
+    def __init__ (self, embed_dim, expansion_factor, sparsity_coeff=1e-3):
         super().__init__()
         self.embed_dim = embed_dim
         self.feature_dim = embed_dim * expansion_factor
+        self.sparsity_coeff = sparsity_coeff
 
         self.encoder_weight = nn.Parameter(torch.randn(self.feature_dim, self.embed_dim) / self.embed_dim ** 0.5) # (out, in) format
         self.encoder_bias = nn.Parameter(torch.randn(self.feature_dim) / self.embed_dim ** 0.5)
@@ -25,12 +26,16 @@ class SAE (nn.Module):
     def decode(self, features):
         return features @ self.decoder_weight.T
 
-    def compute_loss(self, input, sparsity_coeff):
-        features = self.encode(input)
-        # average cross feature_dim and batch
-        sparsity_loss = features.mean() * sparsity_coeff
+    def compute_loss(self, batch_data):
+        features = self.encode(batch_data)
+        sparsity_loss = features.mean() * self.sparsity_coeff
         pred = self.decode(features)
-        # average cross embed_dim and batch
-        recon_loss = (input - pred).pow(2).mean()
+        recon_loss = (batch_data - pred).pow(2).mean()
         loss = sparsity_loss + recon_loss
-        return loss
+        activation_energy = batch_data.pow(2).mean()
+        metrics = {
+            "l1": features.mean().item(),
+            "active": (features > 0).float().sum(dim=-1).mean().item(),
+            "recon_pct": (recon_loss / activation_energy * 100.0).item(),
+        }
+        return loss, metrics

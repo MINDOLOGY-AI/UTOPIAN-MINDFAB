@@ -255,7 +255,13 @@ def _copy_data_tree(src_dir: Path, dst_dir: Path):
 def save_version(user: str, board_id: str):
     d = _versions_dir(user, board_id)
     d.mkdir(exist_ok=True)
-    nums = [int(n.split("_")[1]) for n in list_versions(user, board_id)]
+    nums = []
+    for n in list_versions(user, board_id):
+        if n.startswith("version_"):
+            try:
+                nums.append(int(n.split("_", 1)[1]))
+            except ValueError:
+                pass
     name = f"version_{max(nums) + 1 if nums else 0}"
     dst = d / name
     dst.mkdir()

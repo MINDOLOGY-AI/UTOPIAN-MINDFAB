@@ -864,3 +864,24 @@ button:disabled {
     cursor: pointer;
 }
 .secrets-add-row button:hover { background: var(--sky); }
+
+/* upload progress bar */
+#upload-progress {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 320px;
+    height: 24px;
+    background: var(--dark-gray);
+    border: 1px solid var(--mid-gray);
+    border-radius: 3px;
+    z-index: 500;
+    overflow: hidden;
+}
+#upload-bar {
+    height: 100%;
+    width: 0%;
+    background: var(--lavender);
+    transition: width 0.1s linear;
+}

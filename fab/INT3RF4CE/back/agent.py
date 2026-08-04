@@ -37,7 +37,7 @@ class Agent:
     # graph commands (host-side, access-enforced against the agent's graph.json)
     GRAPH_TOOLS = {"CHECK_ACCESS", "GREAD", "GUPDATE", "GEDIT", "GCREATE", "GMOVE", "GLINK", "GMAP", "ASCII_MAP"}
     # chat commands (host-side, membership-enforced against chat/channels.json)
-    CHAT_TOOLS = {"CHAT_SEND", "CHAT_READ", "CHECK_CHANNELS"}
+    CHAT_TOOLS = {"CHAT_SEND", "CHAT_READ", "CHECK_CHANNELS", "CHAT_DOWNLOAD"}
     # secrets commands (host-side, grant-enforced against config/specific/{agent}/secrets.json)
     SECRET_TOOLS = {"READ_SECRETS"}
     DOCKER_TOOLS = {"DOCKER_START", "DOCKER_STOP"}
@@ -66,6 +66,30 @@ class Agent:
         self.stopped = False
         # server-side hook: called when the agent STOPs itself
         self.on_stop: callable | None = None
+
+        # dispatch: tool name -> bound handler(self, args) -> (content, is_perception)
+        self._tool_handlers: dict[str, callable] = {
+            "MOVE": self._h_move,
+            "LCLICK": self._h_lclick,
+            "RCLICK": self._h_rclick,
+            "DCLICK": self._h_dclick,
+            "LDOWN": self._h_ldown,
+            "LUP": self._h_lup,
+            "RDOWN": self._h_rdown,
+            "RUP": self._h_rup,
+            "SCROLLUP": self._h_scrollup,
+            "SCROLLDOWN": self._h_scrolldown,
+            "TYPE": self._h_type,
+            "KEY": self._h_key,
+            "LOOK": self._h_look,
+            "TERM": self._h_term,
+            "TERM_LAST_COMMAND": self._h_term_last_command,
+            "EXEC": self._h_exec,
+            "WAIT": self._h_wait,
+            "READ": self._h_read,
+            "WRITE": self._h_write,
+            "EDIT": self._h_edit,
+        }
 
     def _notify(self, phase: str, state: str):
         if self.on_status:
@@ -136,9 +160,9 @@ class Agent:
                 await asyncio.sleep(int(args.get("secs", 5)))
 
         # auto-feedback: replace last tool result with fresh perception
-        if had_keyboard and "TERM" not in had_perception:
+        if had_keyboard and "TERM" not in had_perception and "TERM_LAST_COMMAND" not in had_perception:
             await asyncio.sleep(0.5)
-            self._replace_last_tool_result(self._term_text())
+            self._replace_last_tool_result(self._term_last_command())
         elif had_mouse and "LOOK" not in had_perception:
             await asyncio.sleep(0.5)
             self._replace_last_tool_result([Context.image_block(self._screenshot_bytes())])
@@ -179,7 +203,7 @@ class Agent:
             return ("[STOP] you are now stopped. you cannot resume on your own — "
                     "only the user can start you again. goodbye."), True
 
-        if name.startswith("CHAT_"):
+        if name in {"CHAT_SEND", "CHAT_READ", "CHAT_DOWNLOAD", "CHECK_CHANNELS"}:
             return self._chat_dispatch(name, args), True
 
         if name == "READ_SECRETS":
@@ -191,61 +215,9 @@ class Agent:
 
         assert self.container
 
-        if name == "MOVE":
-            self.container.move(int(args["x"]), int(args["y"]))
-            return "ok", False
-        if name == "LCLICK":
-            self.container.click(1)
-            return "ok", False
-        if name == "RCLICK":
-            self.container.click(3)
-            return "ok", False
-        if name == "DCLICK":
-            self.container.double_click()
-            return "ok", False
-        if name == "LDOWN":
-            self.container.mousedown(1)
-            return "ok", False
-        if name == "LUP":
-            self.container.mouseup(1)
-            return "ok", False
-        if name == "RDOWN":
-            self.container.mousedown(3)
-            return "ok", False
-        if name == "RUP":
-            self.container.mouseup(3)
-            return "ok", False
-        if name == "SCROLLUP":
-            self.container.scroll("up")
-            return "ok", False
-        if name == "SCROLLDOWN":
-            self.container.scroll("down")
-            return "ok", False
-        if name == "TYPE":
-            self.container.type_text(args.get("text", ""))
-            return "ok", False
-        if name == "KEY":
-            keys = args.get("keys", [])
-            self.container.key("+".join(keys))
-            return "ok", False
-
-        if name == "LOOK":
-            return [Context.image_block(self._screenshot_bytes())], True
-        if name == "TERM":
-            return self._term_text(), True
-
-        if name == "WAIT":
-            return f"waited {args.get('secs', 5)}s", False
-
-        if name == "READ":
-            return self._read_file(args), True
-        if name == "WRITE":
-            self._write_file(args["file"], args["content"])
-            return f"[WRITE {args['file']}] {len(args['content'])} chars written", False
-        if name == "EDIT":
-            return self._edit_file(args), False
-
-        # unknown tool
+        handler = self._tool_handlers.get(name)
+        if handler is not None:
+            return handler(args)
         assert False, f"unknown tool: {name}"
 
     async def _docker_control(self, name: str) -> tuple:
@@ -594,6 +566,22 @@ class Agent:
                     dm_tag = " (DM with user)" if ch.get("dm") else ""
                     lines.append(f"  #{ch['name']} (id: {cid}) — {len(ch['members'])} members, {unread} unread{dm_tag}")
                 return "\n".join(lines)
+            if name == "CHAT_DOWNLOAD":
+                cid = chatmod.resolve_channel(self.user, args["channel"], self.name)
+                src = chatmod.find_channel_file(self.user, cid, args["file"])
+                if not src:
+                    return f"[CHAT_DOWNLOAD ERROR] file '{args['file']}' not found in that channel"
+                dest_name = args.get("dest") or args["file"]
+                dest = self._workspace_path(dest_name)
+                dest.write_bytes(src.read_bytes())
+                size_b = dest.stat().st_size
+                if size_b >= 1048576:
+                    size_s = f"{size_b / 1048576:.1f}MB"
+                elif size_b >= 1024:
+                    size_s = f"{size_b / 1024:.0f}KB"
+                else:
+                    size_s = f"{size_b}B"
+                return f"[CHAT_DOWNLOAD] {args['file']} → {dest_name} ({size_s})"
         except (ValueError, KeyError) as err:
             return f"[{name} ERROR] {err}"
         return f"[{name} ERROR] unknown chat command"
@@ -647,6 +635,82 @@ class Agent:
         path.write_text(result)
         return f"[EDIT {file}] done"
 
+    # ---- tool-dispatch handlers (called via self._tool_handlers dict) ----
+
+    def _h_move(self, args):
+        self.container.move(int(args["x"]), int(args["y"]))
+        return "ok", False
+
+    def _h_lclick(self, _):
+        self.container.click(1)
+        return "ok", False
+
+    def _h_rclick(self, _):
+        self.container.click(3)
+        return "ok", False
+
+    def _h_dclick(self, _):
+        self.container.double_click()
+        return "ok", False
+
+    def _h_ldown(self, _):
+        self.container.mousedown(1)
+        return "ok", False
+
+    def _h_lup(self, _):
+        self.container.mouseup(1)
+        return "ok", False
+
+    def _h_rdown(self, _):
+        self.container.mousedown(3)
+        return "ok", False
+
+    def _h_rup(self, _):
+        self.container.mouseup(3)
+        return "ok", False
+
+    def _h_scrollup(self, _):
+        self.container.scroll("up")
+        return "ok", False
+
+    def _h_scrolldown(self, _):
+        self.container.scroll("down")
+        return "ok", False
+
+    def _h_type(self, args):
+        self.container.type_text(args.get("text", ""))
+        return "ok", False
+
+    def _h_key(self, args):
+        keys = args.get("keys", [])
+        self.container.key("+".join(keys))
+        return "ok", False
+
+    def _h_look(self, _):
+        return [Context.image_block(self._screenshot_bytes())], True
+
+    def _h_term(self, _):
+        return self._term_text(), True
+
+    def _h_term_last_command(self, _):
+        return self._term_last_command(), True
+
+    def _h_exec(self, args):
+        return self._exec(args["command"]), True
+
+    def _h_wait(self, args):
+        return f"waited {args.get('secs', 5)}s", False
+
+    def _h_read(self, args):
+        return self._read_file(args), True
+
+    def _h_write(self, args):
+        self._write_file(args["file"], args["content"])
+        return f"[WRITE {args['file']}] {len(args['content'])} chars written", False
+
+    def _h_edit(self, args):
+        return self._edit_file(args), False
+
     def _screenshot_bytes(self) -> bytes:
         assert self.container
         path = self.container.screenshot()
@@ -658,3 +722,29 @@ class Agent:
         log_path = self.container.workspace / "term.log"
         output = log_path.read_text()[-5000:] if log_path.exists() else "[no terminal output]"
         return f"[TERM]\n{output}"
+
+    def _term_last_command(self) -> str:
+        assert self.container
+        log_path = self.container.workspace / "term.log"
+        if not log_path.exists():
+            return "[TERM_LAST_COMMAND]\n[no terminal output]"
+        offset = self.container._term_offset
+        with open(log_path, "rb") as f:
+            f.seek(offset)
+            new_bytes = f.read()
+        self.container._term_offset = log_path.stat().st_size
+        if not new_bytes:
+            return "[TERM_LAST_COMMAND]\n(no new output since last keyboard command)"
+        text = new_bytes.decode("utf-8", errors="replace")[-5000:]
+        return f"[TERM_LAST_COMMAND]\n{text}"
+
+    def _exec(self, command: str) -> str:
+        assert self.container
+        output = self.container.run(command)
+        # append to term.log so the user can see exec'd commands in the VNC terminal
+        log_path = self.container.workspace / "term.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_path, "a") as f:
+            f.write(f"\n$ {command}\n{output}")
+        trimmed = output[-5000:] if len(output) > 5000 else output
+        return f"[EXEC $ {command}]\n{trimmed}"

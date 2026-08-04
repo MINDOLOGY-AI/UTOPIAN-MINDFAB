@@ -96,10 +96,12 @@ class GateSTE(torch.autograd.Function):
 
 
 class SlabConeSAE(nn.Module):
-    def __init__(self, embed_dim, expansion_factor):
+    def __init__(self, embed_dim, expansion_factor, sparsity_coeff=1e-3, target_active=10):
         super().__init__()
         self.embed_dim = embed_dim
         self.feature_dim = embed_dim * expansion_factor
+        self.sparsity_coeff = sparsity_coeff
+        self.target_active = target_active
         self.band_eps = 0.001  # rect window width (KDE bandwidth)
 
         # dictionary weights (trained by RECONSTRUCTION only, via the
@@ -145,49 +147,37 @@ class SlabConeSAE(nn.Module):
     def decode(self, features):
         return features @ self.decoder_weight.T
 
+    def _norm_decoder(self):
+        with torch.no_grad():
+            self.decoder_weight.data /= self.decoder_weight.data.norm(dim=0, keepdim=True).clamp(min=1e-8)
 
-# trains GatedSAE from streaming activations of the model
-# assumes a sparsity_coeff is initialized at 1e-3
-# returns: (updated_sparsity_coeff, total_loss, l0_loss, recon_loss, unweighted_l0_loss, recon_pct, active_count)
-def train_SlabConeSAE(
-    sae: SlabConeSAE,
-    activation,
-    optimizer,
-    target_active,
-    sparsity_coeff,
-    clip_grad_norm=None,
-    clip_grad_value=None,
-):
-    features, combined_gate = sae.encode(activation)
+    def compute_loss(self, batch_data):
+        self._norm_decoder()
+        features, combined_gate = self.encode(batch_data)
 
-    # avg number of active features per token minus the target
-    # (flows through GateSTE into the thetas, never into the encoder)
-    active_count = combined_gate.sum(-1).mean()
-    error = active_count - target_active
-    # adapt the sparsity coefficient: increase if too many features fire, decrease if too few
-    sparsity_coeff *= (1 + 0.01 * (1 if error.item() > 0 else -1))
-    # unweighted loss = how far over target we are (zero if under target)
-    unweighted_l0_loss = torch.clamp(error, min=0)
-    # weighted loss = what actually gets added to the total loss
-    l0_loss = unweighted_l0_loss * sparsity_coeff
+        # avg number of active features per token minus the target
+        # (flows through GateSTE into the thetas, never into the encoder)
+        active_count = combined_gate.sum(-1).mean()  # scalar
+        error = active_count - self.target_active
+        # adapt the sparsity coefficient: increase if too many features fire, decrease if too few
+        self.sparsity_coeff *= (1 + 0.01 * (1 if error.item() > 0 else -1))
+        # unweighted loss = how far over target we are (zero if under target)
+        unweighted_l0_loss = torch.clamp(error, min=0)
+        # weighted loss = what actually gets added to the total loss
+        l0_loss = unweighted_l0_loss * self.sparsity_coeff
 
-    pred = sae.decode(features)
-    # average squared error over both tokens and embedding dimensions (per-coordinate MSE)
-    recon_loss = (pred - activation).pow(2).mean()
-    # percentage of activation energy not reconstructed
-    activation_energy = activation.pow(2).mean()
-    recon_pct = (recon_loss / activation_energy) * 100.0
-    loss = l0_loss + recon_loss
+        pred = self.decode(features)
+        # average squared error over both tokens and embedding dimensions (per-coordinate MSE)
+        recon_loss = (pred - batch_data).pow(2).mean()
+        # percentage of activation energy not reconstructed
+        activation_energy = batch_data.pow(2).mean()
+        recon_pct = (recon_loss / activation_energy) * 100.0
+        total = l0_loss + recon_loss
 
-    optimizer.zero_grad()
-    loss.backward()
-    if clip_grad_norm is not None:
-        torch.nn.utils.clip_grad_norm_(sae.parameters(), max_norm=clip_grad_norm)
-    if clip_grad_value is not None:
-        torch.nn.utils.clip_grad_value_(sae.parameters(), clip_value=clip_grad_value)
-    optimizer.step()
-
-    # keep decoder feature columns uniform
-    with torch.no_grad():
-        sae.decoder_weight /= sae.decoder_weight.norm(dim=0, keepdim=True)
-    return sparsity_coeff, loss.item(), l0_loss.item(), recon_loss.item(), unweighted_l0_loss.item(), recon_pct.item(), active_count.item()
+        metrics = {
+            "l0": unweighted_l0_loss.item(),
+            "active": active_count.item(),
+            "recon_pct": recon_pct.item(),
+            "sparsity_coeff": self.sparsity_coeff,
+        }
+        return total, metrics

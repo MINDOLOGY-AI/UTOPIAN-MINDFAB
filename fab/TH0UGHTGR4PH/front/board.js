@@ -1171,7 +1171,7 @@ class FabBoard extends HTMLElement {
 
   async restoreVersion() {
     if (!this.selectedVersion) return;
-    if (!confirm(`restore to ${this.selectedVersion}?`)) return;
+    if (!confirm(`restore to ${this.selectedVersion}? restoring destroys current unsaved changes.`)) return;
     await fetch(`boards/${this.store.boardId}/versions/${this.selectedVersion}/restore`, {method: "POST"});
     await this.store.loadGraph();
     this.selectedVersion = null;

@@ -19,7 +19,7 @@ from pathlib import Path
 
 from fab.INT3RF4CE.back.config import DATA_DIR
 
-MAX_FILE_BYTES = 25 * 1024 * 1024
+MAX_FILE_BYTES = 500 * 1024 * 1024
 # executable binary formats never travel through chat — shared files are inert
 BLOCKED_EXTS = {".exe", ".dll", ".so", ".bin", ".msi", ".bat", ".com", ".scr", ".jar"}
 USER_SENDER = "__user__"
@@ -194,6 +194,27 @@ def channel_file(user: str, channel_id: str, filename: str) -> Path:
     if not dest.is_relative_to(base):
         raise ValueError("path escapes channel files")
     return dest
+
+
+def find_channel_file(user: str, channel_id: str, filename: str) -> Path | None:
+    """Find the most recent file with the given display name in a channel.
+    Files are stored as {msgid}-{name}, so we match by stripping the prefix.
+    Returns the full path or None."""
+    base = (_dir(user) / channel_id / "files").resolve()
+    if not base.is_dir():
+        return None
+    match = None
+    match_ts = 0.0
+    for p in sorted(base.iterdir()):
+        if not p.is_file():
+            continue
+        parts = p.name.split("-", 1)
+        if len(parts) == 2 and parts[1] == filename:
+            st = p.stat()
+            if st.st_mtime > match_ts:
+                match = p
+                match_ts = st.st_mtime
+    return match
 
 
 # ---- read cursors (next-turn injection) ----

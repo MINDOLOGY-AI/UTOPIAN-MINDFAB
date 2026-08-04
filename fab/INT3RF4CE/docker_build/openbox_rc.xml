@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<openbox_config xmlns="http://openbox.org/3.4/rc"
+               xmlns:xi="http://www.w3.org/2001/XInclude">
+  <resistance>
+    <strength>10</strength>
+    <screen_edge_strength>20</screen_edge_strength>
+  </resistance>
+  <focus>
+    <focusNew>yes</focusNew>
+    <followMouse>no</followMouse>
+  </focus>
+  <theme>
+    <name>Clearlooks</name>
+    <titleLayout>NLIMC</titleLayout>
+    <!-- allow maximized windows to fill the full screen, ignoring panel struts -->
+    <keepBorder>no</keepBorder>
+  </theme>
+  <applications>
+    <application class="Chromium*">
+      <fullscreen>yes</fullscreen>
+    </application>
+    <application class="XTerm">
+      <decor>no</decor>
+    </application>
+  </applications>
+</openbox_config>

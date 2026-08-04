@@ -87,8 +87,11 @@ MAX_BODY_BYTES = 1_000_000  # 1 MB — the site only ever sends small JSON
 async def limit_body_size(request: Request, call_next):
     # cybersec: reject bodies over 1 MB with 413 — huge bodies are a cheap memory/CPU DoS
     content_length = request.headers.get("content-length")
-    if content_length and int(content_length) > MAX_BODY_BYTES:
-        return JSONResponse({"error": "request body too large"}, status_code=413)
+    try:
+        if content_length and int(content_length) > MAX_BODY_BYTES:
+            return JSONResponse({"error": "request body too large"}, status_code=413)
+    except (ValueError, TypeError):
+        return JSONResponse({"error": "invalid content-length header"}, status_code=400)
     return await call_next(request)
 
 

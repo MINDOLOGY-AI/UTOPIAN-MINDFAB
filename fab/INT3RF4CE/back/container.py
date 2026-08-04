@@ -85,6 +85,7 @@ class Container:
         self.novnc_port = novnc_port  # browser connects to localhost:novnc_port/vnc.html
         self.workspace = DATA_DIR / user / "workspace" / name
         self._running = False
+        self._term_offset = 0  # byte offset in term.log; TERM reads only from here onward
 
     def _dockerfile_path(self) -> Path:
         return PROJECT_ROOT / "fab" / "INT3RF4CE" / "docker_build" / "Dockerfile"
@@ -276,8 +277,14 @@ class Container:
         self.run(f"xdotool click --window $(xdotool getactivewindow) {button}")
 
 
+    def _mark_term(self):
+        """Record the current term.log size so TERM only returns new output."""
+        log = self.workspace / "term.log"
+        self._term_offset = log.stat().st_size if log.exists() else 0
+
     def type_text(self, text: str):
         """Type text on keyboard."""
+        self._mark_term()
         # list command here to not go through bash
         subprocess.run(
             ["docker", "exec", self.name, "xdotool", "type", text],
@@ -286,6 +293,7 @@ class Container:
 
     def key(self, combo: str):
         """Press a key combo. e.g. 'Return', 'ctrl+c', 'alt+Tab'."""
+        self._mark_term()
         self.run(f"xdotool key {combo}")
 
     def move(self, x: int, y: int):

@@ -258,11 +258,26 @@ chatInput.addEventListener('paste', (e) => {
     }
 });
 
-async function uploadFile(file) {
-    const r = await fetch(`chat/${encodeURIComponent(currentChannel)}/files?name=${encodeURIComponent(file.name)}`,
-        { method: 'POST', body: file });
-    if (!r.ok) throw new Error(`${file.name}: upload failed (${r.status})`);
-    return r.json();
+function uploadFile(file) {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        const progress = document.getElementById('upload-progress');
+        const bar = document.getElementById('upload-bar');
+        xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+                bar.style.width = (e.loaded / e.total * 100) + '%';
+            }
+        };
+        xhr.onloadstart = () => { bar.style.width = '0%'; progress.style.display = 'block'; };
+        xhr.onloadend = () => { progress.style.display = 'none'; };
+        xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) resolve(JSON.parse(xhr.responseText));
+            else reject(new Error(`${file.name}: upload failed (${xhr.status})`));
+        };
+        xhr.onerror = () => reject(new Error(`${file.name}: upload failed`));
+        xhr.open('POST', `chat/${encodeURIComponent(currentChannel)}/files?name=${encodeURIComponent(file.name)}`);
+        xhr.send(file);
+    });
 }
 
 chatInput.onkeydown = async (e) => {

@@ -86,6 +86,9 @@ COPY tint2rc /root/.config/tint2/tint2rc
 COPY INT3RF4CE-terminal.desktop /usr/share/applications/INT3RF4CE-terminal.desktop
 COPY INT3RF4CE-chromium.desktop /usr/share/applications/INT3RF4CE-chromium.desktop
 
+# openbox config: maximized windows fill full screen (ignore panel struts)
+COPY openbox_rc.xml /root/.config/openbox/rc.xml
+
 # launcher icons: chromium glyph from its package, terminal drawn from primitives (no font needed)
 RUN convert /usr/share/icons/hicolor/128x128/apps/chromium.png -resize 48x48 /usr/share/pixmaps/INT3RF4CE-chromium.png && \
     convert -size 48x48 xc:'#1a1a1a' \

@@ -89,7 +89,6 @@ users: dict[str, dict[str, dict]] = {}
 
 # ---- channel chat files (per-channel store; replaces the shared-folder design) ----
 
-MAX_FILE_BYTES = 25 * 1024 * 1024
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 TEXT_EXTS = {".txt", ".md", ".csv", ".json", ".py", ".js", ".html", ".css",
              ".log", ".yaml", ".yml", ".toml", ".xml", ".svg", ".sh", ".c", ".cpp", ".h"}
@@ -773,6 +772,8 @@ async def websocket_endpoint(ws: WebSocket):
                     "pending_chat": [],
                 }
                 del user_agents[old_name]
+                chatmod.remove_agent_everywhere(user, old_name)
+                chatmod.ensure_dm(user, new_name)
                 save_agents(user)
                 await broadcast(user, {"type": "agents", "agents": get_agents_info(user)})
 

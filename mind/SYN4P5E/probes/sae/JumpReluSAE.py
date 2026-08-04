@@ -80,10 +80,11 @@ class Heaviside_STE(torch.autograd.Function):
 # 3. JUMPRELU SAE MODULE
 # =============================================================================
 class JumpReLU_SAE(nn.Module):
-    def __init__(self, d_in, d_sae, eps=0.001):
+    def __init__(self, d_in, d_sae, sparsity_coeff=1e-3, eps=0.001):
         super().__init__()
         self.d_in = d_in
         self.d_sae = d_sae          # M dictionary features
+        self.sparsity_coeff = sparsity_coeff
         self.eps = eps
 
         # Normal encoder/decoder weights (trained by RECONSTRUCTION only)
@@ -96,10 +97,12 @@ class JumpReLU_SAE(nn.Module):
         # Stored as log(theta) to keep it positive (paper's trick)
         self.log_theta = nn.Parameter(torch.ones(d_sae) * (-6.9))  # ~0.001
 
+    def _norm_decoder(self):
+        with torch.no_grad():
+            self.W_dec.data /= self.W_dec.data.norm(dim=1, keepdim=True).clamp(min=1e-8)
+
     def forward(self, x):
         # x: (B, d_in)  LM activation vectors
-        B = x.shape[0]
-
         # --- Pre-encoder bias (optional, from Bricken et al.) ---
         x = x - self.b_dec
 
@@ -122,57 +125,24 @@ class JumpReLU_SAE(nn.Module):
 
         return x_hat, f, pre, theta
 
-
-# =============================================================================
-# 4. LOSS FUNCTION — showing the TWO separate paths
-# =============================================================================
-def jumprelu_loss(model, x, lambda_sparsity):
-    x_hat, f, pre, theta = model(x)
-
-    # --- PATH A: RECONSTRUCTION LOSS ---
-    # L_recon = ||x - x_hat||^2
-    # Backprop chain:
-    #   L_recon -> x_hat -> W_dec  (normal)
-    #   L_recon -> x_hat -> f -> JumpReLU -> pre -> W_enc  (normal)
-    #   L_recon -> x_hat -> f -> JumpReLU -> theta  (STE pseudo-grad)
-    recon_loss = ((x - x_hat) ** 2).sum(dim=-1).mean()
-
-    # --- PATH B: SPARSITY LOSS (L0 penalty) ---
-    # L_sparse = lambda * ||f||_0 = lambda * sum( H(pre - theta) )
-    # We use the Heaviside STE so that:
-    #   L_sparse -> H -> theta  (STE pseudo-grad)
-    #   L_sparse -> H -> pre -> W_enc  IS ZERO (blocked by Heaviside_STE)
-    l0_per_example = Heaviside_STE.apply(pre, theta, model.eps).sum(dim=-1)  # (B,)
-    sparsity_loss = lambda_sparsity * l0_per_example.mean()
-
-    total_loss = recon_loss + sparsity_loss
-    return total_loss, recon_loss.item(), sparsity_loss.item()
+    def compute_loss(self, batch_data):
+        self._norm_decoder()
+        x_hat, f, pre, theta = self(batch_data)
+        # L_recon = ||x - x_hat||^2
+        recon_loss = ((batch_data - x_hat) ** 2).sum(dim=-1).mean()
+        # L_sparse = lambda * ||f||_0
+        l0_per_example = Heaviside_STE.apply(pre, theta, self.eps).sum(dim=-1)  # (B,)
+        sparsity_loss = self.sparsity_coeff * l0_per_example.mean()
+        total = recon_loss + sparsity_loss
+        metrics = {
+            "l0": l0_per_example.mean().item(),
+            "recon_pct": (recon_loss / batch_data.pow(2).mean() * 100.0).item(),
+        }
+        return total, metrics
 
 
 # =============================================================================
-# 5. TRAINING LOOP — showing where gradients land
-# =============================================================================
-def train_step(model, x, optimizer, lambda_sparsity):
-    optimizer.zero_grad()
-
-    loss, r, s = jumprelu_loss(model, x, lambda_sparsity)
-    loss.backward()
-
-    # --- WHAT EACH PARAMETER LEARNED FROM ---
-    # model.W_enc.grad  -> ONLY from recon_loss (sparsity grad was zeroed)
-    # model.b_enc.grad  -> ONLY from recon_loss
-    # model.W_dec.grad  -> ONLY from recon_loss
-    # model.b_dec.grad  -> ONLY from recon_loss
-    # model.log_theta.grad -> FROM BOTH:
-    #                        recon_loss (via JumpReLU_STE.backward)
-    #                        sparsity_loss (via Heaviside_STE.backward)
-
-    optimizer.step()
-    return loss.item()
-
-
-# =============================================================================
-# 6. MINIMAL DEMO
+# 4. MINIMAL DEMO
 # =============================================================================
 if __name__ == "__main__":
     B, d_in, d_sae = 4096, 768, 131072
@@ -182,8 +152,8 @@ if __name__ == "__main__":
     # Fake normalized activations (paper normalizes to mean squared norm = 1)
     x = torch.randn(B, d_in) / (d_in ** 0.5)
 
-    loss, r, s = jumprelu_loss(model, x, lambda_sparsity=1e-3)
-    print(f"Total: {loss.item():.4f} | Recon: {r:.4f} | Sparsity: {s:.4f}")
+    loss, metrics = model.compute_loss(x)
+    print(f"Total: {loss.item():.4f} | Recon: {metrics['recon']:.4f} | L0: {metrics['l0']:.4f} | Active: {metrics['active']:.2f}")
 
     # Verify gradient flow
     loss.backward()
