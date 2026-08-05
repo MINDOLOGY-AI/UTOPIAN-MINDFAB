@@ -102,7 +102,7 @@ def plot_losses(losses: dict[str, list[float]], out_path: str) -> None:
     # individual loss plots  
     for i, name in enumerate(names):
         ax = axes[i + 1]
-            ax.plot(x, losses[name][:min_len], marker="o", markersize=2, color=colors(i))
+        ax.plot(x, losses[name][:min_len], marker="o", markersize=2, color=colors(i))
         ax.set_title(name)
         ax.set_xlabel("step")
 
