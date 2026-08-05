@@ -6,28 +6,25 @@ from pathlib import Path
 from mind.EV0K3.OlMo2_1b.run.loader import build_model_and_tokenizer
 from mind.SYN4P5E.train.simple_train import simple_train, simple_eval
 from mind.SYN4P5E.train.data_to_loaders import BinUnsupervisedDataset
-from mind.SYN4P5E.probes.sae.SAE import SAE
 from mind.SYN4P5E.probes.sae.JumpReluSAE import JumpReLU_SAE
 from mind.SYN4P5E.probes.sae.SlabConeSAE import SlabConeSAE
-from mind.SYN4P5E.probes.sae.TopKSAE import TopKSAE 
+from mind.SYN4P5E.probes.sae.TopKSAE import TopKSAE
 
 
 BIN_DIR = Path.cwd() / "mind" / "data" / "D4T4STEPS" / "tokenized" / "interp_dataset"
 WEIGHTS_DIR = Path.cwd() / "mind" / "weights" / "EV0K3" / "OlMo2_1b" / "sae_compare"
 D_IN = 2048
-EXPANSION = 16
-D_SAE = D_IN * EXPANSION  # 32768
-K = 64
-MAX_STEPS = 20_000
+D_SAE = D_IN * 16  # 32768
+MAX_STEPS = 10_000
 BATCH_SIZE = 4
 LAYER_IDX = 8
 
+JUMPRELU_COEFFS = [1e-3, 1e-2, 1e-1]
+SLABCONE_COEFFS = [1e-3, 1e-2, 1e-1]
+SLABCONE_TARGET_ACTIVE = 500
+TOPK_KS = [64, 96, 128]
 
 
-
-# =============================================================================
-# Activation trainer — hooks frozen LM, feeds acts to SAE
-# =============================================================================
 class ActivationTrainer(nn.Module):
     def __init__(self, lm, sae, layer_idx=LAYER_IDX):
         super().__init__()
@@ -39,22 +36,19 @@ class ActivationTrainer(nn.Module):
         self._acts = None
         self._hook_handle = self.lm.model.layers[layer_idx].register_forward_hook(self._capture)
 
+    def _capture(self, module, input, output):
+        self._acts = output[0].detach()  # (B, 1024, 2048)
+
+    def compute_loss(self, token_chunk):
+        with torch.no_grad():
+            self.lm.model(input_ids=token_chunk)
+        acts = self._acts.reshape(-1, self._acts.shape[-1])  # (B*1024, 2048)
+        return self.sae.compute_loss(acts)
+
     def remove_hook(self):
         if self._hook_handle is not None:
             self._hook_handle.remove()
             self._hook_handle = None
-
-    def _capture(self, module, input, output):
-        # output: (hidden_states, present_kv) from Olmo2DecoderLayer.forward
-        self._acts = output[0].detach()                # (B, seq_len, 2048)
-
-    def compute_loss(self, token_chunk):
-        # token_chunk: (B, 1024) int32/int64
-        with torch.no_grad():
-            self.lm.model(input_ids=token_chunk)
-        # flatten batch+seq into (B*1024, 2048)
-        acts = self._acts.reshape(-1, self._acts.shape[-1])
-        return self.sae.compute_loss(acts)
 
     def train(self, mode=True):
         super().train(mode)
@@ -62,69 +56,106 @@ class ActivationTrainer(nn.Module):
         return self
 
 
-# =============================================================================
-# main — train all 4 SAE types, compare eval
-# =============================================================================
-def main():
-    meta = json.loads((BIN_DIR / "meta.json").read_text())
-    train_shape = tuple(meta["train_shape"])  # type: ignore
-    eval_shape = tuple(meta["eval_shape"])  # type: ignore
+def _run_one(name, sae, results, print_key):
+    trainer = ActivationTrainer(lm, sae)
+    opt = torch.optim.Adam(trainer.parameters(), lr=7e-5, betas=(0.0, 0.999))
 
-    train_ds = BinUnsupervisedDataset(str(BIN_DIR / "train.bin"), torch.int32, train_shape)
-    eval_ds = BinUnsupervisedDataset(str(BIN_DIR / "eval.bin"), torch.int32, eval_shape)
+    save_dir = WEIGHTS_DIR / name
+    save_dir.mkdir(parents=True, exist_ok=True)
 
-    lm, _, _ = build_model_and_tokenizer()
+    simple_train(
+        model=trainer,
+        dataset=train_ds,
+        batch_size=BATCH_SIZE,
+        optimizer=opt,
+        epochs=1,
+        save_path=str(save_dir),
+        batches_per_log=100,
+        batches_per_save=100,
+        eval_dataset=eval_ds,
+        eval_batch_size=BATCH_SIZE,
+        max_steps=MAX_STEPS,
+    )
 
-    sae_builders = {
-        "vanilla":  lambda: SAE(D_IN, EXPANSION, sparsity_coeff=1e-3),
-        "jumprelu": lambda: JumpReLU_SAE(D_IN, D_SAE, sparsity_coeff=1e-3),
-        "topk":     lambda: TopKSAE(D_IN, D_SAE, k=K),
-        "slabcone": lambda: SlabConeSAE(D_IN, EXPANSION, sparsity_coeff=1e-3, target_active=64),
-    }
+    print(f"\n--- {name} final eval ---")
+    eval_metrics = simple_eval(trainer, eval_ds, BATCH_SIZE, batches=1000)
+    trainer.remove_hook()
+    results[print_key] = eval_metrics
+    for k, v in eval_metrics.items():
+        print(f"  {k}: {v:.4f}")
 
-    results = {}
 
-    for name, build in sae_builders.items():
-        print(f"\n{'='*60}")
-        print(f"=== {name} ===")
-        print(f"{'='*60}")
-
-        sae = build()
-        trainer = ActivationTrainer(lm, sae)
-        opt = torch.optim.Adam(trainer.parameters(), lr=7e-5, betas=(0.0, 0.999))
-
-        save_dir = WEIGHTS_DIR / name
-        save_dir.mkdir(parents=True, exist_ok=True)
-
-        simple_train(
-            model=trainer,
-            dataset=train_ds,
-            batch_size=BATCH_SIZE,
-            optimizer=opt,
-            epochs=1,
-            save_path=str(save_dir),
-            batches_per_log=100,
-            batches_per_save=100,
-            eval_dataset=eval_ds,
-            eval_batch_size=BATCH_SIZE,
-            max_steps=MAX_STEPS,
-        )
-
-        print(f"\n--- {name} final eval ---")
-        eval_metrics = simple_eval(trainer, eval_ds, BATCH_SIZE, batches=10000)
-        trainer.remove_hook()
-        results[name] = eval_metrics
-        for k, v in eval_metrics.items():
-            print(f"  {k}: {v:.4f}")
-
+def _print_table(title, keys, labels, metrics_key="recon_pct"):
     print(f"\n{'='*60}")
-    print("=== COMPARISON ===")
+    print(f"=== {title} ===")
     print(f"{'='*60}")
-    header = f"{'SAE':<12} {'recon_pct':>10} {'active':>10}"
+    rows = []
+    for key, label in zip(keys, labels):
+        m = results.get(key, {})
+        recon = m.get(metrics_key, 0)
+        active_or_l0 = m.get("active", m.get("l0", 0))
+        rows.append((label, recon, active_or_l0))
+    header = f"{'run':<12} {'recon_pct':>10} {'active':>10}"
     print(header)
     print("-" * len(header))
-    for name, metrics in results.items():
-        print(f"{name:<12} {metrics.get('recon_pct', 0):>10.1f} {metrics.get('active', 0):>10.1f}")
+    for label, recon, active in rows:
+        print(f"{label:<12} {recon:>10.1f} {active:>10.1f}")
+
+
+def main():
+    global lm, train_ds, eval_ds
+    meta = json.loads((BIN_DIR / "meta.json").read_text())
+    train_ds = BinUnsupervisedDataset(str(BIN_DIR / "train.bin"), torch.int32, tuple(meta["train_shape"]))
+    eval_ds = BinUnsupervisedDataset(str(BIN_DIR / "eval.bin"), torch.int32, tuple(meta["eval_shape"]))
+    lm, _, _ = build_model_and_tokenizer()
+
+    global results
+    results = {}
+
+    # JumpReLU sweep
+    for coeff in JUMPRELU_COEFFS:
+        print(f"\n{'='*60}")
+        print(f"=== jumprelu coeff={coeff} ===")
+        print(f"{'='*60}")
+        _run_one(
+            f"jumprelu/coeff_{coeff}",
+            JumpReLU_SAE(D_IN, D_SAE, sparsity_coeff=coeff),
+            results,
+            f"jumprelu_{coeff}",
+        )
+
+    _print_table("JumpReLU", JUMPRELU_COEFFS,
+                 [f"c={c}" for c in JUMPRELU_COEFFS], metrics_key="recon_pct")
+
+    # SlabCone sweep
+    for coeff in SLABCONE_COEFFS:
+        print(f"\n{'='*60}")
+        print(f"=== slabcone coeff={coeff} ===")
+        print(f"{'='*60}")
+        _run_one(
+            f"slabcone/coeff_{coeff}",
+            SlabConeSAE(D_IN, 16, sparsity_coeff=coeff, target_active=SLABCONE_TARGET_ACTIVE),
+            results,
+            f"slabcone_{coeff}",
+        )
+
+    _print_table("SlabCone", SLABCONE_COEFFS,
+                 [f"c={c}" for c in SLABCONE_COEFFS], metrics_key="recon_pct")
+
+    # TopK sweep
+    for k in TOPK_KS:
+        print(f"\n{'='*60}")
+        print(f"=== topk k={k} ===")
+        print(f"{'='*60}")
+        _run_one(
+            f"topk/k_{k}",
+            TopKSAE(D_IN, D_SAE, k=k),
+            results,
+            f"topk_{k}",
+        )
+
+    _print_table("TopK", TOPK_KS,
+                 [f"k={k}" for k in TOPK_KS], metrics_key="recon_pct")
 
 
 if __name__ == "__main__":

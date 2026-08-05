@@ -128,8 +128,8 @@ class JumpReLU_SAE(nn.Module):
     def compute_loss(self, batch_data):
         self._norm_decoder()
         x_hat, f, pre, theta = self(batch_data)
-        # L_recon = ||x - x_hat||^2
-        recon_loss = ((batch_data - x_hat) ** 2).sum(dim=-1).mean()
+        # L_recon = ||x - x_hat||^2 per-element
+        recon_loss = ((batch_data - x_hat) ** 2).mean()
         # L_sparse = lambda * ||f||_0
         l0_per_example = Heaviside_STE.apply(pre, theta, self.eps).sum(dim=-1)  # (B,)
         sparsity_loss = self.sparsity_coeff * l0_per_example.mean()

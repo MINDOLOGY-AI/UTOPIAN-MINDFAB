@@ -30,7 +30,7 @@ class TopKSAE(nn.Module):
         mask.scatter_(-1, topk_idx, 1.0)
         f = pre * mask                                 # (N, d_sae) — k active features
         x_hat = f @ self.W_dec + self.b_dec            # (N, d_in)
-        recon_loss = ((batch_data - x_hat) ** 2).sum(dim=-1).mean()
+        recon_loss = ((batch_data - x_hat) ** 2).mean()
         activation_energy = batch_data.pow(2).mean()
         active_count = (f > 0).float().sum(dim=-1).mean()
         metrics = {
