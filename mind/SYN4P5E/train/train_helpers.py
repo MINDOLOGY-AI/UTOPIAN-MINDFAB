@@ -13,6 +13,7 @@ import time
 import json
 import os.path
 import math
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -30,6 +31,7 @@ def save_checkpoint(
     epoch: int,
     batch: int,
     losses: dict[str, list[float]],
+    clean_up: bool = True,
 ) -> None:
     assert_finite_weights(model)
     checkpoint = {
@@ -40,6 +42,11 @@ def save_checkpoint(
         checkpoint["scheduler_state_dict"] = scheduler.state_dict()
     checkpoint_path = os.path.join(save_path, f"epoch_{epoch}_batch_{batch}.pt")
     torch.save(checkpoint, checkpoint_path)
+
+    if clean_up:
+        for old in Path(save_path).glob("*.pt"):
+            if old.name != os.path.basename(checkpoint_path):
+                old.unlink()
 
     losses_json_path = os.path.join(save_path, "losses.json")
     if os.path.exists(losses_json_path):
@@ -126,12 +133,17 @@ def log_batch(
         cur_batch,
         epochs,
         batches,
-        losses
+        losses,
+        global_step = None,
+        max_steps = None,
 )->None:
-    print (f"epoch {cur_epoch} batch {cur_batch}") 
+    print (f"epoch {cur_epoch} batch {cur_batch} step {global_step}") 
 
     elapsed = time.time() - start_time
-    total_batches_left = (epochs - cur_epoch - 1) * batches + (batches - cur_batch - 1)
+    if max_steps is not None and global_step is not None:
+        total_batches_left = max(0, max_steps - global_step)
+    else:
+        total_batches_left = (epochs - cur_epoch - 1) * batches + (batches - cur_batch - 1)
     time_left_str = format_time(total_batches_left * elapsed)
     print (f"time left {time_left_str}")
     for key, value in losses.items():

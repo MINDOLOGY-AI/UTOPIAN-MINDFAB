@@ -70,7 +70,7 @@ def simple_train(
                     for k, v in eval_metrics.items():
                         losses.setdefault(f"eval_{k}", []).append(v)
 
-                train_helpers.log_batch(start_time, cur_epoch, cur_batch_num, epochs, len(train_dataloader), losses)
+                train_helpers.log_batch(start_time, cur_epoch, cur_batch_num, epochs, len(train_dataloader), losses, global_step=global_step, max_steps=max_steps)
             if (cur_batch_num + 1) % batches_per_save == 0:
                 train_helpers.save_checkpoint(save_path, model, optimizer, None, cur_epoch, cur_batch_num, losses)
                 losses = {k: [] for k in losses}
