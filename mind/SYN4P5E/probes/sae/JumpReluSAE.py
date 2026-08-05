@@ -136,11 +136,9 @@ class JumpReLU_SAE(nn.Module):
         total = recon_loss + sparsity_loss
         metrics = {
             "l0": l0_per_example.mean().item(),
-            "active": l0_per_example.mean().item(),
             "recon_pct": (recon_loss / batch_data.pow(2).mean() * 100.0).item(),
             "avg_theta": theta.mean().item(),
         }
-        return total, metrics
         return total, metrics
 
 

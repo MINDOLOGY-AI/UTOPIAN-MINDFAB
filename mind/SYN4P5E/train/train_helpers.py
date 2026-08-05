@@ -88,12 +88,13 @@ def plot_losses(losses: dict[str, list[float]], out_path: str) -> None:
 
     colors = plt.cm.tab10
     # this x axis, a list of consecutive ints from 0 - batches_logged  
-    x = list(range(len(losses[names[0]])))
+    min_len = min(len(v) for v in losses.values())
+    x = list(range(min_len))
 
     # first plot showing all losses  
     ax_all = axes[0]
     for i, name in enumerate(names):
-        ax_all.plot(x, losses[name], marker="o", markersize=2, label=name, color=colors(i))
+        ax_all.plot(x, losses[name][:min_len], marker="o", markersize=2, label=name, color=colors(i))
     ax_all.set_title("all losses")
     ax_all.legend()
     ax_all.set_xlabel("step")
@@ -101,7 +102,7 @@ def plot_losses(losses: dict[str, list[float]], out_path: str) -> None:
     # individual loss plots  
     for i, name in enumerate(names):
         ax = axes[i + 1]
-        ax.plot(x, losses[name], marker="o", markersize=2, color=colors(i))
+            ax.plot(x, losses[name][:min_len], marker="o", markersize=2, color=colors(i))
         ax.set_title(name)
         ax.set_xlabel("step")
 
