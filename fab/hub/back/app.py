@@ -80,12 +80,15 @@ app = FastAPI(
     openapi_url=None,
 )
 
-MAX_BODY_BYTES = 1_000_000  # 1 MB — the site only ever sends small JSON
+MAX_BODY_BYTES = 1_000_000  # 1 MB — chat file uploads exempt
 
 
 @app.middleware("http")
 async def limit_body_size(request: Request, call_next):
-    # cybersec: reject bodies over 1 MB with 413 — huge bodies are a cheap memory/CPU DoS
+    # cybersec: reject bodies over 1 MB with 413 — huge bodies are a cheap memory/CPU DoS.
+    # chat file uploads are exempt — they have their own validation.
+    if "/chat/" in request.url.path and request.method == "POST":
+        return await call_next(request)
     content_length = request.headers.get("content-length")
     try:
         if content_length and int(content_length) > MAX_BODY_BYTES:

@@ -15,9 +15,8 @@ BIN_DIR = Path.cwd() / "mind" / "data" / "D4T4STEPS" / "tokenized" / "interp_dat
 WEIGHTS_DIR = Path.cwd() / "mind" / "weights" / "EV0K3" / "OlMo2_1b" / "sae_compare"
 D_IN = 2048
 D_SAE = D_IN * 16  # 32768
-TARGET_ACTIVE = 64
 INIT_COEFF = 0.1
-TOPK_K = 64
+TOPK_KS = [64, 96, 128]
 MAX_STEPS = 10_000
 BATCH_SIZE = 4
 LAYER_IDX = 8
@@ -95,42 +94,41 @@ def main():
 
     # JumpReLU — adaptive sparsity, matches SlabCone mechanism
     print(f"\n{'='*60}")
-    print(f"=== jumprelu (coeff={INIT_COEFF}, target={TARGET_ACTIVE}) ===")
+    print(f"=== jumprelu (coeff={INIT_COEFF}) ===")
     print(f"{'='*60}")
     _run("jumprelu",
-         JumpReLU_SAE(D_IN, D_SAE, sparsity_coeff=INIT_COEFF, target_active=TARGET_ACTIVE),
+         JumpReLU_SAE(D_IN, D_SAE, sparsity_coeff=INIT_COEFF),
          results)
 
     # SlabCone — original gates, same adaptive sparsity mechanism
     print(f"\n{'='*60}")
-    print(f"=== slabcone (coeff={INIT_COEFF}, target={TARGET_ACTIVE}) ===")
+    print(f"=== slabcone (coeff={INIT_COEFF}) ===")
     print(f"{'='*60}")
     _run("slabcone",
-         SlabConeSAE(D_IN, 16, sparsity_coeff=INIT_COEFF, target_active=TARGET_ACTIVE),
+         SlabConeSAE(D_IN, 16, sparsity_coeff=INIT_COEFF),
          results)
 
-    # TopK — fixed k, no sparsity penalty
-    print(f"\n{'='*60}")
-    print(f"=== topk (k={TOPK_K}) ===")
-    print(f"{'='*60}")
-    _run("topk",
-         TopKSAE(D_IN, D_SAE, k=TOPK_K),
-         results)
+    # TopK — fixed k sweep, no sparsity penalty
+    for k in TOPK_KS:
+        print(f"\n{'='*60}")
+        print(f"=== topk (k={k}) ===")
+        print(f"{'='*60}")
+        _run(f"topk/k_{k}",
+             TopKSAE(D_IN, D_SAE, k=k),
+             results)
 
     print(f"\n{'='*60}")
     print("=== COMPARISON ===")
     print(f"{'='*60}")
-    header = f"{'SAE':<12} {'recon_pct':>10} {'active':>10} {'coeff_final':>12}"
+    header = f"{'SAE':<16} {'recon_pct':>10} {'active':>10}"
     print(header)
     print("-" * len(header))
-    for name in ["jumprelu", "slabcone", "topk"]:
+    for name in ["jumprelu", "slabcone"] + [f"topk/k_{k}" for k in TOPK_KS]:
+        label = name.replace("topk/", "topk ")
         m = results.get(name, {})
         recon = m.get("recon_pct", 0)
         active = m.get("active", m.get("l0", 0))
-        coeff = m.get("sparsity_coeff", "-")
-        if isinstance(coeff, float):
-            coeff = f"{coeff:.4f}"
-        print(f"{name:<12} {recon:>10.1f} {active:>10.1f} {coeff:>12}")
+        print(f"{label:<16} {recon:>10.1f} {active:>10.1f}")
 
 
 if __name__ == "__main__":

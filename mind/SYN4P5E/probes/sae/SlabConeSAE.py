@@ -96,12 +96,11 @@ class GateSTE(torch.autograd.Function):
 
 
 class SlabConeSAE(nn.Module):
-    def __init__(self, embed_dim, expansion_factor, sparsity_coeff=1e-3, target_active=10):
+    def __init__(self, embed_dim, expansion_factor, sparsity_coeff=0.1):
         super().__init__()
         self.embed_dim = embed_dim
         self.feature_dim = embed_dim * expansion_factor
         self.sparsity_coeff = sparsity_coeff
-        self.target_active = target_active
         self.band_eps = 0.05  # rect window width (KDE bandwidth)
 
         # dictionary weights (trained by RECONSTRUCTION only, via the
@@ -154,30 +153,18 @@ class SlabConeSAE(nn.Module):
         self._norm_decoder()
         features, combined_gate = self.encode(batch_data)
 
-        # avg number of active features per token minus the target
-        # (flows through GateSTE into the thetas, never into the encoder)
         active_count = combined_gate.sum(-1).mean()  # scalar
-        error = active_count - self.target_active
-        self.sparsity_coeff += 0.001 * (1 if error.item() > 0 else -1)
-        self.sparsity_coeff = max(1e-3, min(10.0, self.sparsity_coeff))
-        # unweighted loss = how far over target we are (zero if under target)
-        unweighted_l0_loss = torch.clamp(error, min=0)
-        # weighted loss = what actually gets added to the total loss
-        l0_loss = unweighted_l0_loss * self.sparsity_coeff
+        sparsity_loss = self.sparsity_coeff * active_count
 
         pred = self.decode(features)
-        # average squared error over both tokens and embedding dimensions (per-coordinate MSE)
         recon_loss = (pred - batch_data).pow(2).mean()
-        # percentage of activation energy not reconstructed
         activation_energy = batch_data.pow(2).mean()
         recon_pct = (recon_loss / activation_energy) * 100.0
-        total = l0_loss + recon_loss
+        total = sparsity_loss + recon_loss
 
         metrics = {
-            "l0": unweighted_l0_loss.item(),
             "active": active_count.item(),
             "recon_pct": recon_pct.item(),
-            "sparsity_coeff": self.sparsity_coeff,
             "avg_lower": self.slab_gate_lower_bound.mean().item(),
             "avg_upper": self.slab_gate_upper_bound.mean().item(),
             "avg_cone": self.cone_gate_upper_bound.mean().item(),

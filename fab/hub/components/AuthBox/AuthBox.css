@@ -60,9 +60,9 @@
   color: var(--mint);
 }
 
-/* secrets link above logout: grey, same row shape */
+/* compute and secrets links above logout */
 .auth-pop .auth-secrets {
-  color: var(--light-gray);
+  color: var(--white);
   text-decoration: none;
 }
 

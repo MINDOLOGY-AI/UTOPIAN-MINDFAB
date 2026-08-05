@@ -21,3 +21,9 @@ we choose Aider cause it's the simplest.
 because the goal is to make the best harness i dont want to switch between kimicode and this.  
 
 remote? to literally ssh into remote machines see what is up?  
+
+# paid online tier  
+give each user a docker to run all their agents. we are NOT doing size limits / compute limits. way too difficult. still they get the benefit of remote work i guess.  
+more importantly enable human human collaboration.  
+
+

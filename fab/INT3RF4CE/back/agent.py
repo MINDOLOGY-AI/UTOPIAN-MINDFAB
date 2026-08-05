@@ -37,14 +37,16 @@ class Agent:
     # graph commands (host-side, access-enforced against the agent's graph.json)
     GRAPH_TOOLS = {"CHECK_ACCESS", "GREAD", "GUPDATE", "GEDIT", "GCREATE", "GMOVE", "GLINK", "GMAP", "ASCII_MAP"}
     # chat commands (host-side, membership-enforced against chat/channels.json)
-    CHAT_TOOLS = {"CHAT_SEND", "CHAT_READ", "CHECK_CHANNELS", "CHAT_DOWNLOAD"}
+    CHAT_TOOLS = {"CHAT_SEND", "CHAT_READ", "CHECK_CHANNELS", "CHAT_FILE_DOWNLOAD", "CHAT_FILE_UPLOAD"}
     # secrets commands (host-side, grant-enforced against config/specific/{agent}/secrets.json)
     SECRET_TOOLS = {"READ_SECRETS"}
+    # compute commands (host-side, usage-enforced against compute.json)
+    COMPUTE_TOOLS = {"SEE_COMPUTERS", "USE_COMPUTER", "RELEASE_COMPUTER"}
     DOCKER_TOOLS = {"DOCKER_START", "DOCKER_STOP"}
     # STOP: the agent halts itself permanently (only the user can restart it)
     SELF_TOOLS = {"STOP"}
     # in chat mode only docker control + graph tools are advertised — no computer use
-    CHAT_MODE_TOOLS = DOCKER_TOOLS | GRAPH_TOOLS | SELF_TOOLS | CHAT_TOOLS | SECRET_TOOLS
+    CHAT_MODE_TOOLS = DOCKER_TOOLS | GRAPH_TOOLS | SELF_TOOLS | CHAT_TOOLS | SECRET_TOOLS | COMPUTE_TOOLS
 
     def __init__(self, user: str, name: str, model: Model, use_container: bool = True,
                  novnc_port: int = 6080, chat_mode: bool = True):
@@ -203,7 +205,7 @@ class Agent:
             return ("[STOP] you are now stopped. you cannot resume on your own — "
                     "only the user can start you again. goodbye."), True
 
-        if name in {"CHAT_SEND", "CHAT_READ", "CHAT_DOWNLOAD", "CHECK_CHANNELS"}:
+        if name in {"CHAT_SEND", "CHAT_READ", "CHAT_FILE_DOWNLOAD", "CHAT_FILE_UPLOAD", "CHECK_CHANNELS"}:
             return self._chat_dispatch(name, args), True
 
         if name == "READ_SECRETS":
@@ -212,6 +214,9 @@ class Agent:
                 return ("[READ_SECRETS] no secrets granted — the user grants secrets to you "
                         "in your settings (secrets section)"), True
             return "[READ_SECRETS]\n" + json.dumps(granted, indent=2), True
+
+        if name in {"SEE_COMPUTERS", "USE_COMPUTER", "RELEASE_COMPUTER"}:
+            return self._compute_dispatch(name, args), True
 
         assert self.container
 
@@ -523,23 +528,16 @@ class Agent:
         return f"[{name} ERROR] unknown graph command"
 
     def _chat_dispatch(self, name: str, args: dict) -> str:
-        """CHAT_SEND / CHAT_READ — membership-enforced channel messaging."""
+        """CHAT_* — membership-enforced channel messaging and file transfer."""
         from fab.INT3RF4CE.back import chat as chatmod
+        import shutil
         try:
             if name == "CHAT_SEND":
                 cid = chatmod.resolve_channel(self.user, args["channel"], self.name)
                 text = args.get("text")
-                file_arg = args.get("file")
-                if not text and not file_arg:
-                    return "[CHAT_SEND ERROR] text or file required"
-                file_ref = None
-                if file_arg:
-                    p = self._workspace_path(file_arg)  # confined to own workspace
-                    if not p.is_file():
-                        return f"[CHAT_SEND ERROR] not a file in your workspace: {file_arg}"
-                    file_ref = chatmod.store_file(self.user, cid, p.name, p.read_bytes())
-                msg = chatmod.append_message(self.user, cid, self.name, "file" if file_ref else "text",
-                                             text=text, file=file_ref)
+                if not text:
+                    return "[CHAT_SEND ERROR] text required"
+                msg = chatmod.append_message(self.user, cid, self.name, "text", text=text)
                 ch = chatmod.channel_of(self.user, cid)
                 return f"[CHAT_SEND] sent to #{ch['name']} ({cid})"
             if name == "CHAT_READ":
@@ -566,25 +564,97 @@ class Agent:
                     dm_tag = " (DM with user)" if ch.get("dm") else ""
                     lines.append(f"  #{ch['name']} (id: {cid}) — {len(ch['members'])} members, {unread} unread{dm_tag}")
                 return "\n".join(lines)
-            if name == "CHAT_DOWNLOAD":
+            if name == "CHAT_FILE_DOWNLOAD":
                 cid = chatmod.resolve_channel(self.user, args["channel"], self.name)
-                src = chatmod.find_channel_file(self.user, cid, args["file"])
-                if not src:
-                    return f"[CHAT_DOWNLOAD ERROR] file '{args['file']}' not found in that channel"
-                dest_name = args.get("dest") or args["file"]
+                src_path = args["file"]
+                src = chatmod.channel_file(self.user, cid, src_path)
+                if not src.exists():
+                    return f"[CHAT_FILE_DOWNLOAD ERROR] '{src_path}' not found in that channel"
+                dest_name = args.get("dest") or src_path
                 dest = self._workspace_path(dest_name)
-                dest.write_bytes(src.read_bytes())
-                size_b = dest.stat().st_size
+                if src.is_dir():
+                    shutil.copytree(str(src), str(dest))
+                else:
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(str(src), str(dest))
+                size_b = dest.stat().st_size if not dest.is_dir() else 0
                 if size_b >= 1048576:
                     size_s = f"{size_b / 1048576:.1f}MB"
                 elif size_b >= 1024:
                     size_s = f"{size_b / 1024:.0f}KB"
                 else:
-                    size_s = f"{size_b}B"
-                return f"[CHAT_DOWNLOAD] {args['file']} → {dest_name} ({size_s})"
+                    size_s = f"{size_b}B" if not dest.is_dir() else "(folder)"
+                return f"[CHAT_FILE_DOWNLOAD] {src_path} → {dest_name} ({size_s})"
+            if name == "CHAT_FILE_UPLOAD":
+                cid = chatmod.resolve_channel(self.user, args["channel"], self.name)
+                text = args.get("text", "")
+                if not text.strip():
+                    return "[CHAT_FILE_UPLOAD ERROR] text required — explain what you're uploading"
+                source_path = args.get("source", "")
+                src = self._workspace_path(source_path)
+                if not src.exists():
+                    return f"[CHAT_FILE_UPLOAD ERROR] not found in your workspace: {source_path}"
+                # copy into channel files/ preserving the workspace path
+                base = src if src.is_file() else None
+                if src.is_dir():
+                    for f in sorted(src.rglob("*")):
+                        if f.is_file():
+                            rel = str(f.relative_to(self.workspace))
+                            dest_file = chatmod.channel_file(self.user, cid, rel)
+                            dest_file.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(str(f), str(dest_file))
+                else:
+                    rel = source_path
+                    dest_file = chatmod.channel_file(self.user, cid, rel)
+                    dest_file.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(str(src), str(dest_file))
+                    ref = {"name": src.name, "size": src.stat().st_size, "path": rel}
+                    chatmod.append_message(self.user, cid, self.name, "file", text=text, file=ref)
+                ch = chatmod.channel_of(self.user, cid)
+                return f"[CHAT_FILE_UPLOAD] '{source_path}' uploaded to #{ch['name']}"
         except (ValueError, KeyError) as err:
             return f"[{name} ERROR] {err}"
         return f"[{name} ERROR] unknown chat command"
+
+    def _compute_dispatch(self, name: str, args: dict) -> str:
+        """SEE_COMPUTERS / USE_COMPUTER / RELEASE_COMPUTER — usage-enforced compute targets."""
+        from fab.INT3RF4CE.back import compute as computemod
+        try:
+            if name == "SEE_COMPUTERS":
+                entries = computemod.computers_for_agent(self.user, self.name)
+                if not entries:
+                    return "[SEE_COMPUTERS] no compute targets configured — the user adds them on the compute page"
+                lines = [f"[SEE_COMPUTERS — {len(entries)} targets]"]
+                for e in entries:
+                    status = f" (used by {e['used_by']})" if e.get("used_by") else ""
+                    if e.get("ssh_command"):
+                        lines.append(f"  {e['name']}: ssh {e['ssh_command']}{status}")
+                        if e.get("password"):
+                            lines.append(f"    password: {e['password']}")
+                    else:
+                        lines.append(f"  {e['name']}{status} [claimed by another agent — details hidden]")
+                return "\n".join(lines)
+            if name == "USE_COMPUTER":
+                target = args.get("name", "")
+                try:
+                    computemod.claim(self.user, self.name, target)
+                except ValueError as e:
+                    return f"[USE_COMPUTER ERROR] {e}"
+                computes = computemod.list_computers(self.user)
+                entry = next((c for c in computes if c["name"] == target), None)
+                if entry:
+                    return f"[USE_COMPUTER] claimed '{target}' — ssh {entry['ssh_command']} password: {entry['password']}"
+                return f"[USE_COMPUTER] claimed '{target}'"
+            if name == "RELEASE_COMPUTER":
+                target = args.get("name", "")
+                try:
+                    computemod.release(self.user, self.name, target)
+                except ValueError as e:
+                    return f"[RELEASE_COMPUTER ERROR] {e}"
+                return f"[RELEASE_COMPUTER] released '{target}'"
+        except Exception as e:
+            return f"[{name} ERROR] {e}"
+        return f"[{name} ERROR] unknown compute command"
 
     def _workspace_path(self, file: str) -> Path:
         """Resolve a file argument inside the workspace, rejecting anything that escapes it."""

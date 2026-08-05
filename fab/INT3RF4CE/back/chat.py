@@ -4,7 +4,7 @@ Layout per user (fab/data/INT3RF4CE/{user}/chat/):
     channels.json            {channel_id: {name, members, dm, created}}
     readers.json             {agent_name: {channel_id: last_read_ts}}
     {channel_id}/messages.jsonl   append-only message log
-    {channel_id}/files/{msgid}-{name}   file bytes
+    {channel_id}/files/...        file tree (original names, browsable)
 
 Channels are the whole ACL: an agent only sees/sends to channels it is a
 member of. Every agent gets a deterministic DM channel with the user (dm-{name}).
@@ -20,8 +20,6 @@ from pathlib import Path
 from fab.INT3RF4CE.back.config import DATA_DIR
 
 MAX_FILE_BYTES = 500 * 1024 * 1024
-# executable binary formats never travel through chat — shared files are inert
-BLOCKED_EXTS = {".exe", ".dll", ".so", ".bin", ".msi", ".bat", ".com", ".scr", ".jar"}
 USER_SENDER = "__user__"
 
 
@@ -175,46 +173,97 @@ def read_messages(user: str, channel_id: str, limit: int = 50, since_ts: float =
     return msgs[-limit:]
 
 
-def store_file(user: str, channel_id: str, name: str, data: bytes) -> dict:
-    """Save file bytes into the channel store; returns the message file ref."""
-    if len(data) > MAX_FILE_BYTES:
-        raise ValueError(f"file too large (max {MAX_FILE_BYTES // 1024 // 1024}MB)")
-    if Path(name).suffix.lower() in BLOCKED_EXTS:
-        raise ValueError(f"file type not allowed: {Path(name).suffix}")
-    safe = re.sub(r"[^\w.\- ()\[\]]+", "_", Path(name).name).strip() or "file"
-    dest = _dir(user) / channel_id / "files" / f"{secrets.token_hex(4)}-{safe}"
+def store_file(user: str, channel_id: str, remote_path: str, data: bytes) -> dict:
+    """Save file bytes into the channel store at the given relative path. Creates parent dirs.
+    Returns the message file ref. remote_path is relative to files/ (e.g. 'weights/model.pt')."""
+    safe = _safe_path(remote_path)
+    dest = _dir(user) / channel_id / "files" / safe
+    _validate_within(channel_id, dest, user)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(data)
-    return {"name": safe, "size": len(data), "path": dest.name}
+    return {"name": Path(remote_path).name, "size": len(data), "path": safe}
 
 
-def channel_file(user: str, channel_id: str, filename: str) -> Path:
-    base = (_dir(user) / channel_id / "files").resolve()
-    dest = (base / filename).resolve()
-    if not dest.is_relative_to(base):
-        raise ValueError("path escapes channel files")
+def channel_file(user: str, channel_id: str, remote_path: str) -> Path:
+    """Resolve a file path relative to the channel's files/ dir. Rejects escapes."""
+    safe = _safe_path(remote_path)
+    dest = (_dir(user) / channel_id / "files" / safe).resolve()
+    _validate_within(channel_id, dest, user)
     return dest
 
 
-def find_channel_file(user: str, channel_id: str, filename: str) -> Path | None:
-    """Find the most recent file with the given display name in a channel.
-    Files are stored as {msgid}-{name}, so we match by stripping the prefix.
-    Returns the full path or None."""
+def _safe_path(remote_path: str) -> str:
+    """Normalize a user-provided path: strip leading slashes, resolve .. ., reject escapes."""
+    cleaned = remote_path.lstrip("/").replace("\\", "/")
+    parts = [p for p in cleaned.split("/") if p and p != "."]
+    resolved = []
+    for p in parts:
+        if p == "..":
+            if resolved:
+                resolved.pop()
+        else:
+            resolved.append(p)
+    return "/".join(resolved) if resolved else "file"
+
+
+def _validate_within(channel_id: str, dest: Path, user: str):
     base = (_dir(user) / channel_id / "files").resolve()
-    if not base.is_dir():
-        return None
-    match = None
-    match_ts = 0.0
-    for p in sorted(base.iterdir()):
-        if not p.is_file():
-            continue
-        parts = p.name.split("-", 1)
-        if len(parts) == 2 and parts[1] == filename:
-            st = p.stat()
-            if st.st_mtime > match_ts:
-                match = p
-                match_ts = st.st_mtime
-    return match
+    if not str(dest.resolve()).startswith(str(base)):
+        raise ValueError("path escapes channel files")
+
+
+def list_file_tree(user: str, channel_id: str, remote_path: str = "") -> list[dict]:
+    """Recursive listing of the channel's files/ dir at remote_path. Returns [{name, path, size, is_dir}, ...]."""
+    base = _dir(user) / channel_id / "files"
+    scope = base / _safe_path(remote_path) if remote_path else base
+    _validate_within(channel_id, scope, user)
+    if not scope.exists():
+        return []
+    entries = []
+    for p in sorted(scope.iterdir()):
+        rel = str(p.relative_to(base))
+        entry = {"name": p.name, "path": rel, "is_dir": p.is_dir()}
+        if not p.is_dir():
+            entry["size"] = p.stat().st_size
+        entries.append(entry)
+    return entries
+
+
+def mkdir_channel(user: str, channel_id: str, remote_path: str):
+    """Create a directory (and parents) inside the channel's files/ dir."""
+    safe = _safe_path(remote_path)
+    dest = _dir(user) / channel_id / "files" / safe
+    _validate_within(channel_id, dest, user)
+    dest.mkdir(parents=True, exist_ok=True)
+
+
+def rename_file(user: str, channel_id: str, old_path: str, new_path: str):
+    """Rename/move a file or folder within the channel."""
+    src = channel_file(user, channel_id, old_path)
+    if not src.exists():
+        raise ValueError(f"not found: {old_path}")
+    safe_new = _safe_path(new_path)
+    dest = _dir(user) / channel_id / "files" / safe_new
+    _validate_within(channel_id, dest, user)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    src.rename(dest)
+
+
+def delete_file(user: str, channel_id: str, remote_path: str):
+    """Delete a file or folder (recursive) from the channel."""
+    dest = channel_file(user, channel_id, remote_path)
+    if not dest.exists():
+        raise ValueError(f"not found: {remote_path}")
+    if dest.is_dir():
+        shutil.rmtree(dest)
+    else:
+        dest.unlink()
+
+
+def find_channel_file(user: str, channel_id: str, filename: str) -> Path | None:
+    """Find a file by name in the channel's files/ dir. Flattens tree — uses only filename, not path."""
+    p = channel_file(user, channel_id, filename)
+    return p if p.is_file() else None
 
 
 # ---- read cursors (next-turn injection) ----

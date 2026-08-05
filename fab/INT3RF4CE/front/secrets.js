@@ -6,7 +6,7 @@
 let ws = null;
 let secretItems = []; // [{name, cat}]
 
-const CAT_IDS = { llm: 'cat-llm', git: 'cat-git', gitrepo: 'cat-gitrepo', computerent: 'cat-computerent', compute: 'cat-compute', account: 'cat-account' };
+const CAT_IDS = { llm: 'cat-llm', git: 'cat-git', gitrepo: 'cat-gitrepo', account: 'cat-account' };
 
 function connect() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';

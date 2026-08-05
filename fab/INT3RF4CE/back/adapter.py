@@ -73,12 +73,17 @@ COMMANDS: list[dict[str, Any]] = [
     {"name": "DOCKER_START", "description": "Start your docker computer (Linux desktop with terminal + chromium). Use when you genuinely need to run code, browse, or control a GUI. Starts the container and switches you to work mode with computer tools.", "parameters": {"type": "object", "properties": {}}},
     {"name": "DOCKER_STOP", "description": "Stop your docker computer when you no longer need it, to save resources. Returns you to chat mode.", "parameters": {"type": "object", "properties": {}}},
     # chat (host-side, channels with the user and other agents — membership-enforced)
-    {"name": "CHAT_SEND", "description": "Send a message to a chat channel you are a member of (id or name). Use ONLY for: sending a file, a final report/deliverable, or an important one-off message (blocked, question). Do NOT use it for normal conversation or progress commentary — the user already sees your plain text responses. To reach the user, send to your DM channel (dm-<your name>).", "parameters": {"type": "object", "properties": {"channel": {"type": "string"}, "text": {"type": "string"}, "file": {"type": "string"}}}},
+    {"name": "CHAT_SEND", "description": "Send a text message to a chat channel you are a member of (id or name). Use ONLY for: a final report/deliverable, or an important one-off message (blocked, question). Do NOT use it for normal conversation or progress commentary — the user already sees your plain text responses. To reach the user, send to your DM channel (dm-<your name>).", "parameters": {"type": "object", "properties": {"channel": {"type": "string"}, "text": {"type": "string"}}, "required": ["channel"]}},
     {"name": "CHAT_READ", "description": "Read recent messages from a chat channel you are a member of (marks them read). Incoming chats also inject automatically before your turns.", "parameters": {"type": "object", "properties": {"channel": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["channel"]}},
     {"name": "CHECK_CHANNELS", "description": "List every channel you are a member of: name, id, member count, and unread message count. Your DM channel with the user has __user__ as a member — use it for CHAT_SEND to the user.", "parameters": {"type": "object", "properties": {}}},
-    {"name": "CHAT_DOWNLOAD", "description": "Download a file from a chat channel to your workspace. 'file' is the filename you saw in a [chat #...] injection or CHAT_READ; the most recent matching file in the channel is found.", "parameters": {"type": "object", "properties": {"channel": {"type": "string"}, "file": {"type": "string"}, "dest": {"type": "string"}}, "required": ["channel", "file"]}},
+    {"name": "CHAT_FILE_DOWNLOAD", "description": "Download a file or folder from a chat channel to your workspace. 'file' is a path relative to the channel's files/ root; 'dest' is the destination path in your workspace. Copies recursively for folders.", "parameters": {"type": "object", "properties": {"channel": {"type": "string"}, "file": {"type": "string"}, "dest": {"type": "string"}}, "required": ["channel", "file"]}},
+    {"name": "CHAT_FILE_UPLOAD", "description": "Upload a file or folder FROM your workspace TO a chat channel. 'source' is the workspace path; TEXT is REQUIRED — say what you're uploading and why. The path (including subdirectory structure) is preserved in the channel's files/ directory.", "parameters": {"type": "object", "properties": {"channel": {"type": "string"}, "source": {"type": "string"}, "text": {"type": "string"}}, "required": ["channel", "source", "text"]}},
     # secrets (host-side, only the subset the user granted this agent)
     {"name": "READ_SECRETS", "description": "Read the secrets (API keys etc.) the user granted you, as JSON name -> value pairs. The user manages the grant list in your settings; empty until they grant some.", "parameters": {"type": "object", "properties": {}}},
+    # compute (host-side, ssh targets the user configured)
+    {"name": "SEE_COMPUTERS", "description": "List all compute targets the user configured. Each entry: name, ssh_command, password (redacted when claimed by another agent), used_by (null if free). Use this to find a free machine, then USE_COMPUTER to claim it.", "parameters": {"type": "object", "properties": {}}},
+    {"name": "USE_COMPUTER", "description": "Claim a compute target by name. You get its ssh_command + password. Only one agent can hold a target at a time — the next SEE_COMPUTERS will show it as used. RELEASE_COMPUTER when done.", "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
+    {"name": "RELEASE_COMPUTER", "description": "Release a compute target you previously claimed with USE_COMPUTER. Other agents can then claim it.", "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
 ]
 
 
@@ -296,10 +301,3 @@ class OpenAICompatAdapter(Adapter):
             })
 
         return blocks
-
-
-class GLMAdapter(OpenAICompatAdapter):
-    """GLM-via-OpenRouter adapter: OpenAI-compatible wire format, unified reasoning param."""
-
-    def reasoning_params(self, model: str) -> dict:
-        return {"reasoning": {"enabled": True}}

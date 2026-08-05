@@ -11,6 +11,7 @@ let chatMode = false;
 let apiStatus = {};
 let lastModelUsed = {};
 let menuAgent = null;
+let modelCapabilities = {}; // {model_id: {supported_attachment_types: [...]}}
 
 // DOM elements
 const agentList = document.getElementById('agent-list');
@@ -74,7 +75,7 @@ function send(cmd) {
 function handleMessage(msg) {
     switch (msg.type) {
         case 'models':
-            // populate the model dropdown from the server registry (kimi, glm, hierarchy, ...)
+            // populate the model dropdown from the server registry (kimi, deepseek, hierarchy, ...)
             {
                 const current = selectedAgent && agents[selectedAgent]
                     ? (agents[selectedAgent].model || modelSelect.value)
@@ -87,6 +88,7 @@ function handleMessage(msg) {
                     if (id === current) opt.selected = true;
                     modelSelect.appendChild(opt);
                 }
+                modelCapabilities = msg.capabilities || {};
             }
             break;
 
@@ -515,31 +517,81 @@ modelSelect.onchange = () => {
     }
 };
 
-// ---- attachments: drag/paste files into chat -> chips -> one-turn injection ----
-let pendingFiles = [];
-const attachChips = document.getElementById('attach-chips');
+// ---- attachments: drag/paste files → base64 → inline with chat command ----
 
-function fmtSize(n) {
-    return n < 1024 ? `${n}B` : n < 1048576 ? `${(n / 1024).toFixed(1)}KB` : `${(n / 1048576).toFixed(1)}MB`;
+let pendingAttachments = []; // [{name, media_type, data}]
+
+function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const dataUrl = reader.result;
+            const comma = dataUrl.indexOf(',');
+            resolve({
+                name: file.name,
+                media_type: file.type || 'application/octet-stream',
+                data: dataUrl.slice(comma + 1),
+            });
+        };
+        reader.onerror = () => reject(new Error(`failed to read ${file.name}`));
+        reader.readAsDataURL(file);
+    });
 }
 
-function renderChips() {
+function mimeTypeFromExt(name) {
+    const ext = name.split('.').pop().toLowerCase();
+    const map = {
+        png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+        gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
+        zip: 'application/zip', tar: 'application/tar',
+        gz: 'application/gzip', bz2: 'application/x-bzip2',
+        json: 'application/json', csv: 'text/csv',
+        pdf: 'application/pdf', pt: 'application/octet-stream',
+        pth: 'application/octet-stream',
+    };
+    return map[ext] || 'application/octet-stream';
+}
+
+function supportedTypes() {
+    const model = selectedAgent ? (agents[selectedAgent]?.model || modelSelect.value) : modelSelect.value;
+    const caps = modelCapabilities[model];
+    return caps ? new Set(caps.supported_attachment_types) : new Set();
+}
+
+function validateAttachments(attachments) {
+    const types = supportedTypes();
+    const bad = [];
+    for (const a of attachments) {
+        const mt = a.media_type || mimeTypeFromExt(a.name);
+        a.media_type = mt;
+        if (types.size > 0 && !types.has(mt)) bad.push(`${a.name} (${mt})`);
+    }
+    if (bad.length) {
+        alert(`file type not accepted by selected model:\n${bad.join('\n')}`);
+        return false;
+    }
+    return true;
+}
+
+function renderAttachChips() {
     attachChips.innerHTML = '';
-    pendingFiles.forEach((f, i) => {
+    pendingAttachments.forEach((a, i) => {
         const chip = document.createElement('span');
         chip.className = 'attach-chip';
-        chip.textContent = `${f.name} (${fmtSize(f.size)}) `;
+        chip.textContent = `${a.name} `;
         const x = document.createElement('button');
         x.textContent = '×';
-        x.onclick = () => { pendingFiles.splice(i, 1); renderChips(); };
+        x.onclick = () => { pendingAttachments.splice(i, 1); renderAttachChips(); };
         chip.appendChild(x);
         attachChips.appendChild(chip);
     });
 }
 
-function addFiles(files) {
-    for (const f of files) pendingFiles.push(f);
-    renderChips();
+async function addFiles(files) {
+    for (const f of files) {
+        pendingAttachments.push(await fileToBase64(f));
+    }
+    renderAttachChips();
 }
 
 const rightPanel = document.querySelector('.right-panel');
@@ -558,43 +610,24 @@ chatInput.addEventListener('paste', (e) => {
     }
 });
 
-function uploadAttachment(file) {
-    return new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        const progress = document.getElementById('upload-progress');
-        const bar = document.getElementById('upload-bar');
-        xhr.upload.onprogress = (e) => {
-            if (e.lengthComputable) {
-                bar.style.width = (e.loaded / e.total * 100) + '%';
-            }
-        };
-        xhr.onloadstart = () => { bar.style.width = '0%'; progress.style.display = 'block'; };
-        xhr.onloadend = () => { progress.style.display = 'none'; };
-        xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) resolve(JSON.parse(xhr.responseText));
-            else reject(new Error(`${file.name}: upload failed (${xhr.status})`));
-        };
-        xhr.onerror = () => reject(new Error(`${file.name}: upload failed`));
-        xhr.open('POST', `chat/dm-${encodeURIComponent(selectedAgent)}/files?name=${encodeURIComponent(file.name)}`);
-        xhr.send(file);
-    });
-}
-
 chatInput.onkeydown = async (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         const text = chatInput.value.trim();
-        if ((!text && !pendingFiles.length) || !selectedAgent) return;
-        try {
-            // each file becomes its own channel message; text goes via ws
-            await Promise.all(pendingFiles.map(uploadAttachment));
-        } catch (err) {
-            alert(err.message);
+        if ((!text && !pendingAttachments.length) || !selectedAgent) return;
+        if (pendingAttachments.length && !validateAttachments(pendingAttachments)) {
+            pendingAttachments = [];
+            renderAttachChips();
             return;
         }
-        pendingFiles = [];
-        renderChips();
-        if (text) send({ cmd: 'chat', name: selectedAgent, text: text });
+        send({
+            cmd: 'chat',
+            name: selectedAgent,
+            text: text,
+            attachments: pendingAttachments,
+        });
+        pendingAttachments = [];
+        renderAttachChips();
         chatInput.value = '';
     }
 };

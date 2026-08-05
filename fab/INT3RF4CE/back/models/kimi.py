@@ -22,6 +22,7 @@ class Kimi(Model):
     base_url = KIMI_BASE_URL
     # name of this provider's key in the user's secrets store (secrets.json)
     secret_name = "moonshot"
+    SUPPORTED_ATTACHMENT_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
     models = {
         "kimi-k3": "kimi-k3",
         "kimi-k2.7-fast": "kimi-k2.7-fast",

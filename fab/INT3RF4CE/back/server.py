@@ -27,6 +27,9 @@ Commands (client -> server):
     secrets:
     {"cmd": "list_secrets"} / {"cmd": "set_secret", "key", "value", "cat"} / {"cmd": "delete_secret", "key"}
     {"cmd": "get_secret_grants", "name"} / {"cmd": "set_secret_grants", "name", "grants": [...]}
+    compute:
+    {"cmd": "list_computes"} / {"cmd": "add_compute", "name", "ssh_command", "password"}
+    {"cmd": "delete_compute", "name"} / {"cmd": "claim_compute", "name"} / {"cmd": "release_compute", "name"}
 
 Responses (server -> client):
     {"type": "agents", "agents": {...}}
@@ -61,10 +64,10 @@ from fab.TH0UGHTGR4PH.back import storage as tg_storage
 from fab.TH0UGHTGR4PH.back import graph_actions as tg_actions
 from fab.INT3RF4CE.back import chat as chatmod
 from fab.INT3RF4CE.back import secrets as secretsmod
+from fab.INT3RF4CE.back import compute as computemod
 from fab.INT3RF4CE.back.agent import Agent
-from fab.INT3RF4CE.back.model import Model, MODEL_PROVIDERS, list_available_models, get_model_class
+from fab.INT3RF4CE.back.model import Model, MODEL_PROVIDERS, list_available_models, get_model_class, list_model_capabilities
 from fab.INT3RF4CE.back.models.kimi import Kimi  # registers the kimi provider
-from fab.INT3RF4CE.back.models.glm import GLM  # registers the glm provider
 from fab.INT3RF4CE.back.models.deepseek import DeepSeek  # registers the deepseek provider
 from fab.INT3RF4CE.back.model import HierarchyModel  # registers the hierarchy provider
 from fab.INT3RF4CE.back.config import DATA_DIR
@@ -144,7 +147,6 @@ async def upload_chat_file(channel_id: str, request: Request):
     user = user_for_token(request.cookies.get(COOKIE_NAME))
     if not user:
         raise HTTPException(status_code=401, detail="login required")
-    # a deleted dm auto-recreates (see the get_messages ws command)
     if channel_id.startswith("dm-") and channel_id[3:] in users.get(user, {}):
         chatmod.ensure_dm(user, channel_id[3:])
     if not chatmod.is_member(user, channel_id, chatmod.USER_SENDER):
@@ -152,8 +154,10 @@ async def upload_chat_file(channel_id: str, request: Request):
     data = await request.body()
     if not data:
         raise HTTPException(status_code=400, detail="empty file")
+    # relative path from query param — supports subdirectories (e.g. ?name=weights/model.pt)
+    rel_path = request.query_params.get("name", "file")
     try:
-        ref = chatmod.store_file(user, channel_id, request.query_params.get("name", "file"), data)
+        ref = chatmod.store_file(user, channel_id, rel_path, data)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     msg = chatmod.append_message(user, channel_id, chatmod.USER_SENDER, "file", file=ref)
@@ -161,13 +165,74 @@ async def upload_chat_file(channel_id: str, request: Request):
     return msg
 
 
-@app.get("/chat/{channel_id}/files/{filename}")
-def download_chat_file(channel_id: str, filename: str, request: Request):
+@app.get("/chat/{channel_id}/files-list")
+def list_chat_files(channel_id: str, request: Request):
+    user = user_for_token(request.cookies.get(COOKIE_NAME))
+    if not user:
+        raise HTTPException(status_code=401, detail="login required")
+    if not chatmod.is_member(user, channel_id, chatmod.USER_SENDER):
+        raise HTTPException(status_code=404, detail="channel not found")
+    entries = chatmod.list_file_tree(user, channel_id, request.query_params.get("path", ""))
+    return {"files": entries}
+
+
+@app.post("/chat/{channel_id}/mkdir")
+async def mkdir_channel(channel_id: str, request: Request):
+    user = user_for_token(request.cookies.get(COOKIE_NAME))
+    if not user:
+        raise HTTPException(status_code=401, detail="login required")
+    if not chatmod.is_member(user, channel_id, chatmod.USER_SENDER):
+        raise HTTPException(status_code=404, detail="channel not found")
+    body = await request.json()
+    dir_name = body.get("dir_name", "").strip()
+    if not dir_name:
+        raise HTTPException(status_code=400, detail="dir_name required")
+    try:
+        chatmod.mkdir_channel(user, channel_id, dir_name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True}
+
+
+@app.put("/chat/{channel_id}/files/{path:path}")
+async def rename_channel_file(channel_id: str, path: str, request: Request):
+    user = user_for_token(request.cookies.get(COOKIE_NAME))
+    if not user:
+        raise HTTPException(status_code=401, detail="login required")
+    if not chatmod.is_member(user, channel_id, chatmod.USER_SENDER):
+        raise HTTPException(status_code=404, detail="channel not found")
+    body = await request.json()
+    new_name = body.get("new_name", "").strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="new_name required")
+    try:
+        chatmod.rename_file(user, channel_id, path, new_name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True}
+
+
+@app.delete("/chat/{channel_id}/files/{path:path}")
+async def delete_channel_file(channel_id: str, path: str, request: Request):
+    user = user_for_token(request.cookies.get(COOKIE_NAME))
+    if not user:
+        raise HTTPException(status_code=401, detail="login required")
+    if not chatmod.is_member(user, channel_id, chatmod.USER_SENDER):
+        raise HTTPException(status_code=404, detail="channel not found")
+    try:
+        chatmod.delete_file(user, channel_id, path)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True}
+
+
+@app.get("/chat/{channel_id}/files/{path:path}")
+def download_chat_file(channel_id: str, path: str, request: Request):
     user = user_for_token(request.cookies.get(COOKIE_NAME))
     if not user:
         raise HTTPException(status_code=401, detail="login required")
     try:
-        p = chatmod.channel_file(user, channel_id, filename)
+        p = chatmod.channel_file(user, channel_id, path)
     except ValueError:
         raise HTTPException(status_code=400, detail="bad path")
     if not p.is_file():
@@ -183,6 +248,11 @@ def chat_page():
 @app.get("/secrets/")
 def secrets_page():
     return FileResponse(FRONT_DIR / "secrets.html")
+
+
+@app.get("/compute/")
+def compute_page():
+    return FileResponse(FRONT_DIR / "compute.html")
 
 # connected websocket clients: ws -> username
 clients: dict[WebSocket, str] = {}
@@ -805,20 +875,33 @@ async def websocket_endpoint(ws: WebSocket):
             elif cmd == "chat":
                 name = msg.get("name")
                 text = msg.get("text", "")
+                attachments = msg.get("attachments") or []  # [{name, media_type, data}]
 
                 if name not in user_agents:
                     await ws.send_text(json.dumps({"type": "error", "msg": f"agent {name} not found"}))
                     continue
 
                 info = user_agents[name]
-                # agent-view text goes DIRECTLY into context as plain user text —
-                # the chat system is only for files and real channel messages, so
-                # the agent doesn't mistake a normal conversation for chat traffic.
-                # pending channel messages (file uploads land there) inject first
-                # to keep chronological order.
+                # agent-view text + attachments go DIRECTLY into context — no chat detour.
+                # pending channel messages inject first to keep chronological order.
                 inject_pending(user, name, info)
+
+                blocks = []
                 if text.strip():
-                    info["agent"].context.add_user_text(text)
+                    blocks.append({"type": "text", "text": text})
+                images = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+                for att in attachments:
+                    media_type = att.get("media_type", "application/octet-stream")
+                    if media_type in images:
+                        blocks.append({
+                            "type": "image",
+                            "source": {"type": "base64", "media_type": media_type, "data": att.get("data", "")},
+                        })
+                    else:
+                        size_str = f"{len(att.get('data', '')) * 3 // 4:,}"  # approximate bytes from base64
+                        blocks.append({"type": "text", "text": f"[attached file: {att['name']} ({size_str} bytes)]"})
+                if blocks:
+                    info["agent"].context.add_message("user", blocks)
                 await broadcast(user, {"type": "context", "name": name, "messages": info["agent"].context.messages})
 
                 if info["working"] and not info["agent"].chat_mode:
@@ -852,7 +935,11 @@ async def websocket_endpoint(ws: WebSocket):
                 flat_models = {}
                 for provider_models in list_available_models().values():
                     flat_models.update(provider_models)
-                await ws.send_text(json.dumps({"type": "models", "models": flat_models}))
+                await ws.send_text(json.dumps({
+                    "type": "models",
+                    "models": flat_models,
+                    "capabilities": list_model_capabilities(),
+                }))
 
             elif cmd == "set_model":
                 name = msg.get("name")
@@ -996,9 +1083,6 @@ async def websocket_endpoint(ws: WebSocket):
                     if key not in valid:
                         await ws.send_text(json.dumps({"type": "error", "msg": f"llm secret must be one of: {', '.join(sorted(valid))}"}))
                         continue
-                if cat == "computerent" and key not in secretsmod.RENT_PROVIDERS:
-                    await ws.send_text(json.dumps({"type": "error", "msg": f"compute rent secret must be one of: {', '.join(secretsmod.RENT_PROVIDERS)}"}))
-                    continue
                 try:
                     # value is a string for most cats, a forced {"account","key"} dict for git
                     secretsmod.set_secret(user, key, msg.get("value"), cat=cat)
@@ -1039,6 +1123,73 @@ async def websocket_endpoint(ws: WebSocket):
                     continue
                 secretsmod.save_grants(user, name, grants)
                 await ws.send_text(json.dumps({"type": "secret_grants", "name": name, "grants": grants}))
+
+            # ---- compute (ssh targets, usage tracking) ----
+            elif cmd == "list_computes":
+                computes = computemod.list_computers(user)
+                usage = computemod.usage_map(user)
+                await ws.send_text(json.dumps({"type": "computes", "computes": [
+                    {"name": c["name"], "ssh_command": c["ssh_command"], "password": c["password"], "used_by": usage.get(c["name"])}
+                    for c in computes
+                ]}))
+
+            elif cmd == "add_compute":
+                name = msg.get("name", "").strip()
+                ssh_command = msg.get("ssh_command", "").strip()
+                password = msg.get("password", "")
+                if not name or not ssh_command:
+                    await ws.send_text(json.dumps({"type": "error", "msg": "name and ssh_command required"}))
+                    continue
+                try:
+                    computemod.add_computer(user, name, ssh_command, password)
+                except ValueError as e:
+                    await ws.send_text(json.dumps({"type": "error", "msg": str(e)}))
+                    continue
+                computes = computemod.list_computers(user)
+                usage = computemod.usage_map(user)
+                await ws.send_text(json.dumps({"type": "computes", "computes": [
+                    {"name": c["name"], "ssh_command": c["ssh_command"], "password": c["password"], "used_by": usage.get(c["name"])}
+                    for c in computes
+                ]}))
+
+            elif cmd == "delete_compute":
+                try:
+                    computemod.delete_computer(user, msg.get("name", ""))
+                except ValueError as e:
+                    await ws.send_text(json.dumps({"type": "error", "msg": str(e)}))
+                    continue
+                computes = computemod.list_computers(user)
+                usage = computemod.usage_map(user)
+                await ws.send_text(json.dumps({"type": "computes", "computes": [
+                    {"name": c["name"], "ssh_command": c["ssh_command"], "password": c["password"], "used_by": usage.get(c["name"])}
+                    for c in computes
+                ]}))
+
+            elif cmd == "claim_compute":
+                try:
+                    computemod.claim(user, user, msg.get("name", ""))
+                except ValueError as e:
+                    await ws.send_text(json.dumps({"type": "error", "msg": str(e)}))
+                    continue
+                computes = computemod.list_computers(user)
+                usage = computemod.usage_map(user)
+                await ws.send_text(json.dumps({"type": "computes", "computes": [
+                    {"name": c["name"], "ssh_command": c["ssh_command"], "password": c["password"], "used_by": usage.get(c["name"])}
+                    for c in computes
+                ]}))
+
+            elif cmd == "release_compute":
+                try:
+                    computemod.release(user, user, msg.get("name", ""))
+                except ValueError as e:
+                    await ws.send_text(json.dumps({"type": "error", "msg": str(e)}))
+                    continue
+                computes = computemod.list_computers(user)
+                usage = computemod.usage_map(user)
+                await ws.send_text(json.dumps({"type": "computes", "computes": [
+                    {"name": c["name"], "ssh_command": c["ssh_command"], "password": c["password"], "used_by": usage.get(c["name"])}
+                    for c in computes
+                ]}))
 
             else:
                 await ws.send_text(json.dumps({"type": "error", "msg": f"unknown command: {cmd}"}))

@@ -67,7 +67,7 @@ class AuthBox extends HTMLElement {
 
   render() {
     const chip = this.user
-      ? `<span class="auth-user">${this.user}</span><span class="auth-pop"><a class="auth-logout auth-secrets" href="/INT3RF4CE/secrets/">secrets</a><button class="auth-logout" data-action="logout">logout</button></span>`
+      ? `<span class="auth-user">${this.user}</span><span class="auth-pop"><a class="auth-logout auth-secrets" href="/INT3RF4CE/compute/">compute</a><a class="auth-logout auth-secrets" href="/INT3RF4CE/secrets/">secrets</a><button class="auth-logout" data-action="logout">logout</button></span>`
       : `<button class="auth-btn" data-action="open">login</button>`;
     this.innerHTML = `
       <div class="auth-box ${this.user ? 'logged-in' : ''}">${chip}</div>

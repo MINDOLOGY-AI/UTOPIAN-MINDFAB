@@ -14,7 +14,7 @@ KVCache = tuple[tuple[torch.Tensor, torch.Tensor], ...] | None
 
 # fallback order for the "hierarchy" model: on timeout / 429 / 5xx the next
 # provider in line answers instead. each provider uses its own adapter.
-HIERARCHY = ["kimi-k3", "deepseek-v4-flash", "z-ai/glm-5.2"]
+HIERARCHY = ["kimi-k3", "deepseek-v4-flash"]
 
 
 class Model(ABC):
@@ -31,6 +31,12 @@ class Model(ABC):
     models: dict[str, str] = {}
     # name of this provider's api key in the user's secrets store (None = no key needed)
     secret_name: str | None = None
+    # media types this model accepts as inline attachments (e.g. {"image/png", "image/jpeg"})
+    SUPPORTED_ATTACHMENT_TYPES: set[str] = set()
+
+    @classmethod
+    def get_supported_attachment_types(cls) -> set[str]:
+        return cls.SUPPORTED_ATTACHMENT_TYPES
 
     @classmethod
     def make(cls, model_id: str, get_key=None) -> "Model":
@@ -75,6 +81,16 @@ def list_available_models() -> dict[str, dict[str, str]]:
     return {name: dict(provider.models) for name, provider in MODEL_PROVIDERS.items()}
 
 
+def list_model_capabilities() -> dict[str, dict]:
+    """Return {model_id: {"supported_attachment_types": [...]}} for all models."""
+    caps = {}
+    for provider in MODEL_PROVIDERS.values():
+        types = sorted(provider.SUPPORTED_ATTACHMENT_TYPES)
+        for model_id in provider.models.values():
+            caps[model_id] = {"supported_attachment_types": types}
+    return caps
+
+
 @register_provider
 class HierarchyModel(Model):
     """Ordered fallback across providers: on timeout / 429 / 5xx the next model
@@ -83,6 +99,7 @@ class HierarchyModel(Model):
 
     name = "hierarchy"
     models = {"hierarchy": "hierarchy"}
+    SUPPORTED_ATTACHMENT_TYPES = set()  # computed at runtime from chain, set on init
 
     @classmethod
     def make(cls, model_id: str, get_key=None) -> "HierarchyModel":
@@ -98,6 +115,10 @@ class HierarchyModel(Model):
         self.chain = chain
         # the model that answered most recently (or the primary before any call)
         self.active_model = chain[0].model
+        # union of all chain members' supported types — same for the whole hierarchy
+        self.SUPPORTED_ATTACHMENT_TYPES = set()
+        for m in chain:
+            self.SUPPORTED_ATTACHMENT_TYPES |= m.SUPPORTED_ATTACHMENT_TYPES
 
     async def _try_chain(self, fn):
         last_err = None

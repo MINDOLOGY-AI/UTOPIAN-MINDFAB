@@ -43,6 +43,7 @@ RUN apt-get update && apt-get install -y \
     unzip \
     sqlite3 \
     openssh-client \
+    sshpass \
     ca-certificates \
     dbus-x11 \
     fonts-noto-cjk \

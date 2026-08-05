@@ -13,6 +13,9 @@ let pendingFiles = [];
 const channelList = document.getElementById('channel-list');
 const chatHeader = document.getElementById('chat-header');
 const chatMessages = document.getElementById('chat-messages');
+const fileBrowser = document.getElementById('file-browser-content');
+const fileBrowserHeader = document.getElementById('file-browser-header');
+const fileBrowserPanel = document.querySelector('.file-browser');
 const chatInput = document.getElementById('chat-input');
 const attachChips = document.getElementById('attach-chips');
 const mainEl = document.querySelector('.chat-main');
@@ -40,6 +43,7 @@ function connect() {
         if (msg.type === 'channels') {
             channels = msg.channels;
             renderChannels();
+            renderHeader();
         }
         if (msg.type === 'messages' && msg.channel === currentChannel) {
             chatMessages.innerHTML = '';
@@ -137,24 +141,34 @@ function renderHeader() {
     span.textContent = text;
     chatHeader.appendChild(span);
     const agents = () => ch.members.filter(m => m !== USER);
-    const add = document.createElement('button');
-    add.className = 'member-btn';
-    add.textContent = '+ agent';
-    add.title = 'add an agent to this channel';
-    add.onclick = () => {
-        const name = prompt('add which agent?');
-        if (name) send({ cmd: 'set_members', channel: ch.id, agents: [...agents(), name] });
-    };
-    const rm = document.createElement('button');
-    rm.className = 'member-btn';
-    rm.textContent = '− agent';
-    rm.title = 'remove an agent from this channel';
-    rm.onclick = () => {
-        const name = prompt('remove which agent?');
-        if (name) send({ cmd: 'set_members', channel: ch.id, agents: agents().filter(m => m !== name) });
-    };
-    chatHeader.appendChild(add);
-    chatHeader.appendChild(rm);
+    if (!ch.dm) {
+        // + agent — button that opens a popup of agents NOT in this channel
+        const addBtn = document.createElement('button');
+        addBtn.className = 'member-btn';
+        addBtn.textContent = '+ agent';
+        addBtn.title = 'add an agent to this channel';
+        addBtn.onclick = () => {
+            const popup = showAgentPopup(addBtn, Object.keys(agentStatus).sort().filter(a => !ch.members.includes(a)), (name) => {
+                send({ cmd: 'set_members', channel: ch.id, agents: [...agents(), name] });
+                hideAgentPopup();
+            });
+        };
+        chatHeader.appendChild(addBtn);
+
+        // − agent — button that opens a popup of agents IN this channel
+        const rmBtn = document.createElement('button');
+        rmBtn.className = 'member-btn';
+        rmBtn.textContent = '− agent';
+        rmBtn.title = 'remove an agent from this channel';
+        rmBtn.onclick = () => {
+            if (!agents().length) return;
+            showAgentPopup(rmBtn, agents().sort(), (name) => {
+                send({ cmd: 'set_members', channel: ch.id, agents: agents().filter(m => m !== name) });
+                hideAgentPopup();
+            });
+        };
+        chatHeader.appendChild(rmBtn);
+    }
     const rename = document.createElement('button');
     rename.className = 'member-btn';
     rename.textContent = 'rename';
@@ -183,6 +197,7 @@ function selectChannel(ch) {
     renderHeader();
     renderChannels();
     send({ cmd: 'get_messages', channel: ch.id, limit: 200 });
+    loadFileTree();
 }
 
 document.getElementById('new-channel-btn').onclick = () => {
@@ -300,3 +315,348 @@ chatInput.onkeydown = async (e) => {
 };
 
 connect();
+
+// ---- file browser ----
+
+let expandedFolders = new Set(); // {"path", ...}
+let fileTreeCache = {}; // {path: [{name, path, size, is_dir}, ...]}
+
+async function loadFileTree() {
+    if (!currentChannel) return;
+    expandedFolders.add('__root__');
+    try {
+        const res = await fetch(`chat/${encodeURIComponent(currentChannel)}/files-list`, { credentials: 'same-origin' });
+        if (!res.ok) { renderFileTree(); return; }
+        const data = await res.json();
+        fileTreeCache[''] = data.files || [];
+        renderFileTree();
+    } catch {
+        fileBrowser.innerHTML = '<div style="color:var(--light-gray);padding:10px;">error loading files</div>';
+    }
+}
+
+async function fetchChildren(path) {
+    if (fileTreeCache[path]) return fileTreeCache[path];
+    try {
+        const res = await fetch(`chat/${encodeURIComponent(currentChannel)}/files-list?path=${encodeURIComponent(path)}`, { credentials: 'same-origin' });
+        if (!res.ok) return [];
+        const data = await res.json();
+        fileTreeCache[path] = data.files || [];
+        return fileTreeCache[path];
+    } catch {
+        return [];
+    }
+}
+
+function renderFileTree() {
+    const ch = channels.find(c => c.id === currentChannel);
+    fileBrowserHeader.textContent = ch ? ch.name : 'files';
+    fileBrowser.innerHTML = '';
+
+    // toolbar at top — operates on root
+    const toolbar = buildToolbar('');
+    fileBrowser.appendChild(toolbar);
+
+    // drag/drop on the whole panel
+    fileBrowser.ondragover = (e) => { e.preventDefault(); fileBrowser.classList.add('drag-over'); };
+    fileBrowser.ondragleave = () => fileBrowser.classList.remove('drag-over');
+    fileBrowser.ondrop = async (e) => {
+        e.preventDefault();
+        fileBrowser.classList.remove('drag-over');
+        if (!e.dataTransfer.files.length) return;
+        for (const f of e.dataTransfer.files) {
+            try { await uploadToChannel(f.name, f); } catch (err) { alert(err.message); }
+        }
+        expandedFolders.clear();
+        fileTreeCache = {};
+        loadFileTree();
+    };
+
+    const rootFiles = fileTreeCache[''] || [];
+    const rootName = ch ? ch.name : '';
+
+    // root folder row — always shown, toggles children visibility
+    const rootExpanded = expandedFolders.has('__root__');
+    const rootRow = document.createElement('div');
+    rootRow.className = 'file-tree-row file-tree-root';
+    const rootIcon = document.createElement('span');
+    rootIcon.className = 'file-tree-icon';
+    rootIcon.textContent = rootExpanded ? '▾' : '▸';
+    rootIcon.style.cursor = 'pointer';
+    rootIcon.onclick = () => {
+        if (expandedFolders.has('__root__')) {
+            expandedFolders.delete('__root__');
+        } else {
+            expandedFolders.add('__root__');
+        }
+        renderFileTree();
+    };
+    rootRow.appendChild(rootIcon);
+    const rootLabel = document.createElement('span');
+    rootLabel.className = 'file-tree-name';
+    rootLabel.textContent = rootName + '/';
+    rootLabel.style.cursor = 'pointer';
+    rootLabel.style.color = 'var(--mint)';
+    rootLabel.onclick = () => {
+        if (expandedFolders.has('__root__')) {
+            expandedFolders.delete('__root__');
+        } else {
+            expandedFolders.add('__root__');
+        }
+        renderFileTree();
+    };
+    rootRow.appendChild(rootLabel);
+    fileBrowser.appendChild(rootRow);
+
+    if (!rootExpanded) return;
+
+    if (!rootFiles.length) {
+        const empty = document.createElement('div');
+        empty.className = 'file-tree-empty';
+        empty.style.paddingLeft = '18px';
+        empty.textContent = '— empty —';
+        fileBrowser.appendChild(empty);
+        return;
+    }
+
+    const list = document.createElement('div');
+    list.className = 'file-tree-list';
+    for (const f of rootFiles) {
+        renderFileTreeRow(list, f, '', 1)  ;  // depth 1 under root
+    }
+    fileBrowser.appendChild(list);
+}
+
+function renderFileTreeRow(parent, f, parentPath, depth) {
+    const isDir = f.is_dir;
+    const fullPath = parentPath ? `${parentPath}/${f.name}` : f.name;
+    const isExpanded = isDir && expandedFolders.has(fullPath);
+
+    const row = document.createElement('div');
+    row.className = 'file-tree-row';
+    row.style.paddingLeft = `${depth * 16 + 4}px`;
+
+    const icon = document.createElement('span');
+    icon.className = 'file-tree-icon';
+    if (isDir) {
+        icon.textContent = isExpanded ? '▾' : '▸';
+        icon.style.cursor = 'pointer';
+    } else {
+        icon.textContent = '';
+    }
+    row.appendChild(icon);
+
+    // loading indicator
+    const loading = document.createElement('span');
+    loading.className = 'file-tree-loading';
+    loading.textContent = '';
+    loading.style.display = 'none';
+    row.appendChild(loading);
+
+    const name = document.createElement('span');
+    name.className = 'file-tree-name';
+    name.title = fullPath;
+    if (isDir) {
+        name.textContent = f.name + '/';
+        name.style.cursor = 'pointer';
+        name.onclick = async () => toggleFolder(fullPath, row, depth);
+        icon.onclick = async () => toggleFolder(fullPath, row, depth);
+    } else {
+        const a = document.createElement('a');
+        a.href = `chat/${encodeURIComponent(currentChannel)}/files/${encodeURIComponent(fullPath)}`;
+        a.textContent = f.name;
+        a.download = f.name;
+        name.appendChild(a);
+    }
+    row.appendChild(name);
+
+    if (!isDir) {
+        const size = document.createElement('span');
+        size.className = 'file-tree-size';
+        size.textContent = fmtSize(f.size);
+        row.appendChild(size);
+    }
+
+    const actions = document.createElement('span');
+    actions.className = 'file-tree-actions';
+    const renameBtn = document.createElement('button');
+    renameBtn.textContent = '✎';
+    renameBtn.title = 'rename';
+    renameBtn.onclick = async (e) => {
+        e.stopPropagation();
+        const newName = prompt('rename to:', f.name);
+        if (!newName || newName === f.name) return;
+        const parent = parentPath ? parentPath + '/' : '';
+        await fetch(`chat/${encodeURIComponent(currentChannel)}/files/${encodeURIComponent(fullPath)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ new_name: parent + newName }),
+            credentials: 'same-origin',
+        });
+        expandedFolders.clear();
+        fileTreeCache = {};
+        loadFileTree();
+    };
+    actions.appendChild(renameBtn);
+    const delBtn = document.createElement('button');
+    delBtn.textContent = '×';
+    delBtn.title = 'delete';
+    delBtn.onclick = async (e) => {
+        e.stopPropagation();
+        if (!confirm(`delete ${isDir ? 'folder' : 'file'} "${f.name}"?`)) return;
+        await fetch(`chat/${encodeURIComponent(currentChannel)}/files/${encodeURIComponent(fullPath)}`, {
+            method: 'DELETE',
+            credentials: 'same-origin',
+        });
+        expandedFolders.delete(fullPath);
+        delete fileTreeCache[fullPath];
+        if (parentPath) {
+            delete fileTreeCache[parentPath];
+            await fetchChildren(parentPath);
+        } else {
+            fileTreeCache[''] = null;
+            delete fileTreeCache[''];
+        }
+        loadFileTree();
+    };
+    actions.appendChild(delBtn);
+    row.appendChild(actions);
+
+    parent.appendChild(row);
+
+    // render expanded children
+    if (isExpanded && fileTreeCache[fullPath]) {
+        for (const child of fileTreeCache[fullPath]) {
+            renderFileTreeRow(parent, child, fullPath, depth + 1);
+        }
+    }
+}
+
+async function toggleFolder(path, row, depth) {
+    if (expandedFolders.has(path)) {
+        expandedFolders.delete(path);
+    } else {
+        expandedFolders.add(path);
+        await fetchChildren(path);
+    }
+    // reload the children for this folder's parent
+    const parentPath = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+    delete fileTreeCache[parentPath || ''];
+    loadFileTree();
+}
+
+function buildToolbar(parentPath) {
+    const toolbar = document.createElement('div');
+    toolbar.className = 'file-tree-toolbar';
+
+    const uploadInput = document.createElement('input');
+    uploadInput.type = 'file';
+    uploadInput.multiple = true;
+    uploadInput.style.display = 'none';
+    uploadInput.onchange = async () => {
+        for (const f of uploadInput.files) {
+            const relPath = parentPath ? `${parentPath}/${f.name}` : f.name;
+            try { await uploadToChannel(relPath, f); } catch (err) { alert(err.message); }
+        }
+        uploadInput.value = '';
+        expandedFolders.clear();
+        fileTreeCache = {};
+        loadFileTree();
+    };
+    toolbar.appendChild(uploadInput);
+
+    const uploadBtn = document.createElement('button');
+    uploadBtn.textContent = 'upload';
+    uploadBtn.title = 'select files to upload';
+    uploadBtn.onclick = () => uploadInput.click();
+    toolbar.appendChild(uploadBtn);
+
+    const folderInput = document.createElement('input');
+    folderInput.type = 'file';
+    folderInput.webkitdirectory = true;
+    folderInput.style.display = 'none';
+    folderInput.onchange = async () => {
+        for (const f of folderInput.files) {
+            const relPath = parentPath ? `${parentPath}/${f.webkitRelativePath}` : f.webkitRelativePath;
+            try { await uploadToChannel(relPath, f); } catch (err) { alert(err.message); }
+        }
+        folderInput.value = '';
+        expandedFolders.clear();
+        fileTreeCache = {};
+        loadFileTree();
+    };
+    toolbar.appendChild(folderInput);
+
+    const folderBtn = document.createElement('button');
+    folderBtn.textContent = 'upload folder';
+    folderBtn.title = 'select a folder to upload';
+    folderBtn.onclick = () => folderInput.click();
+    toolbar.appendChild(folderBtn);
+
+    const newFolderBtn = document.createElement('button');
+    newFolderBtn.textContent = '+ folder';
+    newFolderBtn.onclick = () => {
+        const name = prompt('folder name:');
+        if (!name) return;
+        const fullPath = parentPath ? `${parentPath}/${name}` : name;
+        fetch(`chat/${encodeURIComponent(currentChannel)}/mkdir`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dir_name: fullPath }),
+            credentials: 'same-origin',
+        }).then(() => {
+            expandedFolders.clear();
+            fileTreeCache = {};
+            loadFileTree();
+        });
+    };
+    toolbar.appendChild(newFolderBtn);
+
+    return toolbar;
+}
+
+function uploadToChannel(relPath, file) {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `chat/${encodeURIComponent(currentChannel)}/files?name=${encodeURIComponent(relPath)}`);
+        xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) resolve(JSON.parse(xhr.responseText));
+            else reject(new Error(`${file.name}: upload failed (${xhr.status})`));
+        };
+        xhr.onerror = () => reject(new Error(`${file.name}: upload failed`));
+        xhr.send(file);
+    });
+}
+
+// ---- agent popup for +/− in channel header ----
+
+let agentPopupEl = null;
+
+function hideAgentPopup() {
+    if (agentPopupEl) {
+        agentPopupEl.remove();
+        agentPopupEl = null;
+    }
+}
+
+function showAgentPopup(anchor, names, onSelect) {
+    hideAgentPopup();
+    if (!names.length) return;
+    const popup = document.createElement('div');
+    popup.className = 'agent-popup';
+    names.forEach(name => {
+        const row = document.createElement('button');
+        row.textContent = name;
+        row.onclick = () => onSelect(name);
+        popup.appendChild(row);
+    });
+    const rect = anchor.getBoundingClientRect();
+    popup.style.left = rect.left + 'px';
+    popup.style.top = (rect.bottom + 4) + 'px';
+    popup.onclick = (e) => e.stopPropagation();
+    document.body.appendChild(popup);
+    agentPopupEl = popup;
+    setTimeout(() => {
+        document.addEventListener('click', hideAgentPopup, { once: true });
+    }, 0);
+}

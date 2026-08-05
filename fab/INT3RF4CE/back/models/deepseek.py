@@ -24,6 +24,7 @@ class DeepSeek(Kimi):
     adapter = DeepSeekAdapter()
     base_url = DEEPSEEK_BASE_URL
     secret_name = "deepseek"
+    SUPPORTED_ATTACHMENT_TYPES = set()  # v4 is text-only, no image input
     models = {
         "deepseek-v4-flash": "deepseek-v4-flash",
         "deepseek-v4-pro": "deepseek-v4-pro",

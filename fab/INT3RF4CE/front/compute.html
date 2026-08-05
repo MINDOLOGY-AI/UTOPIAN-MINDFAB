@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>compute — INT3RF4CE</title>
+    <base href="/INT3RF4CE/">
+    <link rel="stylesheet" href="/components/TechnoParadisalTheme.css">
+    <link rel="stylesheet" href="/components/AuthBox/AuthBox.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="chat-container">
+        <aside class="chat-left">
+            <div class="chat-left-top">
+                <a href="/" class="hub-link" title="back to hub">hub</a>
+            </div>
+        </aside>
+        <div class="chat-main">
+            <div id="chat-header">compute</div>
+            <div id="computes-list">
+                <div class="secrets-cat">compute rent</div>
+                <div class="secrets-add-row">
+                    <select id="new-rent-provider">
+                        <option value="autodl">autodl</option>
+                    </select>
+                    <input id="new-rent-key" placeholder="key" spellcheck="false">
+                    <button id="add-rent-btn">add</button>
+                </div>
+                <div class="secrets-cat">specific computers</div>
+                <div class="secrets-add-row compute-add-row" id="compute-add-row">
+                    <input id="new-compute-name" placeholder="name (e.g. 5090_lab_1)" spellcheck="false">
+                    <input id="new-compute-ssh" placeholder="ssh command (e.g. ssh -p 29202 root@connect.westb.seetacloud.com)" spellcheck="false">
+                    <input id="new-compute-password" placeholder="password (optional)" spellcheck="false">
+                    <button id="add-compute-btn">add</button>
+                </div>
+                <div class="secrets-sub">ssh targets agents can claim as their own machine</div>
+                <div id="cat-specific"></div>
+            </div>
+        </div>
+    </div>
+
+    <auth-box></auth-box>
+    <div id="auth-overlay" style="display:none;">
+        <div class="auth-overlay-msg">please log in</div>
+    </div>
+
+    <script type="module" src="/components/AuthBox/AuthBox.js"></script>
+    <script src="compute.js"></script>
+</body>
+</html>
