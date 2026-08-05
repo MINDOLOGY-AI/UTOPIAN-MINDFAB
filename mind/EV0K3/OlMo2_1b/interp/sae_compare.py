@@ -104,7 +104,7 @@ def main():
             epochs=1,
             save_path=str(save_dir),
             batches_per_log=100,
-            batches_per_save=10_000_000,  # essentially never — no checkpoints
+            batches_per_save=100,
             eval_dataset=eval_ds,
             eval_batch_size=BATCH_SIZE,
             max_steps=MAX_STEPS,
