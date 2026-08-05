@@ -80,7 +80,7 @@ class Heaviside_STE(torch.autograd.Function):
 # 3. JUMPRELU SAE MODULE
 # =============================================================================
 class JumpReLU_SAE(nn.Module):
-    def __init__(self, d_in, d_sae, sparsity_coeff=0.1, target_active=64, eps=0.001):
+    def __init__(self, d_in, d_sae, sparsity_coeff=0.1, target_active=64, eps=0.05):
         super().__init__()
         self.d_in = d_in
         self.d_sae = d_sae          # M dictionary features
@@ -96,7 +96,7 @@ class JumpReLU_SAE(nn.Module):
 
         # Threshold theta — trained by BOTH reconstruction and sparsity
         # Stored as log(theta) to keep it positive (paper's trick)
-        self.log_theta = nn.Parameter(torch.ones(d_sae) * (-6.9))  # ~0.001
+        self.log_theta = nn.Parameter(torch.ones(d_sae) * (-2.3))  # theta ≈ 0.1
 
     def _norm_decoder(self):
         with torch.no_grad():
@@ -135,7 +135,8 @@ class JumpReLU_SAE(nn.Module):
         l0_per_example = Heaviside_STE.apply(pre, theta, self.eps).sum(dim=-1)  # (B,)
         active_count = l0_per_example.mean()
         error = active_count - self.target_active
-        self.sparsity_coeff *= (1 + 0.01 * (1 if error.item() > 0 else -1))
+        self.sparsity_coeff += 0.001 * (1 if error.item() > 0 else -1)
+        self.sparsity_coeff = max(1e-3, min(10.0, self.sparsity_coeff))
         l0_penalty = torch.clamp(error, min=0)
         sparsity_loss = self.sparsity_coeff * l0_penalty
         total = recon_loss + sparsity_loss
@@ -144,6 +145,7 @@ class JumpReLU_SAE(nn.Module):
             "active": active_count.item(),
             "recon_pct": (recon_loss / batch_data.pow(2).mean() * 100.0).item(),
             "sparsity_coeff": self.sparsity_coeff,
+            "avg_theta": theta.mean().item(),
         }
         return total, metrics
 

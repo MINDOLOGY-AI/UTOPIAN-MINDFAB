@@ -102,7 +102,7 @@ class SlabConeSAE(nn.Module):
         self.feature_dim = embed_dim * expansion_factor
         self.sparsity_coeff = sparsity_coeff
         self.target_active = target_active
-        self.band_eps = 0.001  # rect window width (KDE bandwidth)
+        self.band_eps = 0.05  # rect window width (KDE bandwidth)
 
         # dictionary weights (trained by RECONSTRUCTION only, via the
         # magnitude path)
@@ -112,10 +112,9 @@ class SlabConeSAE(nn.Module):
         self.decoder_bias = nn.Parameter(torch.randn(self.embed_dim) / self.embed_dim ** 0.5)
 
         # gate thresholds (trained by BOTH reconstruction and sparsity, via
-        # GateSTE). start fully open so every feature fires everywhere, then
-        # let the sparsity penalty close the gates down
-        self.slab_gate_lower_bound = nn.Parameter(torch.zeros(self.feature_dim))
-        self.slab_gate_upper_bound = nn.Parameter(torch.full((self.feature_dim,), 10.0))
+        # GateSTE). start in the range where pre-activations actually live
+        self.slab_gate_lower_bound = nn.Parameter(torch.full((self.feature_dim,), 0.1))
+        self.slab_gate_upper_bound = nn.Parameter(torch.full((self.feature_dim,), 0.3))
         self.cone_gate_upper_bound = nn.Parameter(torch.full((self.feature_dim,), 1.57))  # ~pi/2, a right angle
 
     def encode(self, input):
@@ -159,8 +158,8 @@ class SlabConeSAE(nn.Module):
         # (flows through GateSTE into the thetas, never into the encoder)
         active_count = combined_gate.sum(-1).mean()  # scalar
         error = active_count - self.target_active
-        # adapt the sparsity coefficient: increase if too many features fire, decrease if too few
-        self.sparsity_coeff *= (1 + 0.01 * (1 if error.item() > 0 else -1))
+        self.sparsity_coeff += 0.001 * (1 if error.item() > 0 else -1)
+        self.sparsity_coeff = max(1e-3, min(10.0, self.sparsity_coeff))
         # unweighted loss = how far over target we are (zero if under target)
         unweighted_l0_loss = torch.clamp(error, min=0)
         # weighted loss = what actually gets added to the total loss
@@ -179,5 +178,8 @@ class SlabConeSAE(nn.Module):
             "active": active_count.item(),
             "recon_pct": recon_pct.item(),
             "sparsity_coeff": self.sparsity_coeff,
+            "avg_lower": self.slab_gate_lower_bound.mean().item(),
+            "avg_upper": self.slab_gate_upper_bound.mean().item(),
+            "avg_cone": self.cone_gate_upper_bound.mean().item(),
         }
         return total, metrics
