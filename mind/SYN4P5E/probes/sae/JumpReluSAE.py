@@ -80,11 +80,12 @@ class Heaviside_STE(torch.autograd.Function):
 # 3. JUMPRELU SAE MODULE
 # =============================================================================
 class JumpReLU_SAE(nn.Module):
-    def __init__(self, d_in, d_sae, sparsity_coeff=1e-3, eps=0.001):
+    def __init__(self, d_in, d_sae, sparsity_coeff=0.1, target_active=64, eps=0.001):
         super().__init__()
         self.d_in = d_in
         self.d_sae = d_sae          # M dictionary features
         self.sparsity_coeff = sparsity_coeff
+        self.target_active = target_active
         self.eps = eps
 
         # Normal encoder/decoder weights (trained by RECONSTRUCTION only)
@@ -130,13 +131,19 @@ class JumpReLU_SAE(nn.Module):
         x_hat, f, pre, theta = self(batch_data)
         # L_recon = ||x - x_hat||^2 per-element
         recon_loss = ((batch_data - x_hat) ** 2).mean()
-        # L_sparse = lambda * ||f||_0
+        # L_sparse: adaptive penalty matching SlabCone
         l0_per_example = Heaviside_STE.apply(pre, theta, self.eps).sum(dim=-1)  # (B,)
-        sparsity_loss = self.sparsity_coeff * l0_per_example.mean()
+        active_count = l0_per_example.mean()
+        error = active_count - self.target_active
+        self.sparsity_coeff *= (1 + 0.01 * (1 if error.item() > 0 else -1))
+        l0_penalty = torch.clamp(error, min=0)
+        sparsity_loss = self.sparsity_coeff * l0_penalty
         total = recon_loss + sparsity_loss
         metrics = {
             "l0": l0_per_example.mean().item(),
+            "active": active_count.item(),
             "recon_pct": (recon_loss / batch_data.pow(2).mean() * 100.0).item(),
+            "sparsity_coeff": self.sparsity_coeff,
         }
         return total, metrics
 

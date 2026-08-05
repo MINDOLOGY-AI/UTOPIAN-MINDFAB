@@ -15,14 +15,12 @@ BIN_DIR = Path.cwd() / "mind" / "data" / "D4T4STEPS" / "tokenized" / "interp_dat
 WEIGHTS_DIR = Path.cwd() / "mind" / "weights" / "EV0K3" / "OlMo2_1b" / "sae_compare"
 D_IN = 2048
 D_SAE = D_IN * 16  # 32768
+TARGET_ACTIVE = 64
+INIT_COEFF = 0.1
+TOPK_K = 64
 MAX_STEPS = 10_000
 BATCH_SIZE = 4
 LAYER_IDX = 8
-
-JUMPRELU_COEFFS = [1e-3, 1e-2, 1e-1]
-SLABCONE_COEFFS = [1e-3, 1e-2, 1e-1]
-SLABCONE_TARGET_ACTIVE = 500
-TOPK_KS = [64, 96, 128]
 
 
 class ActivationTrainer(nn.Module):
@@ -56,7 +54,7 @@ class ActivationTrainer(nn.Module):
         return self
 
 
-def _run_one(name, sae, results, print_key):
+def _run(name, sae, results):
     trainer = ActivationTrainer(lm, sae)
     opt = torch.optim.Adam(trainer.parameters(), lr=7e-5, betas=(0.0, 0.999))
 
@@ -78,84 +76,61 @@ def _run_one(name, sae, results, print_key):
     )
 
     print(f"\n--- {name} final eval ---")
-    eval_metrics = simple_eval(trainer, eval_ds, BATCH_SIZE, batches=1000)
+    eval_metrics = simple_eval(trainer, eval_ds, BATCH_SIZE, batches=10000)
     trainer.remove_hook()
-    results[print_key] = eval_metrics
+    results[name] = eval_metrics
     for k, v in eval_metrics.items():
         print(f"  {k}: {v:.4f}")
 
 
-def _print_table(title, keys, labels, metrics_key="recon_pct"):
-    print(f"\n{'='*60}")
-    print(f"=== {title} ===")
-    print(f"{'='*60}")
-    rows = []
-    for key, label in zip(keys, labels):
-        m = results.get(key, {})
-        recon = m.get(metrics_key, 0)
-        active_or_l0 = m.get("active", m.get("l0", 0))
-        rows.append((label, recon, active_or_l0))
-    header = f"{'run':<12} {'recon_pct':>10} {'active':>10}"
-    print(header)
-    print("-" * len(header))
-    for label, recon, active in rows:
-        print(f"{label:<12} {recon:>10.1f} {active:>10.1f}")
-
-
 def main():
     global lm, train_ds, eval_ds
+
     meta = json.loads((BIN_DIR / "meta.json").read_text())
     train_ds = BinUnsupervisedDataset(str(BIN_DIR / "train.bin"), torch.int32, tuple(meta["train_shape"]))
     eval_ds = BinUnsupervisedDataset(str(BIN_DIR / "eval.bin"), torch.int32, tuple(meta["eval_shape"]))
     lm, _, _ = build_model_and_tokenizer()
 
-    global results
     results = {}
 
-    # JumpReLU sweep
-    for coeff in JUMPRELU_COEFFS:
-        print(f"\n{'='*60}")
-        print(f"=== jumprelu coeff={coeff} ===")
-        print(f"{'='*60}")
-        _run_one(
-            f"jumprelu/coeff_{coeff}",
-            JumpReLU_SAE(D_IN, D_SAE, sparsity_coeff=coeff),
-            results,
-            f"jumprelu_{coeff}",
-        )
+    # JumpReLU — adaptive sparsity, matches SlabCone mechanism
+    print(f"\n{'='*60}")
+    print(f"=== jumprelu (coeff={INIT_COEFF}, target={TARGET_ACTIVE}) ===")
+    print(f"{'='*60}")
+    _run("jumprelu",
+         JumpReLU_SAE(D_IN, D_SAE, sparsity_coeff=INIT_COEFF, target_active=TARGET_ACTIVE),
+         results)
 
-    _print_table("JumpReLU", JUMPRELU_COEFFS,
-                 [f"c={c}" for c in JUMPRELU_COEFFS], metrics_key="recon_pct")
+    # SlabCone — original gates, same adaptive sparsity mechanism
+    print(f"\n{'='*60}")
+    print(f"=== slabcone (coeff={INIT_COEFF}, target={TARGET_ACTIVE}) ===")
+    print(f"{'='*60}")
+    _run("slabcone",
+         SlabConeSAE(D_IN, 16, sparsity_coeff=INIT_COEFF, target_active=TARGET_ACTIVE),
+         results)
 
-    # SlabCone sweep
-    for coeff in SLABCONE_COEFFS:
-        print(f"\n{'='*60}")
-        print(f"=== slabcone coeff={coeff} ===")
-        print(f"{'='*60}")
-        _run_one(
-            f"slabcone/coeff_{coeff}",
-            SlabConeSAE(D_IN, 16, sparsity_coeff=coeff, target_active=SLABCONE_TARGET_ACTIVE),
-            results,
-            f"slabcone_{coeff}",
-        )
+    # TopK — fixed k, no sparsity penalty
+    print(f"\n{'='*60}")
+    print(f"=== topk (k={TOPK_K}) ===")
+    print(f"{'='*60}")
+    _run("topk",
+         TopKSAE(D_IN, D_SAE, k=TOPK_K),
+         results)
 
-    _print_table("SlabCone", SLABCONE_COEFFS,
-                 [f"c={c}" for c in SLABCONE_COEFFS], metrics_key="recon_pct")
-
-    # TopK sweep
-    for k in TOPK_KS:
-        print(f"\n{'='*60}")
-        print(f"=== topk k={k} ===")
-        print(f"{'='*60}")
-        _run_one(
-            f"topk/k_{k}",
-            TopKSAE(D_IN, D_SAE, k=k),
-            results,
-            f"topk_{k}",
-        )
-
-    _print_table("TopK", TOPK_KS,
-                 [f"k={k}" for k in TOPK_KS], metrics_key="recon_pct")
+    print(f"\n{'='*60}")
+    print("=== COMPARISON ===")
+    print(f"{'='*60}")
+    header = f"{'SAE':<12} {'recon_pct':>10} {'active':>10} {'coeff_final':>12}"
+    print(header)
+    print("-" * len(header))
+    for name in ["jumprelu", "slabcone", "topk"]:
+        m = results.get(name, {})
+        recon = m.get("recon_pct", 0)
+        active = m.get("active", m.get("l0", 0))
+        coeff = m.get("sparsity_coeff", "-")
+        if isinstance(coeff, float):
+            coeff = f"{coeff:.4f}"
+        print(f"{name:<12} {recon:>10.1f} {active:>10.1f} {coeff:>12}")
 
 
 if __name__ == "__main__":
