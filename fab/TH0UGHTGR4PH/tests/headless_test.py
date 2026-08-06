@@ -403,19 +403,14 @@ def test_agent_pov():
     (ws_dir / "report.md").write_text("# report\nhello")
     out = agent._chat_dispatch("CHAT_SEND", {"channel": "agent_x", "text": "done"})
     check("CHAT_SEND text by channel name", "sent to" in out)
-    out = agent._chat_dispatch("CHAT_SEND", {"channel": cid, "file": "report.md"})
-    check("CHAT_SEND file from workspace", "sent to" in out)
+    out = agent._chat_dispatch("CHAT_FILE_UPLOAD", {"channel": cid, "source": "report.md", "text": "report"})
+    check("CHAT_FILE_UPLOAD from workspace", "uploaded to" in out)
     msgs = chatmod.read_messages(AGENT_USER, cid, limit=10)
     check("dm log has both messages", len(msgs) == 2 and msgs[1]["file"]["name"] == "report.md")
     fp = chatmod.channel_file(AGENT_USER, cid, msgs[1]["file"]["path"])
     check("channel file bytes stored", fp.read_text().startswith("# report"))
-    out = agent._chat_dispatch("CHAT_SEND", {"channel": cid, "file": "../meta.json"})
-    check("CHAT_SEND rejects path escape", "ERROR" in out)
-    try:
-        chatmod.store_file(AGENT_USER, cid, "virus.exe", b"MZ")
-        check("executable ext blocked", False)
-    except ValueError:
-        check("executable ext blocked", True)
+    out = agent._chat_dispatch("CHAT_FILE_UPLOAD", {"channel": cid, "source": "../meta.json", "text": "x"})
+    check("CHAT_FILE_UPLOAD rejects path escape", "ERROR" in out)
 
     chatmod.append_message(AGENT_USER, cid, chatmod.USER_SENDER, "text", text="inject me")
     pend = chatmod.pending_messages(AGENT_USER, "agent_x")
@@ -650,8 +645,6 @@ def test_rest_ws():
         check("channel file download roundtrip", fdl.status_code == 200 and fdl.content == b"channel file")
         check("unauth channel upload rejected",
               httpx.post(f"{BASE}/INT3RF4CE/chat/dm-agent_c/files?name=x.txt", content=b"x").status_code == 401)
-        bad_up = a.post("/INT3RF4CE/chat/dm-agent_c/files?name=virus.exe", content=b"MZ")
-        check("executable ext rejected", bad_up.status_code == 400)
 
         # channels are all groups: member edit + agent-delete cascade
         async def ws_groups():

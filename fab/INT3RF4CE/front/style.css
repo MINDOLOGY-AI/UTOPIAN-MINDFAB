@@ -1073,12 +1073,6 @@ button:disabled {
     user-select: none;
 }
 
-.file-tree-loading {
-    width: 14px;
-    flex-shrink: 0;
-    text-align: center;
-}
-
 .file-tree-name {
     flex: 1;
     min-width: 0;

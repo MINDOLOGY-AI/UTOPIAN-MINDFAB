@@ -8,12 +8,26 @@ Agent tools: SEE_COMPUTERS (list with usage), USE_COMPUTER (claim), RELEASE_COMP
 """
 
 import json
+import os
 import re
 from pathlib import Path
 
 from fab.INT3RF4CE.back.config import DATA_DIR
 
 KEY_RE = re.compile(r"^[a-zA-Z0-9_.-]{1,64}$")
+
+# fn(user) fired after every successful mutation — server.py registers a WS broadcast here
+_on_change = None
+
+
+def set_on_change(fn):
+    global _on_change
+    _on_change = fn
+
+
+def _changed(user: str):
+    if _on_change:
+        _on_change(user)
 
 
 def _computes_path(user: str) -> Path:
@@ -29,6 +43,7 @@ def _write_json(path: Path, data):
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=2))
     tmp.replace(path)
+    os.chmod(path, 0o600)  # plaintext passwords — same treatment as secrets.json
 
 
 def _load_json(path: Path, default):
@@ -56,6 +71,7 @@ def add_computer(user: str, name: str, ssh_command: str, password: str):
         "password": password,
     })
     _write_json(_computes_path(user), computes)
+    _changed(user)
 
 
 def delete_computer(user: str, name: str):
@@ -68,6 +84,7 @@ def delete_computer(user: str, name: str):
     usage = _load_json(_usage_path(user), {})
     if usage.pop(name, None) is not None:
         _write_json(_usage_path(user), usage)
+    _changed(user)
 
 
 def usage_map(user: str) -> dict[str, str]:
@@ -84,6 +101,7 @@ def claim(user: str, agent_name: str, computer_name: str):
         raise ValueError(f"'{computer_name}' is already in use by {usage[computer_name]}")
     usage[computer_name] = agent_name
     _write_json(_usage_path(user), usage)
+    _changed(user)
 
 
 def release(user: str, agent_name: str, computer_name: str):
@@ -96,6 +114,19 @@ def release(user: str, agent_name: str, computer_name: str):
         raise ValueError(f"'{computer_name}' is held by {current} — you cannot release it")
     del usage[computer_name]
     _write_json(_usage_path(user), usage)
+    _changed(user)
+
+
+def release_all(user: str, agent_name: str) -> list[str]:
+    """Free every target held by agent_name (e.g. the agent was deleted). Returns freed names."""
+    usage = usage_map(user)
+    freed = [name for name, holder in usage.items() if holder == agent_name]
+    if not freed:
+        return []
+    usage = {name: holder for name, holder in usage.items() if holder != agent_name}
+    _write_json(_usage_path(user), usage)
+    _changed(user)
+    return freed
 
 
 def computers_for_agent(user: str, agent_name: str) -> list[dict]:

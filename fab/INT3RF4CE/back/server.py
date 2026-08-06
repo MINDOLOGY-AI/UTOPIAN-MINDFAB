@@ -43,6 +43,7 @@ Responses (server -> client):
 
 """
 
+import base64
 import json
 import re
 import asyncio
@@ -87,7 +88,7 @@ def validate_name(name: str):
         raise HTTPException(status_code=400, detail=f"invalid name: {name!r}")
 
 # users: {username: {agent_name: {"agent": Agent, "novnc_port": int, "model": str,
-#           "container_on": bool, "working": bool, "pending_chat": [str, ...]}}}
+#           "container_on": bool, "working": bool}}}
 users: dict[str, dict[str, dict]] = {}
 
 # ---- channel chat files (per-channel store; replaces the shared-folder design) ----
@@ -96,6 +97,8 @@ IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 TEXT_EXTS = {".txt", ".md", ".csv", ".json", ".py", ".js", ".html", ".css",
              ".log", ".yaml", ".yml", ".toml", ".xml", ".svg", ".sh", ".c", ".cpp", ".h"}
 MAX_ATTACH_CHARS = 20_000
+# agent-view attachments ride base64 inside a WS message — big files belong in channel upload
+MAX_WS_ATTACH_BYTES = 25 * 1024 * 1024
 
 
 def _block_for_file(p: Path) -> dict | None:
@@ -375,7 +378,6 @@ def load_agents():
                 "model": model_name,
                 "container_on": container_on,
                 "working": False,
-                "pending_chat": [],
             }
 
 
@@ -392,6 +394,19 @@ async def broadcast(user: str, msg: dict):
             await client.send_text(text)
         except Exception:
             pass
+
+
+def _computes_payload(user: str) -> dict:
+    usage = computemod.usage_map(user)
+    return {"type": "computes", "computes": [
+        {"name": c["name"], "ssh_command": c["ssh_command"], "password": c["password"], "used_by": usage.get(c["name"])}
+        for c in computemod.list_computers(user)
+    ]}
+
+
+# any compute mutation (page actions AND agent-side USE_COMPUTER/RELEASE_COMPUTER,
+# which run in this process via agent.py) refreshes every open compute page
+computemod.set_on_change(lambda user: asyncio.create_task(broadcast(user, _computes_payload(user))))
 
 
 def get_agents_info(user: str) -> dict:
@@ -414,11 +429,6 @@ async def work_loop(user: str, name: str, info: dict):
         agent.context.add_user_text("start working")
     while info["working"]:
         try:
-            if info.get("pending_chat"):
-                for text in info["pending_chat"]:
-                    agent.context.add_user_text(text)
-                info["pending_chat"] = []
-                await broadcast(user, {"type": "context", "name": name, "messages": agent.context.messages})
             inject_pending(user, name, info)
             await agent.turn()
             await broadcast(user, {"type": "context", "name": name, "messages": agent.context.messages})
@@ -588,7 +598,6 @@ async def websocket_endpoint(ws: WebSocket):
                     "model": model_name,
                     "container_on": False,
                     "working": False,
-                    "pending_chat": [],
                 }
                 chatmod.ensure_dm(user, name)
 
@@ -721,9 +730,6 @@ async def websocket_endpoint(ws: WebSocket):
                     # a cancelled turn can leave dangling tool_use — close them or
                     # every later API call rejects the context (silent failure)
                     agent.context.close_dangling_tool_calls()
-                    for text in info.get("pending_chat", []):
-                        agent.context.add_user_text(text)
-                    info["pending_chat"] = []
                     await broadcast(user, {"type": "context", "name": name, "messages": agent.context.messages})
                 # stop also halts an in-flight chat-mode turn
                 if info.get("chat_task") and not info["chat_task"].done():
@@ -785,6 +791,8 @@ async def websocket_endpoint(ws: WebSocket):
 
                 # strip the agent from all channels; delete channels left empty of agents
                 chatmod.remove_agent_everywhere(user, name)
+                # free any compute targets it had claimed
+                computemod.release_all(user, name)
 
                 del user_agents[name]
                 save_agents(user)
@@ -839,7 +847,6 @@ async def websocket_endpoint(ws: WebSocket):
                     "model": info.get("model", "kimi-k3"),
                     "container_on": False,
                     "working": False,
-                    "pending_chat": [],
                 }
                 del user_agents[old_name]
                 chatmod.remove_agent_everywhere(user, old_name)
@@ -892,14 +899,23 @@ async def websocket_endpoint(ws: WebSocket):
                 images = {"image/png", "image/jpeg", "image/gif", "image/webp"}
                 for att in attachments:
                     media_type = att.get("media_type", "application/octet-stream")
+                    data = att.get("data", "")
+                    approx_bytes = len(data) * 3 // 4  # approximate bytes from base64
+                    if approx_bytes > MAX_WS_ATTACH_BYTES:
+                        await ws.send_text(json.dumps({"type": "error",
+                            "msg": f"attachment too large: {att['name']} — upload it to the channel files instead"}))
+                        continue
                     if media_type in images:
                         blocks.append({
                             "type": "image",
-                            "source": {"type": "base64", "media_type": media_type, "data": att.get("data", "")},
+                            "source": {"type": "base64", "media_type": media_type, "data": data},
                         })
+                    elif Path(att.get("name", "")).suffix.lower() in TEXT_EXTS:
+                        # text files inline their content so the model actually sees it
+                        content = base64.b64decode(data).decode("utf-8", errors="replace")[:MAX_ATTACH_CHARS]
+                        blocks.append({"type": "text", "text": f"[attached file: {att['name']}]\n{content}"})
                     else:
-                        size_str = f"{len(att.get('data', '')) * 3 // 4:,}"  # approximate bytes from base64
-                        blocks.append({"type": "text", "text": f"[attached file: {att['name']} ({size_str} bytes)]"})
+                        blocks.append({"type": "text", "text": f"[attached file: {att['name']} ({approx_bytes:,} bytes)]"})
                 if blocks:
                     info["agent"].context.add_message("user", blocks)
                 await broadcast(user, {"type": "context", "name": name, "messages": info["agent"].context.messages})
@@ -1126,12 +1142,7 @@ async def websocket_endpoint(ws: WebSocket):
 
             # ---- compute (ssh targets, usage tracking) ----
             elif cmd == "list_computes":
-                computes = computemod.list_computers(user)
-                usage = computemod.usage_map(user)
-                await ws.send_text(json.dumps({"type": "computes", "computes": [
-                    {"name": c["name"], "ssh_command": c["ssh_command"], "password": c["password"], "used_by": usage.get(c["name"])}
-                    for c in computes
-                ]}))
+                await ws.send_text(json.dumps(_computes_payload(user)))
 
             elif cmd == "add_compute":
                 name = msg.get("name", "").strip()
@@ -1145,12 +1156,7 @@ async def websocket_endpoint(ws: WebSocket):
                 except ValueError as e:
                     await ws.send_text(json.dumps({"type": "error", "msg": str(e)}))
                     continue
-                computes = computemod.list_computers(user)
-                usage = computemod.usage_map(user)
-                await ws.send_text(json.dumps({"type": "computes", "computes": [
-                    {"name": c["name"], "ssh_command": c["ssh_command"], "password": c["password"], "used_by": usage.get(c["name"])}
-                    for c in computes
-                ]}))
+                # the compute.py on-change hook broadcasts the fresh list to all sessions
 
             elif cmd == "delete_compute":
                 try:
@@ -1158,12 +1164,6 @@ async def websocket_endpoint(ws: WebSocket):
                 except ValueError as e:
                     await ws.send_text(json.dumps({"type": "error", "msg": str(e)}))
                     continue
-                computes = computemod.list_computers(user)
-                usage = computemod.usage_map(user)
-                await ws.send_text(json.dumps({"type": "computes", "computes": [
-                    {"name": c["name"], "ssh_command": c["ssh_command"], "password": c["password"], "used_by": usage.get(c["name"])}
-                    for c in computes
-                ]}))
 
             elif cmd == "claim_compute":
                 try:
@@ -1171,12 +1171,6 @@ async def websocket_endpoint(ws: WebSocket):
                 except ValueError as e:
                     await ws.send_text(json.dumps({"type": "error", "msg": str(e)}))
                     continue
-                computes = computemod.list_computers(user)
-                usage = computemod.usage_map(user)
-                await ws.send_text(json.dumps({"type": "computes", "computes": [
-                    {"name": c["name"], "ssh_command": c["ssh_command"], "password": c["password"], "used_by": usage.get(c["name"])}
-                    for c in computes
-                ]}))
 
             elif cmd == "release_compute":
                 try:
@@ -1184,12 +1178,6 @@ async def websocket_endpoint(ws: WebSocket):
                 except ValueError as e:
                     await ws.send_text(json.dumps({"type": "error", "msg": str(e)}))
                     continue
-                computes = computemod.list_computers(user)
-                usage = computemod.usage_map(user)
-                await ws.send_text(json.dumps({"type": "computes", "computes": [
-                    {"name": c["name"], "ssh_command": c["ssh_command"], "password": c["password"], "used_by": usage.get(c["name"])}
-                    for c in computes
-                ]}))
 
             else:
                 await ws.send_text(json.dumps({"type": "error", "msg": f"unknown command: {cmd}"}))

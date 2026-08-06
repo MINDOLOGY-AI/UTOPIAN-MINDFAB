@@ -19,7 +19,7 @@ from pathlib import Path
 
 from fab.INT3RF4CE.back.config import DATA_DIR
 
-MAX_FILE_BYTES = 500 * 1024 * 1024
+MAX_FILE_BYTES = 100 * 1024**3  # dataset uploads over HTTP
 USER_SENDER = "__user__"
 
 
@@ -176,6 +176,8 @@ def read_messages(user: str, channel_id: str, limit: int = 50, since_ts: float =
 def store_file(user: str, channel_id: str, remote_path: str, data: bytes) -> dict:
     """Save file bytes into the channel store at the given relative path. Creates parent dirs.
     Returns the message file ref. remote_path is relative to files/ (e.g. 'weights/model.pt')."""
+    if len(data) > MAX_FILE_BYTES:
+        raise ValueError(f"file too large: {len(data)} bytes (max {MAX_FILE_BYTES})")
     safe = _safe_path(remote_path)
     dest = _dir(user) / channel_id / "files" / safe
     _validate_within(channel_id, dest, user)
@@ -258,12 +260,6 @@ def delete_file(user: str, channel_id: str, remote_path: str):
         shutil.rmtree(dest)
     else:
         dest.unlink()
-
-
-def find_channel_file(user: str, channel_id: str, filename: str) -> Path | None:
-    """Find a file by name in the channel's files/ dir. Flattens tree — uses only filename, not path."""
-    p = channel_file(user, channel_id, filename)
-    return p if p.is_file() else None
 
 
 # ---- read cursors (next-turn injection) ----

@@ -22,6 +22,7 @@ const dockerBtn = document.getElementById('docker-btn');
 const modelBtn = document.getElementById('model-btn');
 const chatModeBtn = document.getElementById('chat-mode-btn');
 const contextMessages = document.getElementById('context-messages');
+const attachChips = document.getElementById('attach-chips');
 const vncPlaceholder = document.getElementById('vnc-placeholder');
 const vncFrame = document.getElementById('vnc-frame');
 const statusBar = document.getElementById('status-bar');
@@ -520,6 +521,7 @@ modelSelect.onchange = () => {
 // ---- attachments: drag/paste files → base64 → inline with chat command ----
 
 let pendingAttachments = []; // [{name, media_type, data}]
+const MAX_ATTACH_BYTES = 25 * 1024 * 1024; // attachments ride base64 inside a WS message
 
 function fileToBase64(file) {
     return new Promise((resolve, reject) => {
@@ -589,6 +591,10 @@ function renderAttachChips() {
 
 async function addFiles(files) {
     for (const f of files) {
+        if (f.size > MAX_ATTACH_BYTES) {
+            alert(`${f.name} is too large to attach directly (max 25 MB) — upload it to the channel files instead`);
+            continue;
+        }
         pendingAttachments.push(await fileToBase64(f));
     }
     renderAttachChips();

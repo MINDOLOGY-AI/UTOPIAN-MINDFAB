@@ -197,6 +197,9 @@ function selectChannel(ch) {
     renderHeader();
     renderChannels();
     send({ cmd: 'get_messages', channel: ch.id, limit: 200 });
+    // tree state is per-channel — drop the previous channel's cache/expansions
+    expandedFolders.clear();
+    fileTreeCache = {};
     loadFileTree();
 }
 
@@ -422,7 +425,7 @@ function renderFileTree() {
     const list = document.createElement('div');
     list.className = 'file-tree-list';
     for (const f of rootFiles) {
-        renderFileTreeRow(list, f, '', 1)  ;  // depth 1 under root
+        renderFileTreeRow(list, f, '', 1); // depth 1 under root
     }
     fileBrowser.appendChild(list);
 }
@@ -446,21 +449,14 @@ function renderFileTreeRow(parent, f, parentPath, depth) {
     }
     row.appendChild(icon);
 
-    // loading indicator
-    const loading = document.createElement('span');
-    loading.className = 'file-tree-loading';
-    loading.textContent = '';
-    loading.style.display = 'none';
-    row.appendChild(loading);
-
     const name = document.createElement('span');
     name.className = 'file-tree-name';
     name.title = fullPath;
     if (isDir) {
         name.textContent = f.name + '/';
         name.style.cursor = 'pointer';
-        name.onclick = async () => toggleFolder(fullPath, row, depth);
-        icon.onclick = async () => toggleFolder(fullPath, row, depth);
+        name.onclick = async () => toggleFolder(fullPath);
+        icon.onclick = async () => toggleFolder(fullPath);
     } else {
         const a = document.createElement('a');
         a.href = `chat/${encodeURIComponent(currentChannel)}/files/${encodeURIComponent(fullPath)}`;
@@ -514,7 +510,6 @@ function renderFileTreeRow(parent, f, parentPath, depth) {
             delete fileTreeCache[parentPath];
             await fetchChildren(parentPath);
         } else {
-            fileTreeCache[''] = null;
             delete fileTreeCache[''];
         }
         loadFileTree();
@@ -532,17 +527,22 @@ function renderFileTreeRow(parent, f, parentPath, depth) {
     }
 }
 
-async function toggleFolder(path, row, depth) {
+async function toggleFolder(path) {
     if (expandedFolders.has(path)) {
+        // collapse: forget this folder's subtree — it refetches on next expand
         expandedFolders.delete(path);
+        for (const p of [...expandedFolders]) {
+            if (p.startsWith(path + '/')) expandedFolders.delete(p);
+        }
+        for (const key of Object.keys(fileTreeCache)) {
+            if (key === path || key.startsWith(path + '/')) delete fileTreeCache[key];
+        }
     } else {
+        // expand: lazy-fetch just this folder's children, no parent/root refetch
         expandedFolders.add(path);
         await fetchChildren(path);
     }
-    // reload the children for this folder's parent
-    const parentPath = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
-    delete fileTreeCache[parentPath || ''];
-    loadFileTree();
+    renderFileTree();
 }
 
 function buildToolbar(parentPath) {
