@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import os
 
 import httpx
 
@@ -25,20 +24,18 @@ class Kimi(Model):
     SUPPORTED_ATTACHMENT_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
     models = {
         "kimi-k3": "kimi-k3",
-        "kimi-k2.7-fast": "kimi-k2.7-fast",
     }
 
     @classmethod
     def make(cls, model_id: str, get_key=None) -> "Kimi":
-        # get_key: resolves a secret name from the user's secrets store (secrets.json);
-        # the env var remains the fallback when no secret is stored
+        # get_key: resolves a secret name from the user's secrets store (secrets.json) — the single source of truth
         return cls(model=model_id, api_key=get_key(cls.secret_name) if get_key else None)
 
     def __init__(self, model: str = KIMI_DEFAULT_MODEL, api_key: str | None = None):
         self.model = model
-        self.api_key = api_key or os.environ.get("MOONSHOT_API_KEY")
-        if not self.api_key:
-            raise RuntimeError("MOONSHOT_API_KEY not set in environment")
+        if not api_key:
+            raise RuntimeError(f"no '{self.secret_name}' key in the secrets store — add it on the secrets page")
+        self.api_key = api_key
         self.client = httpx.AsyncClient()
 
     def _headers(self) -> dict:
@@ -48,7 +45,7 @@ class Kimi(Model):
         }
 
     async def call(self, prompt: str, messages: list[dict], kv_cache: KVCache,
-                   use_tools: bool = True, allowed_tools: set | None = None) -> tuple[list[dict], KVCache]:
+                   use_tools: bool = True, allowed_tools: set | None = None) -> tuple[dict, KVCache]:
         payload = self.adapter.to_api_payload(
             model=self.model,
             system_prompt=prompt,
@@ -63,8 +60,8 @@ class Kimi(Model):
         )
         self._check_response(response, payload)
         data = response.json()
-        blocks = self.adapter.parse_api_response(data)
-        return blocks, None
+        msg = self.adapter.parse_api_response(data)
+        return msg, None
 
     async def summarize(self, messages: list[dict], kv_cache: KVCache) -> tuple[str, KVCache]:
         payload = self.adapter.to_api_payload(
@@ -80,10 +77,9 @@ class Kimi(Model):
         )
         self._check_response(response, payload)
         data = response.json()
-        blocks = self.adapter.parse_api_response(data)
+        msg = self.adapter.parse_api_response(data)
         # summary is expected as plain text
-        text = "\n".join(b.get("text", "") for b in blocks if b.get("type") == "text")
-        return text, None
+        return msg.get("content") or "", None
 
     def _check_response(self, response: httpx.Response, payload: dict):
         """Raise on error, but log the status and a truncated response first."""

@@ -41,6 +41,9 @@ def _host_has_gpu() -> bool:
 # we pre pip install packages:  
 # fastapi, uvicorn, httpx, websockets, matplotlib, torch
 STARTUP_CMD = (
+    # clear stale X locks from a previous run — without this Xvfb refuses to start
+    # ("server already active") when the container is RESUMED instead of recreated
+    "rm -f /tmp/.X99-lock /tmp/.X11-unix/X99; "
     # set up display in the background
     "Xvfb :99 -screen 0 1920x1080x24 & "
     # while display not setup yet, output error to stdout then to nothing, sleep 0.1, until done (need to be done for later processes)
@@ -149,30 +152,39 @@ class Container:
             subprocess.run(["docker", "rmi", self.image], capture_output=True)
             self.build()
 
-        # always remove old container and recreate cause startup processes don't survive docker stop/start
-        # rm: remove container. f: force (stop first if running, no error if doesn't exist)
-        subprocess.run(["docker", "rm", "-f", self.name], capture_output=True)
+        # resume the preserved container when it exists — files in its writable
+        # layer (pip installs in /opt/agent-venv etc.) survive stop/start.
+        # recreate from the image only when there's nothing to resume.
+        exists = subprocess.run(
+            ["docker", "ps", "-a", "-q", "--filter", f"name=^{self.name}$"],
+            capture_output=True, text=True,
+        ).stdout.strip()
 
-        print(f"Creating container '{self.name}'...", flush=True)
         self.workspace.mkdir(parents=True, exist_ok=True)
 
-        run_args = [
-            # run: create and start a docker container; d: detached (background). don't block terminal
-            "docker", "run", "-d", "--name", self.name,
-        ]
-        # gpus: agents get the host GPU if the host has nvidia-container-toolkit;
-        # otherwise run CPU-only (torch in the image falls back to cpu)
-        if _host_has_gpu():
-            run_args += ["--gpus", "all"]
-        run_args += [
-            # cybersec: bind the noVNC port to localhost only — otherwise anyone scanning the host gets unauthenticated keyboard/mouse into the container (the app proxies it for logged-in users)
-            "-p", f"127.0.0.1:{self.novnc_port}:6080",
-            # v: volume. mount host directory into container as shared folder
-            "-v", f"{self.workspace.absolute()}:/home/agent",
-            self.image, "bash", "-c", STARTUP_CMD,
-        ]
+        if exists:
+            # start: fires up a stopped container, re-running STARTUP_CMD in place
+            print(f"Resuming container '{self.name}'...", flush=True)
+            subprocess.run(["docker", "start", self.name], check=True)
+        else:
+            print(f"Creating container '{self.name}'...", flush=True)
+            run_args = [
+                # run: create and start a docker container; d: detached (background). don't block terminal
+                "docker", "run", "-d", "--name", self.name,
+            ]
+            # gpus: agents get the host GPU if the host has nvidia-container-toolkit;
+            # otherwise run CPU-only (torch in the image falls back to cpu)
+            if _host_has_gpu():
+                run_args += ["--gpus", "all"]
+            run_args += [
+                # cybersec: bind the noVNC port to localhost only — otherwise anyone scanning the host gets unauthenticated keyboard/mouse into the container (the app proxies it for logged-in users)
+                "-p", f"127.0.0.1:{self.novnc_port}:6080",
+                # v: volume. mount host directory into container as shared folder
+                "-v", f"{self.workspace.absolute()}:/home/agent",
+                self.image, "bash", "-c", STARTUP_CMD,
+            ]
 
-        subprocess.run(run_args, check=True)
+            subprocess.run(run_args, check=True)
 
         # wait for xvfb to be ready
         while True:

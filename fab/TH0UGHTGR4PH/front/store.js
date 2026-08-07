@@ -440,7 +440,9 @@ FabStore.EXPANDED_H = 360;
 FabStore.MIN_EXPANDED_W = 360; // 2 grid cells minus margins
 FabStore.MIN_EXPANDED_H = 160; // 1 grid cell minus margins
 FabStore.ESCAPE_MARGIN = 80;
-FabStore.ZOOM_LEVELS = [0.02, 0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4, 5];
+FabStore.ZOOM_MIN = 0.02;
+FabStore.ZOOM_MAX = 5;
+FabStore.ZOOM_STEP = 0.1;  // additive step — one wheel notch moves the same amount at every zoom
 FabStore.snap = v => Math.round(v / FabStore.GRID) * FabStore.GRID;
 
 if (typeof module !== "undefined") module.exports = {FabStore};

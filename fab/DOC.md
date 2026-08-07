@@ -30,20 +30,23 @@ all user data lives in `fab/data/{app}/{user}/...` — never in the code dirs.
 - `types.json` — `{doc_types: {name: {color}}, edge_types: {name: {color}}, state_colors: {state: color}}`. state_colors maps todo/doing/done to hex colors.
 - `versions/{name}/` — full board snapshots (meta + tree), taken manually or before an upload-override. the versions dir itself is excluded from board zip downloads to prevent recursive snapshots.
 
-## INT3RF4CE internal message standard (adapter.py — the one true shape)
-a conversation is `messages: [{role: "system"|"user"|"assistant", content: [block]}]`. blocks:
-- `{"type": "text", "text"}` — anywhere.
-- `{"type": "tool_use", "id", "tool", "name", "arguments"}` — assistant only.
-- `{"type": "tool_result", "tool_use_id", "name", "content"}` — user only, answers a tool_use. content can be a string or a list of text/image sub-blocks.
-- `{"type": "image", "source": {"type": "base64", "media_type", "data"}}` — user only (screenshots, attached images).
+## INT3RF4CE message standard (OpenAI chat completions IS the one true shape)
+the canonical format is the OpenAI chat-completions message format, verbatim — in context storage, the agent loop, the WS payloads, and the frontend:
+- `{"role": "system", "content": str}`
+- `{"role": "user", "content": str}` — or a content-part list `[{"type": "text", "text"}, {"type": "image_url", "image_url": {"url": "data:...;base64,..."}}]` only when images are present (the APIs reject a bare dict content).
+- `{"role": "assistant", "content": str (omit if none), "tool_calls": [{"id", "type": "function", "function": {"name", "arguments": "<json string>"}}]}` — arguments stay stringified JSON. `tool_calls[].id` comes from the API response directly. reasoning folds into the content string bracketed as `[reasoning]\n...\n[/reasoning]\n<reply>` so the frontend can split it back off.
+- `{"role": "tool", "tool_call_id", "name", "content": str}` — must immediately follow the assistant tool_calls run.
 
-everything (context, agent loop, UI) speaks this standard. adapters (`OpenAICompatAdapter`, `GLMAdapter`, `DeepSeekAdapter`) convert it to/from each provider's native format — OpenAI-style tool_calls, reasoning/thinking params. `tool_use.id` comes from the API response directly. adding a provider = one Model subclass + one adapter.
+screenshots (LOOK / auto-LOOK) split in two: a tool message with text content (`"[image result]"` when image-only), then a user message whose parts are a `"[screenshot]"` marker text part plus the image_url parts. the marker tells the model what the image is AND gives elision something to key on: `marshal()` keeps the newest 3 screenshot images and rewrites older ones to a text note (copy-on-write — storage keeps every screenshot; user-attached images have no marker and are never elided).
+
+adapters are thin: they wrap the shared command definitions into tool schemas, add reasoning/thinking params, and parse responses into a canonical assistant message. messages themselves pass through nearly verbatim — a future Claude adapter would be the first one that actually translates. adding a provider = one Model subclass + one adapter.
+
+legacy contexts (the old block format) are not migrated: on load, a `working.jsonl` containing old-style blocks is renamed to `working.legacy.jsonl` once and the context starts empty.
 
 ## model providers
-- **Kimi** — Moonshot API (`api.moonshot.cn`). key: `moonshot`. reasoning via `reasoning_effort` (k3) or `reasoning` object (k2.7).
-- **DeepSeek** — DeepSeek API (`api.deepseek.com`). key: `deepseek`. v4 models are text-only (no image input). reasoning via `thinking` toggle.
-- **GLM** — Zhipu GLM via OpenRouter (`openrouter.ai`). key: `openrouter`. reasoning via unified `reasoning.enabled`.
-- **hierarchy** — ordered fallback across providers: kimi-k3 → deepseek-v4-flash → z-ai/glm-5.2. on timeout / 429 / 5xx the next model in line answers. each provider in the chain uses its own adapter. the `.active_model` attribute reports which provider actually answered the last turn.
+- **Kimi** — Moonshot API (`api.moonshot.cn`). key: `moonshot`. models: kimi-k3. reasoning via `reasoning_effort`.
+- **DeepSeek** — DeepSeek API (`api.deepseek.com`). key: `deepseek`. models: deepseek-v4-pro. v4 models are text-only (no image input). reasoning via `thinking` toggle.
+- **hierarchy** — ordered fallback (`HIERARCHY` in model.py: kimi-k3 → deepseek-v4-pro): on timeout / 429 / 5xx the next provider answers. currently NOT registered (deliberately absent from the model selector); re-add `@register_provider` in model.py to re-enable.
 
 ## agent persistence (fab/data/INT3RF4CE/{user}/)
 - `agents.json` — `{agent_name: {novnc_port, model, chat_mode}}`. live agent objects are rebuilt from this on boot.
@@ -51,7 +54,7 @@ everything (context, agent loop, UI) speaks this standard. adapters (`OpenAIComp
 - `config/specific/{agent}/graph.json` — thoughtgraph access: `{prompt_docs, read, write, time, folders}`, entries `{board, id}`. prompt_docs are injected into the system prompt; read/write/time/folders are enforced by the G* tool dispatch. write implies read; time (to-do access) implies read but write does NOT imply time — flipping task states is its own grant. folders = total control over everything inside (read + write + time + children). graph.json settings can be saved/loaded as named presets via `config/settings_files/`.
 - `config/specific/{agent}/secrets.json` — `{grants: [secret_name]}`.
 - `workspace/{agent}/` — the only host dir bind-mounted into the agent's docker (as /home/agent). file tools (READ/WRITE/EDIT) are confined here via path resolution that rejects `..` escapes.
-- `secrets.json` (user level) — `{name: {value, cat: "llm"|"account"|"git"|"gitrepo"}}`, chmod 600. llm names are hardset to provider `secret_name`s (moonshot, deepseek, openrouter). git values are forced `{"account", "key"}` pairs (github identity + ssh private key); gitrepo values are plain urls (not secret, just co-located).
+- `secrets.json` (user level) — `{name: {value, cat: "llm"|"account"|"git"|"gitrepo"}}`, chmod 600. llm names are hardset to provider `secret_name`s (moonshot, deepseek). git values are forced `{"account", "key"}` pairs (github identity + ssh private key); gitrepo values are plain urls (not secret, just co-located).
 - `compute.json` — `[{"name", "ssh_command", "password"}]`, chmod 600. named ssh targets (rented gpu boxes etc).
 - `compute_usage.json` — `{computer_name: agent_name}`, chmod 600. the claim map: who is using which machine. the human claims under their own username and can force-release anything.
 - `chat/` — `channels.json` `{id: {id, name, members, dm, created}}`, `readers.json` (read cursors per agent), per-channel `messages.jsonl` + `files/` (a real tree — nested folders preserved). every agent gets a `dm-{agent}` channel with the user.
@@ -98,4 +101,4 @@ every G* command resolves its target against graph.json access: explicit read/wr
 append-only `messages.jsonl` per channel + read cursors. `pending_messages(user, agent)` = messages newer than the agent's cursor in channels it belongs to — that's what `inject_pending` delivers before turns. files live in a real per-channel tree under `files/` (nested folders, 100GB per-file cap, NO extension blocklist). the chat view has a lazy-loaded file-tree panel: upload files/folders (paths preserved), mkdir, rename, delete, drag-drop — all over REST (`files-list`, `mkdir`, `PUT`/`DELETE .../files/{path}`, download via `GET .../files/{path}`). agents transfer files with `CHAT_FILE_UPLOAD` (copies from their workspace into the channel tree, caption text required) and `CHAT_FILE_DOWNLOAD` (channel → workspace). deleting a dm channel is safe — it auto-recreates the next time anything (agent view fetch, chat_send, file upload) needs it.
 
 ## secrets (secrets.py)
-two consumers, one store. backend: `server._make_model` passes each provider a `get_key` that resolves its `secret_name` from the store (env var fallback) — values never enter agent context this way. agent: `READ_SECRETS` returns only the granted subset (grants drag-dropped in the ctx panel / secrets tab). values never go over the websocket — the UI is write-only. deleting a secret strips it from every agent's grant list automatically.
+two consumers, one store. backend: `server._make_model` passes each provider a `get_key` that resolves its `secret_name` from the store — the store is the SINGLE source of truth (no env/.env fallbacks) and values never enter agent context this way. agent: `READ_SECRETS` returns only the granted subset (grants drag-dropped in the ctx panel / secrets tab). values never go over the websocket — the UI is write-only. deleting a secret strips it from every agent's grant list automatically.

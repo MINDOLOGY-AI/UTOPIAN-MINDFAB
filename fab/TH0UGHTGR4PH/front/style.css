@@ -187,7 +187,7 @@ fab-board {
   top: 40px; left: 220px; right: 0; bottom: 0;
   overflow: hidden;
   cursor: grab;
-  background: #000;
+  background: var(--background, #1a1a1a);
 }
 #viewport.panning { cursor: grabbing; }
 #viewport.edge-mode { cursor: crosshair; }
@@ -237,7 +237,7 @@ fab-board {
 
 .fab-node {
   position: absolute;
-  background: #080808;
+  background: #000;
   border: 1px solid var(--nc, rgba(255,255,255,0.25));
   border-radius: 4px;
   user-select: none;
@@ -324,7 +324,7 @@ fab-board {
 }
 
 /* expanded obj: markdown editor */
-.fab-node.expanded { background: #0a0a0a; z-index: 3; }
+.fab-node.expanded { background: #000; z-index: 3; }
 /* bottom-right grip to temporarily stretch an expanded doc */
 .fab-node .resize-grip {
   position: absolute;
@@ -398,12 +398,6 @@ fab-board {
   inset: 0;
   border: 1px solid var(--nc, #C5C5C5);
   border-radius: 4px;
-  -webkit-mask-image: linear-gradient(to right, black 0 25%, transparent 25% 75%, black 75% 100%),
-                      linear-gradient(to bottom, black 0 25%, transparent 25% 75%, black 75% 100%);
-  -webkit-mask-composite: source-in;
-  mask-image: linear-gradient(to right, black 0 25%, transparent 25% 75%, black 75% 100%),
-              linear-gradient(to bottom, black 0 25%, transparent 25% 75%, black 75% 100%);
-  mask-composite: intersect;
   pointer-events: none;
 }
 .fab-node.kind-folder.expanded {
@@ -500,14 +494,15 @@ fab-board {
 }
 .type-chip.active { box-shadow: 0 0 6px var(--nc, #fff); }
 
-.version-row, .search-row {
+.version-row, .search-row, .fv-row {
   padding: 4px 6px;
   cursor: pointer;
   border-left: 2px solid transparent;
 }
-.version-row:hover, .search-row:hover { background: var(--dark-gray, #212121); }
+.version-row:hover, .search-row:hover, .fv-row:hover { background: var(--dark-gray, #212121); }
 .version-row.selected { border-left-color: var(--neon-pink, #FF80BF); background: var(--dark-gray, #212121); }
-.search-row.active { background: var(--dark-gray, #212121); border-left-color: var(--neon-pink, #FF80BF); }
+.search-row.active, .fv-row.active { background: var(--dark-gray, #212121); border-left-color: var(--neon-pink, #FF80BF); }
+.fv-folder { color: var(--light-gray, #888); }
 
 /* auth overlay */
 #auth-overlay {
@@ -528,7 +523,7 @@ fab-board {
 /* ---- ctx panel: context management right sidebar ---- */
 
 #ctx-panel {
-  position: absolute;
+  position: fixed;  /* body-level element in index.html — fixed, not absolute in the board */
   top: 40px; right: 0; bottom: 0;
   width: 300px;
   background: #050505;
@@ -566,6 +561,7 @@ fab-board {
 
 .ctx-list {
   min-height: 40px;
+  flex-shrink: 0;  /* panel is a flex column — don't let lists shrink below their chips */
   border: 1px dashed var(--mid-gray, #4c4c4c);
   border-radius: 4px;
   padding: 6px;

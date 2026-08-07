@@ -6,7 +6,6 @@ class FabBoard extends HTMLElement {
     this.store = null;
     this.nodeEls = {};
     this.edgeEls = {};
-    this.zoomIdx = FabStore.ZOOM_LEVELS.indexOf(1);
     this.wheelAccum = 0;
     this.wheelTimer = null;
     this.searchIdx = 0;
@@ -37,9 +36,10 @@ class FabBoard extends HTMLElement {
 
   async initStore(boardId) {
     localStorage.setItem("TH0UGHTGR4PH.boardId", boardId);
+    const zoom = this.store ? this.store.camera.zoom : 1;  // zoom survives board switches
     this.store = new FabStore(boardId);
     this.store.addEventListener("change", () => this.render());
-    this.store.camera.zoom = FabStore.ZOOM_LEVELS[this.zoomIdx];
+    this.store.camera.zoom = zoom;
     this.nodeEls = {};
     this.edgeEls = {};
     this.nodesContainer.innerHTML = "";
@@ -101,6 +101,12 @@ class FabBoard extends HTMLElement {
               <button id="delete-board" title="delete board">🗑</button>
             </div>
           </div>
+          <div class="side-section" id="file-view-section">
+            <div class="side-title collapsible" data-collapse="file-view-body">file view <span class="caret">▸</span></div>
+            <div id="file-view-body" class="type-body collapsed">
+              <div id="file-view-list"></div>
+            </div>
+          </div>
           <div class="side-section" id="type-section">
             <div class="side-title collapsible" data-collapse="doc-type-body">doc types <span class="caret">▸</span></div>
             <div id="doc-type-body" class="type-body collapsed">
@@ -134,7 +140,6 @@ class FabBoard extends HTMLElement {
           <div id="nodes-container"></div>
         </div>
       </div>
-      <div id="ctx-panel"></div>
       <div id="create-popup" class="popup hidden">
         <div class="popup-title" id="create-popup-title">new obj</div>
         <input id="create-title" placeholder="title" spellcheck="false" autocomplete="off">
@@ -888,25 +893,29 @@ class FabBoard extends HTMLElement {
   onWheel(e) {
     if (e.target.closest(".md-editor, .popup, #sidebar")) return;
     e.preventDefault();
-    // touchpads emit many small deltas: accumulate and only step a zoom level
-    // once |sum| hits 60; the sum resets after 150ms of wheel silence
-    this.wheelAccum += e.deltaY;
-    if (this.wheelTimer) clearTimeout(this.wheelTimer);
-    this.wheelTimer = setTimeout(() => { this.wheelAccum = 0; }, 150);
-    if (Math.abs(this.wheelAccum) < 60) return;
-    const r = this.viewport.getBoundingClientRect();
-    const v = {x: e.clientX - r.left, y: e.clientY - r.top};
-    if (this.wheelAccum < 0) this.zoomIn(v);
-    else this.zoomOut(v);
-    this.wheelAccum = 0;
+    if (e.ctrlKey || e.altKey) {
+      // zoom: trackpad pinch arrives as ctrl+wheel; alt+scroll zooms too.
+      // small deltas accumulate and only step once |sum| hits 60; resets after 150ms silence
+      this.wheelAccum += e.deltaY;
+      if (this.wheelTimer) clearTimeout(this.wheelTimer);
+      this.wheelTimer = setTimeout(() => { this.wheelAccum = 0; }, 150);
+      if (Math.abs(this.wheelAccum) < 60) return;
+      const r = this.viewport.getBoundingClientRect();
+      const v = {x: e.clientX - r.left, y: e.clientY - r.top};
+      if (this.wheelAccum < 0) this.zoomIn(v);
+      else this.zoomOut(v);
+      this.wheelAccum = 0;
+    } else {
+      // plain scroll pans the board (two-finger trackpad scroll gives deltaX + deltaY)
+      this.store.camera.x -= e.deltaX;
+      this.store.camera.y -= e.deltaY;
+      this.applyCamera();
+    }
   }
 
-  setZoom(idx, v) {
-    const levels = FabStore.ZOOM_LEVELS;
-    idx = Math.max(0, Math.min(levels.length - 1, idx));
-    if (idx === this.zoomIdx) return;
-    this.zoomIdx = idx;
-    const z = levels[idx];
+  setZoom(z, v) {
+    z = Math.max(FabStore.ZOOM_MIN, Math.min(FabStore.ZOOM_MAX, z));
+    if (z === this.store.camera.zoom) return;
     const wx = (v.x - this.store.camera.x) / this.store.camera.zoom;
     const wy = (v.y - this.store.camera.y) / this.store.camera.zoom;
     this.store.camera.x = v.x - wx * z;
@@ -915,8 +924,8 @@ class FabBoard extends HTMLElement {
     this.applyCamera();
   }
 
-  zoomIn(v) { this.setZoom(this.zoomIdx + 1, v || this.viewportCenter()); }
-  zoomOut(v) { this.setZoom(this.zoomIdx - 1, v || this.viewportCenter()); }
+  zoomIn(v) { this.setZoom(this.store.camera.zoom + FabStore.ZOOM_STEP, v || this.viewportCenter()); }
+  zoomOut(v) { this.setZoom(this.store.camera.zoom - FabStore.ZOOM_STEP, v || this.viewportCenter()); }
 
   viewportCenter() {
     const r = this.viewport.getBoundingClientRect();
@@ -969,9 +978,42 @@ class FabBoard extends HTMLElement {
 
   renderSidebar() {
     this.renderBoardSelect();
+    this.renderFileView();
     this.renderTypeList("doc");
     this.renderTypeList("edge");
     this.renderEdgePanel();
+  }
+
+  renderFileView() {
+    // the graph IS a tree (parent pointers) — this is just the indented projection of it.
+    // nav-only: click jumps to the node on the canvas (same flow as search results)
+    const list = this.querySelector("#file-view-list");
+    list.innerHTML = "";
+    const children = {};
+    for (const n of Object.values(this.store.nodes)) {
+      (children[n.parent] = children[n.parent] || []).push(n);
+    }
+    const byTitle = (a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase());
+    const walk = (parentId, depth) => {
+      for (const n of (children[parentId] || []).sort(byTitle)) {
+        const row = document.createElement("div");
+        row.className = "fv-row" + (this.store.selectedNodeIds.has(n.id) ? " active" : "");
+        row.style.paddingLeft = `${6 + depth * 14}px`;
+        const label = document.createElement("span");
+        label.textContent = n.kind === "folder" ? `${n.title}/` : n.title;
+        if (n.kind === "folder") label.className = "fv-folder";
+        row.appendChild(label);
+        row.addEventListener("click", async () => {
+          await this.expandAncestors(n.id);
+          this.selectNode(n.id);
+          this.render();
+          this.centerCameraOn(this.store.nodes[n.id]);
+        });
+        list.appendChild(row);
+        if (n.kind === "folder") walk(n.id, depth + 1);
+      }
+    };
+    walk(null, 0);
   }
 
   renderEdgePanel() {

@@ -14,7 +14,7 @@ KVCache = tuple[tuple[torch.Tensor, torch.Tensor], ...] | None
 
 # fallback order for the "hierarchy" model: on timeout / 429 / 5xx the next
 # provider in line answers instead. each provider uses its own adapter.
-HIERARCHY = ["kimi-k3", "deepseek-v4-flash"]
+HIERARCHY = ["kimi-k3", "deepseek-v4-pro"]
 
 
 class Model(ABC):
@@ -22,7 +22,7 @@ class Model(ABC):
 
     Each subclass declares:
       name    - provider short name (e.g. "kimi")
-      adapter - Adapter instance that converts internal standard <-> provider native
+      adapter - Adapter instance that wraps the provider's native API
       models  - mapping of UI display names to provider model ids
     """
 
@@ -46,9 +46,10 @@ class Model(ABC):
 
     @abstractmethod
     async def call(self, prompt: str, messages: list[dict], kv_cache: KVCache,
-                   use_tools: bool = True, allowed_tools: set | None = None) -> tuple[list[dict], KVCache]:
-        # returns: (content_blocks, updated_kv_cache)
-        # content_blocks: list of internal standard blocks — text and tool_use mixed.
+                   use_tools: bool = True, allowed_tools: set | None = None) -> tuple[dict, KVCache]:
+        # returns: (assistant_message, updated_kv_cache)
+        # assistant_message: canonical OpenAI assistant message — content string
+        # (optional) + tool_calls with stringified arguments.
         # use_tools=False: tools omitted entirely; allowed_tools: only these command names.
         raise NotImplementedError
 
@@ -91,7 +92,8 @@ def list_model_capabilities() -> dict[str, dict]:
     return caps
 
 
-@register_provider
+# deliberately NOT registered: the selector stays at just k3 + v4pro for now.
+# re-add @register_provider to offer the fallback chain as a "hierarchy" option.
 class HierarchyModel(Model):
     """Ordered fallback across providers: on timeout / 429 / 5xx the next model
     in HIERARCHY answers instead. Each provider in the chain uses its own
@@ -138,7 +140,7 @@ class HierarchyModel(Model):
         raise last_err
 
     async def call(self, prompt: str, messages: list[dict], kv_cache: KVCache,
-                   use_tools: bool = True, allowed_tools: set | None = None) -> tuple[list[dict], KVCache]:
+                   use_tools: bool = True, allowed_tools: set | None = None) -> tuple[dict, KVCache]:
         return await self._try_chain(
             lambda m: m.call(prompt, messages, kv_cache, use_tools=use_tools, allowed_tools=allowed_tools)
         )

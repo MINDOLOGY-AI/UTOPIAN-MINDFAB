@@ -366,7 +366,7 @@ button:disabled {
 }
 #context-messages .content.md pre {
     background: var(--background);
-    border: 1px solid var(--dark-gray);
+    border: 1px solid var(--mid-gray);
     border-radius: 3px;
     padding: 8px 10px;
     overflow-x: auto;
@@ -526,13 +526,13 @@ button:disabled {
 }
 .chat-left {
     width: 220px;
-    border-right: 1px solid var(--dark-gray);
+    border-right: 1px solid var(--mid-gray);
     display: flex;
     flex-direction: column;
 }
 .chat-left-top {
     padding: 8px;
-    border-bottom: 1px solid var(--dark-gray);
+    border-bottom: 1px solid var(--mid-gray);
     display: flex;
     gap: 6px;
 }
@@ -578,7 +578,7 @@ button:disabled {
 #tasks-popup {
     max-height: 40vh;
     overflow-y: auto;
-    border-bottom: 1px solid var(--dark-gray);
+    border-bottom: 1px solid var(--mid-gray);
     padding: 6px;
     font-size: 0.8em;
 }
@@ -622,7 +622,7 @@ button:disabled {
 }
 #chat-header {
     padding: 10px 14px;
-    border-bottom: 1px solid var(--dark-gray);
+    border-bottom: 1px solid var(--mid-gray);
     color: var(--light-gray);
     font-size: 0.85em;
 }
@@ -660,7 +660,7 @@ button:disabled {
 .chat-file:hover { border-color: var(--sky); }
 
 .chat-input-area {
-    border-top: 1px solid var(--dark-gray);
+    border-top: 1px solid var(--mid-gray);
     display: flex;
     flex-direction: column;
 }

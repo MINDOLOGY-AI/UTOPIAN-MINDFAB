@@ -1,7 +1,7 @@
 # fab  
-my own AI workflow.  
+my own AI workflow. i should use this exclusively and not other chat / agent wrappers.   
 an external memory + a computer use wrapper + agent chat   
-i want to see a mind build itself in a factory game like UI.  
+i want to see minds build better minds in a factory game like UI.  
 the best AI harness, for myself, for ML research, and for Mindology AI with Primy.  
 
 

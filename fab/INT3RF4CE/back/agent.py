@@ -19,11 +19,12 @@ class Agent:
     """
     Orchestrates model + context + container.
 
-    Turn structure (internal standard blocks):
-        1. model reads marshaled context, outputs internal content blocks
-        2. assistant message (text + tool_use blocks) added to context
-        3. each tool_use dispatched by name
-        4. each tool_use produces a matching user message with a tool_result block
+    Turn structure (canonical OpenAI messages):
+        1. model reads marshaled context, returns a canonical assistant message
+        2. assistant message (content + tool_calls) added to context
+        3. each tool_call dispatched by name
+        4. each tool_call produces a matching tool message (screenshots split
+           into tool message + a following "[screenshot]" user message)
         5. auto-feedback: keyboard commands without TERM -> TERM; mouse commands without LOOK -> LOOK
         6. tool results added to context
         7. check for summarization
@@ -100,8 +101,8 @@ class Agent:
             except Exception:
                 pass
 
-    async def turn(self, user_input: str | None = None) -> list[dict]:
-        # returns internal content blocks (text + tool_use)
+    async def turn(self, user_input: str | None = None) -> dict:
+        # returns the canonical assistant message (content + tool_calls)
         if user_input:
             self.context.add_user_text(user_input)
 
@@ -109,7 +110,7 @@ class Agent:
         allowed = self.CHAT_MODE_TOOLS if self.chat_mode else None
         self._notify("api_call", "started")
         try:
-            blocks, self._kv = await self.model.call(
+            msg, self._kv = await self.model.call(
                 self.context.get_prompt(chat_mode=self.chat_mode), self.context.marshal(), self._kv,
                 use_tools=True, allowed_tools=allowed,
             )
@@ -121,23 +122,22 @@ class Agent:
         if used:
             self._notify("model_used", used)
 
-        self.context.add_assistant_message(blocks)
+        self.context.add_assistant_message(msg)
         self.context.save_kv(self._kv)
 
-        if not self._has_tool_use(blocks) or not self.container:
-            return blocks
+        tool_calls = msg.get("tool_calls") or []
+        if not tool_calls or not self.container:
+            return msg
 
-        # execute each tool_use, build user messages with tool_result blocks
+        # execute each tool_call, add a matching tool message per call
         had_keyboard = False
         had_mouse = False
         had_perception = set()
 
-        for b in blocks:
-            if b.get("type") != "tool_use":
-                continue
-            name = b["name"].upper()
-            args = b.get("arguments", {})
-            tid = b.get("id", "")
+        for tc in tool_calls:
+            name = tc["function"]["name"].upper()
+            args = json.loads(tc["function"].get("arguments") or "{}")
+            tid = tc.get("id", "")
             if self.chat_mode and name not in self.CHAT_MODE_TOOLS:
                 self.context.add_tool_result(tid, name, f"[{name}] unavailable in chat mode — computer tools need DOCKER_START first")
                 continue
@@ -167,7 +167,7 @@ class Agent:
             self._replace_last_tool_result(self._term_last_command())
         elif had_mouse and "LOOK" not in had_perception:
             await asyncio.sleep(0.5)
-            self._replace_last_tool_result([Context.image_block(self._screenshot_bytes())])
+            self._replace_last_tool_result([Context.image_part(self._screenshot_bytes())])
 
         # summarization
         if self.context.needs_summary():
@@ -175,24 +175,34 @@ class Agent:
             self.context.apply_summary(summary)
             self._kv = None
 
-        return blocks
-
-    def _has_tool_use(self, blocks: list[dict]) -> bool:
-        return any(b.get("type") == "tool_use" for b in blocks)
+        return msg
 
     def _replace_last_tool_result(self, content: str | list):
-        """Replace the content of the most recent tool_result block."""
-        for msg in reversed(self.context.messages):
-            if msg.get("role") == "user":
-                for block in reversed(msg.get("content", [])):
-                    if block.get("type") == "tool_result":
-                        block["content"] = content
-                        self.context._persist_working()
-                        return
+        """Retarget the most recent tool message to fresh perception: string
+        content swaps the text; image parts set "[image result]" and insert a
+        "[screenshot]" user message right after the tool-message run."""
+        msgs = self.context.messages
+        for i in range(len(msgs) - 1, -1, -1):
+            if msgs[i].get("role") != "tool":
+                continue
+            if isinstance(content, str):
+                msgs[i]["content"] = content
+            else:
+                msgs[i]["content"] = "[image result]"
+                j = i + 1
+                while j < len(msgs) and msgs[j].get("role") == "tool":
+                    j += 1
+                msgs.insert(j, {
+                    "role": "user",
+                    "content": [{"type": "text", "text": "[screenshot]"}] + content,
+                    "ts": time.time(),
+                })
+            self.context._persist_working()
+            return
 
     def _dispatch(self, name: str, args: dict) -> tuple:
         # returns (tool_result_content, is_perception)
-        # tool_result_content: str (action ack / text) OR list[dict] (image blocks)
+        # tool_result_content: str (action ack / text) OR list[dict] (image_url parts)
 
         # graph commands are host-side and work without a container
         if name.startswith("G") or name.startswith("ASCII_") or name == "CHECK_ACCESS":
@@ -757,7 +767,7 @@ class Agent:
         return "ok", False
 
     def _h_look(self, _):
-        return [Context.image_block(self._screenshot_bytes())], True
+        return [Context.image_part(self._screenshot_bytes())], True
 
     def _h_term(self, _):
         return self._term_text(), True

@@ -70,7 +70,16 @@ def cleanup_auth(user: str):
 
 def make_agent(user: str, name: str) -> Agent:
     """A chat-mode agent with no container side effects (docker only starts on start())."""
-    return Agent(user, name, Kimi(model="kimi-k3"), use_container=True, novnc_port=6999, chat_mode=True)
+    return Agent(user, name, Kimi(model="kimi-k3", api_key="test-key"), use_container=True, novnc_port=6999, chat_mode=True)
+
+
+def seed_llm_secret(user: str):
+    """Fake llm key so server-side model construction works for test users (secrets store is the single source of truth)."""
+    d = PROJECT_ROOT / "fab" / "data" / "INT3RF4CE" / user
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / "secrets.json"
+    p.write_text(json.dumps({"moonshot": {"value": "test-key", "cat": "llm"}}))
+    p.chmod(0o600)
 
 
 def write_graph_settings(user: str, agent: str, settings: dict):
@@ -257,13 +266,14 @@ def test_agent_pov():
     node = storage.load_meta(AGENT_USER, board)["nodes"][theory["id"]]
     check("completion clears the assignee", node["state"] == "done" and node["assignee"] is None)
 
-    # a cancelled turn must not leave dangling tool_use (the single-turn bug):
+    # a cancelled turn must not leave dangling tool_calls (the single-turn bug):
     # the provider rejects that context and every later reply dies silently
-    agent.context.add_assistant_message([{"type": "tool_use", "id": "t1", "name": "WAIT", "arguments": {"secs": 1}}])
+    agent.context.add_assistant_message({"role": "assistant", "tool_calls": [
+        {"id": "t1", "type": "function", "function": {"name": "WAIT", "arguments": '{"secs": 1}'}}]})
     agent.context.close_dangling_tool_calls()
     last = agent.context.messages[-1]
     check("dangling tool_use closed after interrupt",
-          last["role"] == "user" and last["content"][0]["tool_use_id"] == "t1")
+          last["role"] == "tool" and last["tool_call_id"] == "t1")
     agent.context.close_dangling_tool_calls()
     check("already-answered calls are untouched", len(agent.context.messages) == 2)
 
@@ -423,12 +433,18 @@ def test_agent_pov():
 
     chatmod.append_message(AGENT_USER, cid, chatmod.USER_SENDER, "text", text="inject me too")
     inject_pending(AGENT_USER, "agent_x", {"agent": agent})
-    texts = [b.get("text", "") for m in agent.context.messages for b in m.get("content", []) if b.get("type") == "text"]
+    texts = []
+    for m in agent.context.messages:
+        c = m.get("content")
+        if isinstance(c, str):
+            texts.append(c)
+        elif isinstance(c, list):
+            texts.extend(p.get("text", "") for p in c if p.get("type") == "text")
     check("injection adds context message", any("inject me too" in t for t in texts))
     check("injection marks read", not chatmod.pending_messages(AGENT_USER, "agent_x"))
     from pathlib import Path as _P
     (_P("/tmp/tg_block_test.png")).write_bytes(b"\x89PNG fake")
-    check("image block built", _block_for_file(_P("/tmp/tg_block_test.png"))["type"] == "image")
+    check("image block built", _block_for_file(_P("/tmp/tg_block_test.png"))["type"] == "image_url")
 
     # ---- secrets: user store + grant-enforced READ_SECRETS ----
     from fab.INT3RF4CE.back import secrets as secretsmod
@@ -526,6 +542,8 @@ def test_rest_ws():
         rb = b.post("/auth/register", json={"username": WEB_USER_B, "password": "testpass123"})
         check("register A", ra.status_code == 200)
         check("register B", rb.status_code == 200)
+        for u in (WEB_USER_A, WEB_USER_B):
+            seed_llm_secret(u)
 
         check("unauth board rejected", httpx.get(f"{BASE}/TH0UGHTGR4PH/boards").status_code == 401)
         boards = a.get("/TH0UGHTGR4PH/boards").json()["boards"]
@@ -838,7 +856,8 @@ def test_rest_ws():
                 empty = None
                 for _ in range(10):
                     msg = json.loads(await asyncio.wait_for(ws.recv(), 5))
-                    if msg.get("type") == "secrets" and msg["secrets"] == []:
+                    # only the seeded moonshot key remains after the delete
+                    if msg.get("type") == "secrets" and msg["secrets"] == [{"name": "moonshot", "cat": "llm"}]:
                         empty = msg["secrets"]
                         break
                 # git entries pass a dict value through; items expose account only
@@ -853,11 +872,11 @@ def test_rest_ws():
                 return bad, items, grants, bad_grant, empty, git_item
 
         bad, items, grants, bad_grant, empty, git_item = asyncio.run(ws_secrets())
-        check("WS set_secret lists names+cats (no values)", items == [{"name": "deepseek", "cat": "llm"}])
+        check("WS set_secret lists names+cats (no values)", items == [{"name": "deepseek", "cat": "llm"}, {"name": "moonshot", "cat": "llm"}])
         check("WS rejects non-provider llm name", "llm secret must be one of" in (bad or ""))
         check("WS grants roundtrip", grants == ["deepseek"])
         check("WS rejects granting unknown secret", "unknown secrets" in (bad_grant or ""))
-        check("WS delete_secret clears store", empty == [])
+        check("WS delete_secret removes the key", empty == [{"name": "moonshot", "cat": "llm"}])
         check("WS git dict value roundtrip", git_item
               and git_item["cat"] == "git" and git_item["value"] == {"account": "a"})
         grants_path = PROJECT_ROOT / "fab" / "data" / "INT3RF4CE" / WEB_USER_A / "config" / "specific" / "agent_a" / "secrets.json"

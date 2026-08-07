@@ -70,7 +70,6 @@ from fab.INT3RF4CE.back.agent import Agent
 from fab.INT3RF4CE.back.model import Model, MODEL_PROVIDERS, list_available_models, get_model_class, list_model_capabilities
 from fab.INT3RF4CE.back.models.kimi import Kimi  # registers the kimi provider
 from fab.INT3RF4CE.back.models.deepseek import DeepSeek  # registers the deepseek provider
-from fab.INT3RF4CE.back.model import HierarchyModel  # registers the hierarchy provider
 from fab.INT3RF4CE.back.config import DATA_DIR
 from fab.hub.auth.store import COOKIE_NAME, user_for_token
 
@@ -102,12 +101,12 @@ MAX_WS_ATTACH_BYTES = 25 * 1024 * 1024
 
 
 def _block_for_file(p: Path) -> dict | None:
-    """One-turn content block for a file: image block for images, inline text
-    for text-like files, None for anything else."""
+    """One-turn content part for a file: image_url part for images, inline text
+    part for text-like files, None for anything else."""
     from fab.INT3RF4CE.back.context import Context
     ext = p.suffix.lower()
     if ext in IMAGE_EXTS:
-        return Context.image_block(p.read_bytes())
+        return Context.image_part(p.read_bytes())
     if ext in TEXT_EXTS:
         text = p.read_text(errors="replace")[:MAX_ATTACH_CHARS]
         return {"type": "text", "text": f"[attached file: {p.name}]\n{text}"}
@@ -116,12 +115,12 @@ def _block_for_file(p: Path) -> dict | None:
 
 def inject_pending(user: str, name: str, info: dict):
     """Deliver the agent's unread channel messages into its next turn:
-    a user text block summarizing them + one-turn attachment blocks for files."""
+    a user text message summarizing them + one-turn attachment parts for files."""
     agent = info["agent"]
     pend = chatmod.pending_messages(user, name)
     if not pend:
         return
-    lines, blocks = [], []
+    lines, parts = [], []
     for cid, msgs in pend.items():
         ch = chatmod.channel_of(user, cid)
         latest = 0.0
@@ -134,15 +133,15 @@ def inject_pending(user: str, name: str, info: dict):
                 if p.is_file():
                     b = _block_for_file(p)
                     if b:
-                        blocks.append(b)
+                        parts.append(b)
                     else:
                         lines[-1] += " (not inlined)"
             else:
                 lines.append(f"[chat #{ch['name']} from {who}] {m.get('text', '')}")
         chatmod.mark_read(user, name, cid, latest)
     agent.context.add_user_text("\n".join(lines))
-    if blocks:
-        agent.context.pending_attachments = blocks
+    if parts:
+        agent.context.pending_attachments = parts
 
 
 @app.post("/chat/{channel_id}/files")
@@ -303,7 +302,7 @@ def _make_model(user: str, model_name: str) -> Model:
     provider = get_model_class(model_name)
     if provider is None:
         raise ValueError(f"unknown model {model_name}")
-    # API keys resolve from the user's secrets store first; providers fall back to env vars
+    # API keys resolve from the user's secrets store — the single source of truth
     return provider.make(model_name, get_key=lambda name: secretsmod.resolve(user, name))
 
 
@@ -364,7 +363,13 @@ def load_agents():
                 continue
             novnc_port = cfg["novnc_port"]
             model_name = cfg.get("model", "kimi-k3")
-            model = _make_model(user, model_name)
+            try:
+                model = _make_model(user, model_name)
+            except RuntimeError as err:
+                # a missing secrets key must not kill boot for everyone — skip
+                # this agent until the user adds the key on the secrets page
+                logging.error("load_agents: skipping %s/%s — %s", user, name, err)
+                continue
             agent = Agent(user, name, model, use_container=True, novnc_port=novnc_port,
                           chat_mode=cfg.get("chat_mode", True))
             _attach_status_handler(user, name, agent)
@@ -588,7 +593,11 @@ async def websocket_endpoint(ws: WebSocket):
                     await ws.send_text(json.dumps({"type": "error", "msg": f"unknown model {model_name}"}))
                     continue
 
-                model = _make_model(user, model_name)
+                try:
+                    model = _make_model(user, model_name)
+                except RuntimeError as e:
+                    await ws.send_text(json.dumps({"type": "error", "msg": str(e)}))
+                    continue
                 agent = Agent(user, name, model, use_container=True, novnc_port=novnc_port)
                 _attach_status_handler(user, name, agent)
 
@@ -727,7 +736,7 @@ async def websocket_endpoint(ws: WebSocket):
                         logger.info("[pause] %s/%s work loop cancelled", user, name)
                     await cancel_and_settle(info, "work_loop")
                     agent = info["agent"]
-                    # a cancelled turn can leave dangling tool_use — close them or
+                    # a cancelled turn can leave dangling tool_calls — close them or
                     # every later API call rejects the context (silent failure)
                     agent.context.close_dangling_tool_calls()
                     await broadcast(user, {"type": "context", "name": name, "messages": agent.context.messages})
@@ -893,9 +902,9 @@ async def websocket_endpoint(ws: WebSocket):
                 # pending channel messages inject first to keep chronological order.
                 inject_pending(user, name, info)
 
-                blocks = []
+                parts = []
                 if text.strip():
-                    blocks.append({"type": "text", "text": text})
+                    parts.append({"type": "text", "text": text})
                 images = {"image/png", "image/jpeg", "image/gif", "image/webp"}
                 for att in attachments:
                     media_type = att.get("media_type", "application/octet-stream")
@@ -906,18 +915,23 @@ async def websocket_endpoint(ws: WebSocket):
                             "msg": f"attachment too large: {att['name']} — upload it to the channel files instead"}))
                         continue
                     if media_type in images:
-                        blocks.append({
-                            "type": "image",
-                            "source": {"type": "base64", "media_type": media_type, "data": data},
+                        parts.append({
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{media_type};base64,{data}"},
                         })
                     elif Path(att.get("name", "")).suffix.lower() in TEXT_EXTS:
                         # text files inline their content so the model actually sees it
                         content = base64.b64decode(data).decode("utf-8", errors="replace")[:MAX_ATTACH_CHARS]
-                        blocks.append({"type": "text", "text": f"[attached file: {att['name']}]\n{content}"})
+                        parts.append({"type": "text", "text": f"[attached file: {att['name']}]\n{content}"})
                     else:
-                        blocks.append({"type": "text", "text": f"[attached file: {att['name']} ({approx_bytes:,} bytes)]"})
-                if blocks:
-                    info["agent"].context.add_message("user", blocks)
+                        parts.append({"type": "text", "text": f"[attached file: {att['name']} ({approx_bytes:,} bytes)]"})
+                if parts:
+                    # string content when text-only; content-part list only with images
+                    if any(p["type"] == "image_url" for p in parts):
+                        content = parts
+                    else:
+                        content = "\n".join(p["text"] for p in parts)
+                    info["agent"].context.add_message("user", content)
                 await broadcast(user, {"type": "context", "name": name, "messages": info["agent"].context.messages})
 
                 if info["working"] and not info["agent"].chat_mode:

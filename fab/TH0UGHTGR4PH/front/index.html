@@ -17,6 +17,40 @@
     <div class="auth-overlay-msg">please log in — bottom left</div>
   </div>
   <fab-board board-id="main"></fab-board>
+  <!-- ctx panel: agent settings sidebar. hidden until opened with ?agent=<name> (.open slides it in).
+       list contents are data-driven and filled by ctxpanel.js; the skeleton lives here. -->
+  <div id="ctx-panel">
+    <div class="ctx-header">
+      <span class="ctx-agent"></span>
+      <button id="ctx-close" class="x-btn">×</button>
+    </div>
+    <div class="ctx-sub">prompts</div>
+    <div class="ctx-list ctx-drop" data-key="prompt_docs" id="ctx-prompts"></div>
+    <div class="ctx-sub">read access</div>
+    <div class="ctx-list ctx-drop" data-key="read" id="ctx-read"></div>
+    <div class="ctx-sub">write access</div>
+    <div class="ctx-list ctx-drop" data-key="write" id="ctx-write"></div>
+    <div class="ctx-sub">to do (time access)</div>
+    <div class="ctx-list ctx-drop" data-key="time" id="ctx-time"></div>
+    <div class="ctx-sub">folder total control</div>
+    <div class="ctx-list ctx-drop" data-key="folders" id="ctx-folders"></div>
+    <div class="ctx-sub">secrets</div>
+    <div class="ctx-list ctx-secret-drop" id="ctx-secrets"></div>
+    <div class="ctx-sub">secret pool</div>
+    <div class="ctx-list ctx-secret-drop" id="ctx-secret-pool"></div>
+    <a id="ctx-secrets-link" href="/INT3RF4CE/secrets/">secrets</a>
+    <div class="ctx-sub">settings file</div>
+    <div class="ctx-file-row">
+      <input id="ctx-file-name" placeholder="settings name" spellcheck="false">
+      <button id="ctx-file-save">save</button>
+    </div>
+    <div class="ctx-file-row">
+      <select id="ctx-file-select"></select>
+      <button id="ctx-file-load">load</button>
+    </div>
+    <div class="ctx-error"></div>
+    <a id="ctx-done">done →</a>
+  </div>
   <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
   <script src="/components/MarkdownEditor/markdown-it-katex.js"></script>

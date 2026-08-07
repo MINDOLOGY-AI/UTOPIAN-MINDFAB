@@ -20,43 +20,14 @@ class CtxPanel {
     this.ws = null;
     this.el = document.getElementById("ctx-panel");
     this.el.classList.add("open");
-    this.build();
+    this._wire();
     this.connect();
   }
 
-  build() {
-    this.el.innerHTML = `
-      <div class="ctx-header">
-        <span class="ctx-agent">${this.agent}</span>
-        <button id="ctx-close" class="x-btn">×</button>
-      </div>
-      <div class="ctx-sub">prompts</div>
-      <div class="ctx-list ctx-drop" data-key="prompt_docs" id="ctx-prompts"></div>
-      <div class="ctx-sub">read access</div>
-      <div class="ctx-list ctx-drop" data-key="read" id="ctx-read"></div>
-      <div class="ctx-sub">write access</div>
-      <div class="ctx-list ctx-drop" data-key="write" id="ctx-write"></div>
-      <div class="ctx-sub">to do (time access)</div>
-      <div class="ctx-list ctx-drop" data-key="time" id="ctx-time"></div>
-      <div class="ctx-sub">folder total control</div>
-      <div class="ctx-list ctx-drop" data-key="folders" id="ctx-folders"></div>
-      <div class="ctx-sub">secrets</div>
-      <div class="ctx-list ctx-secret-drop" id="ctx-secrets"></div>
-      <div class="ctx-sub">secret pool</div>
-      <div class="ctx-list ctx-secret-drop" id="ctx-secret-pool"></div>
-      <a id="ctx-secrets-link" href="/INT3RF4CE/secrets/">secrets</a>
-      <div class="ctx-sub">settings file</div>
-      <div class="ctx-file-row">
-        <input id="ctx-file-name" placeholder="settings name" spellcheck="false">
-        <button id="ctx-file-save">save</button>
-      </div>
-      <div class="ctx-file-row">
-        <select id="ctx-file-select"></select>
-        <button id="ctx-file-load">load</button>
-      </div>
-      <div class="ctx-error"></div>
-      <a id="ctx-done" href="/INT3RF4CE/?agent=${encodeURIComponent(this.agent)}">done →</a>
-    `;
+  // the skeleton lives in index.html; here we fill in the agent-specific bits + events
+  _wire() {
+    this.el.querySelector(".ctx-agent").textContent = this.agent;
+    this.el.querySelector("#ctx-done").href = `/INT3RF4CE/?agent=${encodeURIComponent(this.agent)}`;
     this.el.querySelector("#ctx-close").addEventListener("click", () => this.close());
     this._wireSecretDrop(this.el.querySelector("#ctx-secrets"), "grants");
     this._wireSecretDrop(this.el.querySelector("#ctx-secret-pool"), "pool");

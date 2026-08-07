@@ -367,46 +367,35 @@ function renderCtxBlock(role, b) {
     if (role === 'user') {
         if (b.type === 'text') {
             addTextBlock('user', 'you', b.text || '');
-        } else if (b.type === 'image') {
-            const src = b.source || {};
+        } else if (b.type === 'image_url') {
             const img = document.createElement('img');
-            img.src = `data:${src.media_type || 'image/png'};base64,${src.data || ''}`;
+            img.src = (b.image_url || {}).url || '';
             img.className = 'context-img';
             addThinBlock('environment', 'IMG', img);
-        } else if (b.type === 'tool_result') {
-            const label = b.name || 'tool';
-            const content = b.content;
-            if (typeof content === 'string') {
-                addThinBlock('environment', label, content);
-            } else if (Array.isArray(content)) {
-                content.forEach(sub => {
-                    if (sub.type === 'image') {
-                        const src = sub.source || {};
-                        const img = document.createElement('img');
-                        img.src = `data:${src.media_type || 'image/png'};base64,${src.data || ''}`;
-                        img.className = 'context-img';
-                        addThinBlock('environment', label, img);
-                    } else if (sub.type === 'text') {
-                        addThinBlock('environment', label, sub.text || '');
-                    }
-                });
-            }
         }
     } else if (role === 'assistant') {
         if (b.type === 'text') {
             const text = b.text || '';
-            // reasoning content arrives as a text block prefixed [reasoning] — collapse it
+            // reasoning folds into the content string, bracketed:
+            // [reasoning]\n...\n[/reasoning]\n<reply> — collapse the reasoning part
             if (text.startsWith('[reasoning]')) {
-                addThinBlock('reasoning', 'reasoning', text.slice('[reasoning]'.length).trim());
+                const end = text.indexOf('[/reasoning]');
+                const reasoning = end === -1 ? text.slice('[reasoning]'.length) : text.slice('[reasoning]'.length, end);
+                addThinBlock('reasoning', 'reasoning', reasoning.trim());
+                const reply = end === -1 ? '' : text.slice(end + '[/reasoning]'.length).trim();
+                if (reply) addTextBlock('assistant', 'assistant', reply);
             } else {
                 addTextBlock('assistant', 'assistant', text);
             }
-        } else if (b.type === 'tool_use') {
-            const name = b.name || 'tool';
+        } else if (b.type === 'tool_call') {
+            const tc = b.tc || {};
+            const fn = tc.function || {};
+            const name = fn.name || 'tool';
             // CHAT_SEND to a non-DM channel isn't covered by the dm stream —
             // show it as a normal text block labeled with the channel it went to
             if (name === 'CHAT_SEND') {
-                const args = b.arguments || {};
+                let args = {};
+                try { args = JSON.parse(fn.arguments || '{}'); } catch (e) { args = {}; }
                 const ch = args.channel || '';
                 if (ch !== `dm-${selectedAgent}` && ch !== selectedAgent) {
                     const text = args.text || (args.file ? `↓ file: ${args.file}` : '');
@@ -416,9 +405,13 @@ function renderCtxBlock(role, b) {
                     }
                 }
             }
-            const args = JSON.stringify(b.arguments || {});
+            // arguments are a stringified JSON string in the canonical shape
+            const args = typeof fn.arguments === 'string' ? fn.arguments : JSON.stringify(fn.arguments || {});
             addThinBlock('command', name, `${name} ${args}`);
         }
+    } else if (role === 'tool') {
+        // tool results stay plain text — including the "[image result]" placeholder
+        addThinBlock('environment', b.name || 'tool', typeof b.content === 'string' ? b.content : '');
     }
 }
 
@@ -429,13 +422,32 @@ function renderContext(messages) {
     const items = [];
     for (const m of dmMsgs) items.push({ ts: m.ts, kind: 'dm', m });
     for (const msg of messages) {
-        const blocks = Array.isArray(msg.content) ? msg.content : [];
-        for (const b of blocks) {
-            // chat injections and mirrored replies are covered by the channel
-            if (msg.role === 'user' && b.type === 'text' && b.text.startsWith('[chat #')) continue;
-            if (msg.role === 'assistant' && b.type === 'text' && !b.text.startsWith('[reasoning]')
-                && channelAgentTexts.some(t => t.includes(b.text))) continue;
-            items.push({ ts: msg.ts || 0, kind: 'ctx', role: msg.role, b });
+        const ts = msg.ts || 0;
+        if (msg.role === 'user') {
+            const parts = typeof msg.content === 'string'
+                ? [{ type: 'text', text: msg.content }]
+                : (msg.content || []);
+            for (const p of parts) {
+                // chat injections are covered by the channel — no duplicates
+                if (p.type === 'text' && p.text.startsWith('[chat #')) continue;
+                // the "[screenshot]" marker is for the model, not the viewer
+                if (p.type === 'text' && p.text === '[screenshot]') continue;
+                if (p.type === 'text' || p.type === 'image_url') {
+                    items.push({ ts, kind: 'ctx', role: 'user', b: p });
+                }
+            }
+        } else if (msg.role === 'assistant') {
+            const content = msg.content || '';
+            // mirrored replies are covered by the channel; reasoning-folded
+            // content embeds the reply, so only dedupe plain texts
+            if (content && !(channelAgentTexts.some(t => t.includes(content)))) {
+                items.push({ ts, kind: 'ctx', role: 'assistant', b: { type: 'text', text: content } });
+            }
+            for (const tc of msg.tool_calls || []) {
+                items.push({ ts, kind: 'ctx', role: 'assistant', b: { type: 'tool_call', tc } });
+            }
+        } else if (msg.role === 'tool') {
+            items.push({ ts, kind: 'ctx', role: 'tool', b: { type: 'tool', name: msg.name, content: msg.content } });
         }
     }
     items.sort((a, b) => a.ts - b.ts);

@@ -1,9 +1,14 @@
-- model selector (more models, in settings)  
+- better UI! sidebar and main different color. only lavender purple and sky blue. and a tiny bit of pink for user stuff. consistant borders.     
+
+- thoughtgraph expansion logic: only push everything if it will touch.  
+
+- workflows! the to do, doing, done is kind of very bad    
+
+- auto compute rent  
+
+- model selector (more models, in settings). actually LESS models just K3 and V4Pro and Fable.    
+
 - rewrite the prompt to be good. explain like thoughtgraph stuff like node philosophy each node one idea, and like [[links]]
-
-- document upload and download.  
-
-- docker workflow save  
 
 - online on AWS so i can call claude fable  
 
@@ -23,7 +28,7 @@ can group stuff together for explanation, but must include all diffs.
 - dream workflow. how am i prevented from this.  
 1: model reads the prompt that it needs to try a mech interp method.  
 2: model reads thoguhtgraph of all my previous ML and mech interp notes  
-3: model reads my past code in mind through another prompt block of the link to that repo and the ssh key access 
+3: model reads my past code in mind through another prompt block of the link to that repo and the ssh key access  
 4: model goes into docker.  
 5: model reads another prompt block giving it the ssh keys to a autodl instance i rented. (prompt block or just context doesnt matter)  
 6: the model uses docker typing to ssh into the autodl and set it up download pytorch and stuff 
