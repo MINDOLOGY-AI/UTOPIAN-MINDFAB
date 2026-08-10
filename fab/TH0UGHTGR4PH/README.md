@@ -2,7 +2,7 @@
 
 this is just the visual display and api control for a folder with .md files and a graph.json.  
 
-the fab view: one 2D board where Objs (typed rectangles), Funcs (typed circles), and folders live, connected by plain white edges. INT3RF4CE agents are obj nodes — an agent connected into a func node is the doer of that function. models operate the board through graph-action commands (GCREATE/GREAD/GUPDATE/GDESTROY/GMOVE/GLINK/GUNLINK/GLIST).
+the fab view: one 2D board where Objs (typed rectangles), and folders live, connected by type colored edges. INT3RF4CE agents are obj nodes — an agent connected into a func node is the doer of that function. models operate the board through graph-action commands (GCREATE/GREAD/GUPDATE/GDESTROY/GMOVE/GLINK/GUNLINK/GLIST).
 
 # layout
 

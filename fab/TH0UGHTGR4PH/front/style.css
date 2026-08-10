@@ -459,6 +459,40 @@ fab-board {
 }
 .popup.hidden { display: none; }
 
+/* ---- TODO panel ---- */
+
+#todo-panel {
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 420px;
+  max-width: 90vw;
+  max-height: 82vh;
+}
+
+.todo-loading, .todo-empty {
+  padding: 24px;
+  color: var(--muted-text, #777);
+  font-size: 12px;
+  text-align: center;
+}
+
+.todo-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 5px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+.todo-row:hover { border-left-color: var(--neon-pink, #FF80BF); background: rgba(255, 255, 255, 0.04); }
+.todo-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.todo-board { color: var(--muted-text, #777); margin-left: 8px; font-size: 10px; }
+.todo-assignee { color: var(--neon-green, #00FF41); flex-shrink: 0; }
+.todo-doing .todo-title { color: var(--neon-green, #00FF41); }
+.todo-todo .todo-title { color: #94A3B8; }
+.todo-done .todo-title { color: #475569; }
+
 .popup-title {
   color: var(--neon-pink, #FF80BF);
   margin-bottom: 10px;
@@ -604,13 +638,19 @@ fab-board {
 .ctx-secret-chip:active { cursor: grabbing; }
 #ctx-secrets .ctx-secret-chip { color: var(--mint, #7FFFD4); border-color: var(--mint, #7FFFD4); }
 
+/* compute chips in the ctx panel: click a free one to assign, × on assigned to release */
+.ctx-chip-click { cursor: pointer; font-family: var(--mono, monospace); }
+.ctx-chip-click:hover { border-color: var(--neon-green, #00FF41); color: var(--neon-green, #00FF41); }
+.ctx-chip-held { opacity: 0.4; font-family: var(--mono, monospace); }
+#ctx-compute .ctx-chip { color: var(--neon-green, #00FF41); border-color: var(--neon-green, #00FF41); font-family: var(--mono, monospace); }
+
 .ctx-board-tag {
   color: var(--sky, #6BC4FF);
   font-size: 8px;
 }
 
-/* white button to the secrets tab, between the granted list and the pool */
-#ctx-secrets-link {
+/* white button to the secrets/compute tab, between the granted list and the pool */
+#ctx-secrets-link, #ctx-compute-link {
   display: inline-block;
   align-self: flex-start;
   margin: 6px 0 2px;
@@ -622,7 +662,7 @@ fab-board {
   padding: 4px 12px;
   border-radius: 3px;
 }
-#ctx-secrets-link:hover { background: var(--sky, #6BC4FF); }
+#ctx-secrets-link:hover, #ctx-compute-link:hover { background: var(--sky, #6BC4FF); }
 
 /* panel error line (validation failures from the server) */
 .ctx-error {

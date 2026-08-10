@@ -320,10 +320,16 @@ def _attach_status_handler(user: str, name: str, agent: Agent):
         info = users.get(user, {}).get(name)
         if info:
             if status.get("phase") == "chat_mode":
-                if status.get("state") == "off" and not info["working"]:
-                    info["working"] = True
-                    info["work_loop"] = asyncio.create_task(work_loop(user, name, info))
-                    logger.info("[chat_mode off] %s/%s work loop started by agent", user, name)
+                # agent took itself out of chat mode (DOCKER_START): the work loop
+                # must start whether or not `working` was already on — in single-turn
+                # mode working=True with NO loop, which is exactly the case that was
+                # slipping through and leaving the agent parked after one turn
+                if status.get("state") == "off":
+                    loop = info.get("work_loop")
+                    if not loop or loop.done():
+                        info["working"] = True
+                        info["work_loop"] = asyncio.create_task(work_loop(user, name, info))
+                        logger.info("[chat_mode off] %s/%s work loop started by agent", user, name)
                 elif status.get("state") == "on" and info["working"]:
                     info["working"] = False
                     if info.get("work_loop") and not info["work_loop"].done():
@@ -798,6 +804,12 @@ async def websocket_endpoint(ws: WebSocket):
                 if context.exists():
                     shutil.rmtree(context)
 
+                # per-agent settings (graph access, secret grants) — without this a
+                # recreated agent with the same name silently inherits the old one's
+                specific = DATA_DIR / user / "config" / "specific" / name
+                if specific.exists():
+                    shutil.rmtree(specific)
+
                 # strip the agent from all channels; delete channels left empty of agents
                 chatmod.remove_agent_everywhere(user, name)
                 # free any compute targets it had claimed
@@ -844,6 +856,11 @@ async def websocket_endpoint(ws: WebSocket):
                     old_workspace.rename(new_workspace)
                 if old_context.exists():
                     old_context.rename(new_context)
+                # per-agent settings follow the identity too (graph access, secret grants)
+                old_specific = DATA_DIR / user / "config" / "specific" / old_name
+                new_specific = DATA_DIR / user / "config" / "specific" / new_name
+                if old_specific.exists():
+                    old_specific.rename(new_specific)
 
                 # recreate agent with new name but same port/model
                 model = _make_model(user, info.get("model", "kimi-k3"))
@@ -1189,6 +1206,30 @@ async def websocket_endpoint(ws: WebSocket):
             elif cmd == "release_compute":
                 try:
                     computemod.release(user, user, msg.get("name", ""))
+                except ValueError as e:
+                    await ws.send_text(json.dumps({"type": "error", "msg": str(e)}))
+                    continue
+
+            elif cmd == "assign_compute":
+                # grant a compute target to an agent (ctx panel compute section)
+                name = msg.get("name")
+                if name not in user_agents:
+                    await ws.send_text(json.dumps({"type": "error", "msg": f"agent {name} not found"}))
+                    continue
+                try:
+                    computemod.claim(user, name, msg.get("compute", ""))
+                except ValueError as e:
+                    await ws.send_text(json.dumps({"type": "error", "msg": str(e)}))
+                    continue
+                # the compute.py on-change hook broadcasts the fresh list to all sessions
+
+            elif cmd == "unassign_compute":
+                name = msg.get("name")
+                if name not in user_agents:
+                    await ws.send_text(json.dumps({"type": "error", "msg": f"agent {name} not found"}))
+                    continue
+                try:
+                    computemod.release(user, name, msg.get("compute", ""))
                 except ValueError as e:
                     await ws.send_text(json.dumps({"type": "error", "msg": str(e)}))
                     continue

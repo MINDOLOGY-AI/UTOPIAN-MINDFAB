@@ -247,6 +247,14 @@ class Container:
             capture_output=True, text=True,
         )
 
+    def append_file(self, path: str, content: str):
+        """Append content to a file inside the container via stdin (tee -a)."""
+        subprocess.run(
+            ["docker", "exec", "-i", self.name, "tee", "-a", path],
+            input=content,
+            capture_output=True, text=True,
+        )
+
     def screenshot(self) -> Path:
         """Take screenshot with cursor marker, return path in workspace."""
         self.run("mkdir -p /home/agent/screenshots")

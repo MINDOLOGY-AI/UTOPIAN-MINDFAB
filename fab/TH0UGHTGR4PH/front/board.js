@@ -8,6 +8,7 @@ class FabBoard extends HTMLElement {
     this.edgeEls = {};
     this.wheelAccum = 0;
     this.wheelTimer = null;
+    this.todoView = null;
     this.searchIdx = 0;
     this.selectedVersion = null;
     this.pollTimer = null;
@@ -81,6 +82,7 @@ class FabBoard extends HTMLElement {
         <span class="sep"></span>
         <button id="versions-btn">versions</button>
         <span class="sep" style="margin-left:auto"></span>
+        <button id="todo-btn">TODO</button>
         <button id="search-btn">search</button>
         <button id="zoom-out">−</button>
         <button id="zoom-in">+</button>
@@ -174,6 +176,9 @@ class FabBoard extends HTMLElement {
         <input id="search-input" placeholder="search titles..." spellcheck="false" autocomplete="off">
         <div id="search-results"></div>
       </div>
+      <div id="todo-panel" class="popup hidden">
+        <div id="todo-canvas" style="position:relative;overflow:auto;max-height:80vh;padding:10px;"></div>
+      </div>
     `;
     this.viewport = this.querySelector("#viewport");
     this.world = this.querySelector("#world");
@@ -201,6 +206,8 @@ class FabBoard extends HTMLElement {
     applyDocFont(fontInput.value);
     fontInput.addEventListener("change", () => applyDocFont(fontInput.value));
     $("#search-btn").addEventListener("click", () => this.openSearch());
+    if (!this.todoView) this.todoView = new TodoView(this);
+    $("#todo-btn").addEventListener("click", () => this.todoView.toggle());
     $("#versions-btn").addEventListener("click", () => this.togglePanel("versions-panel", () => this.renderVersions()));
     $("#versions-close").addEventListener("click", () => this.hidePanel("versions-panel"));
     $("#ver-save").addEventListener("click", () => this.saveVersion());

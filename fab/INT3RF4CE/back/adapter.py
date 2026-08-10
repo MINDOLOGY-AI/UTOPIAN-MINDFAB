@@ -92,8 +92,12 @@ COMMANDS: list[dict[str, Any]] = [
 
     # shell (host-side, bypasses terminal entirely — returns stdout+stderr)
     {"name": "EXEC",
-     "description": "Run a shell command directly inside your docker container. Returns stdout+stderr. Use this for ALL terminal work (ls, pip install, git, python, curl, etc.) — do NOT TYPE commands into the terminal. Output is also logged to term.log so the user can see it in the VNC terminal later.",
-     "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}},
+     "description": "Run a shell command directly inside your docker container. Returns stdout+stderr. Use this for ALL terminal work (ls, pip install, git, python, curl, etc.) — do NOT TYPE commands into the terminal. Foreground calls have a 30s limit: over that the command is NOT killed — it's moved to a background task (you get an id + log path) and you're notified when it finishes. For long jobs (training, downloads, big installs) pass background:true from the start. Output is also logged to term.log so the user can see it in the VNC terminal later.",
+     "parameters": {"type": "object", "properties": {"command": {"type": "string"}, "background": {"type": "boolean"}}, "required": ["command"]}},
+
+    {"name": "TASKS",
+     "description": "List your background EXEC tasks: id, status (running/done), exit code, command, log path.",
+     "parameters": {"type": "object", "properties": {}}},
 
     # special
     {"name": "WAIT",
@@ -134,24 +138,36 @@ COMMANDS: list[dict[str, Any]] = [
      "description": "Read a thoughtgraph node you have access to (id or unique title): its fields and full content.",
      "parameters": {"type": "object", "properties": {"node": {"type": "string"}}, "required": ["node"]}},
 
-    {"name": "GUPDATE",
-     "description": "Update a node: title, node_type, expanded (true/false) need WRITE access; state ('todo'|'doing'|'done' or null to clear) needs TO-DO (time) access — write does NOT imply it. Marking 'doing' claims the task under your name; only the assignee can then complete or release it. For content edits use GEDIT.",
-     "parameters": {"type": "object", "properties": {"node": {"type": "string"}, "title": {"type": "string"}, "node_type": {"type": "string"}, "state": {"type": ["string", "null"]}, "expanded": {"type": "boolean"}}, "required": ["node"]}},
+    {"name": "GWRITE",
+     "description": "Write a doc's content: overwrites it if it exists, creates it if the title is new (parent folder required for new docs; a '# title' header is added automatically). The node must be in your write access or total-control folders.",
+     "parameters": {"type": "object", "properties": {"board": {"type": "string"}, "node": {"type": "string"}, "content": {"type": "string"}, "parent": {"type": "string"}}, "required": ["board", "node", "content"]}},
+
+    {"name": "GRENAME",
+     "description": "Rename a node you have WRITE access to.",
+     "parameters": {"type": "object", "properties": {"node": {"type": "string"}, "title": {"type": "string"}}, "required": ["node", "title"]}},
+
+    {"name": "GMETA",
+     "description": "Change a node's node_type and/or expanded (true/false). Needs WRITE access.",
+     "parameters": {"type": "object", "properties": {"node": {"type": "string"}, "node_type": {"type": "string"}, "expanded": {"type": "boolean"}}, "required": ["node"]}},
+
+    {"name": "TODO",
+     "description": "Your task queue. No args: list the nodes in your to-do (time) access — done, doing, todo — with edge dependencies. With node + state ('todo'|'doing'|'done'): flip the state, then re-list the queue. Flipping needs to-do (time) access — write does NOT imply it. Marking 'doing' claims the task under your name; only the assignee can then complete or release it.",
+     "parameters": {"type": "object", "properties": {"node": {"type": "string"}, "state": {"type": "string"}}}},
 
     {"name": "GEDIT",
      "description": "Replace text in a node you have WRITE access to. 'which' is '0','1',... (0-indexed occurrence) or 'all'. Same semantics as the EDIT file tool.",
      "parameters": {"type": "object", "properties": {"node": {"type": "string"}, "old": {"type": "string"}, "new": {"type": "string"}, "which": {"type": "string"}}, "required": ["node", "old", "new", "which"]}},
 
     {"name": "GCREATE",
-     "description": "Create a node inside a folder you have total control over. kind is 'doc'|'folder'; node_type must be a known doc type (or 'folder' for folders); parent is the folder (id or unique title).",
-     "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "kind": {"type": "string"}, "node_type": {"type": "string"}, "parent": {"type": "string"}, "state": {"type": ["string", "null"]}}, "required": ["title", "kind", "node_type", "parent"]}},
+     "description": "Create a FOLDER inside a folder you have total control over (parent is the folder's id or unique title). Docs are created with GWRITE, not here.",
+     "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "parent": {"type": "string"}, "state": {"type": ["string", "null"]}}, "required": ["title", "parent"]}},
 
     {"name": "GMOVE",
      "description": "Move a node you have WRITE access to: new grid position (x, y) and/or new parent folder (inside your access, same board).",
      "parameters": {"type": "object", "properties": {"node": {"type": "string"}, "x": {"type": "integer"}, "y": {"type": "integer"}, "parent": {"type": "string"}}, "required": ["node"]}},
 
     {"name": "GLINK",
-     "description": "Create a typed, colored edge between two doc nodes on the same board (never to/from folders — containment is GMOVE parent). edge_type is one of the board's edge types (support|reject|inference|training by default). Both nodes must be in your write access or total-control folders.",
+     "description": "Create a typed, colored edge between two doc nodes on the same board (never to/from folders — containment is GMOVE parent). edge_type is one of the board's edge types (support|reject|causes|training by default). Both nodes must be in your write access or total-control folders.",
      "parameters": {"type": "object", "properties": {"source": {"type": "string"}, "target": {"type": "string"}, "edge_type": {"type": "string"}}, "required": ["source", "target", "edge_type"]}},
 
     # docker (host-side, controls this agent's own computer)

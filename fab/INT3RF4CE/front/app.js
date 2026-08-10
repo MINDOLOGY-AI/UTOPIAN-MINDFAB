@@ -249,16 +249,32 @@ function updateVnc() {
 
 // noVNC never retries on its own: if the container's websockify wasn't up yet
 // (or the server reloaded mid-connect) it shows "failed to connect" forever.
-// reload the iframe while its status element reports an error.
+// reload the iframe while its status element reports an error — AND when it
+// sits in "connecting/loading" for >12s without ever erroring (noVNC can hang
+// there with the socket half-open; only a rebuild gets it out).
 let vncRetryTimer = null;
+let vncStuckSince = null;
 
 function startVncRetry() {
     if (vncRetryTimer) return;
     vncRetryTimer = setInterval(() => {
         try {
             const status = vncFrame.contentDocument?.getElementById('noVNC_status');
-            if (status && status.classList.contains('noVNC_status_error')) {
+            if (!status) return;
+            if (status.classList.contains('noVNC_status_error')) {
                 vncFrame.src = vncFrame.src;
+                vncStuckSince = null;
+                return;
+            }
+            // 'normal' = connected (or cleanly disconnected) — healthy, stop tracking
+            if (status.classList.contains('noVNC_status_normal')) {
+                vncStuckSince = null;
+                return;
+            }
+            if (!vncStuckSince) { vncStuckSince = Date.now(); return; }
+            if (Date.now() - vncStuckSince > 12000) {
+                vncFrame.src = vncFrame.src;
+                vncStuckSince = null;
             }
         } catch (e) { /* frame mid-navigation, retry next tick */ }
     }, 3000);
@@ -267,6 +283,7 @@ function startVncRetry() {
 function stopVncRetry() {
     clearInterval(vncRetryTimer);
     vncRetryTimer = null;
+    vncStuckSince = null;
 }
 
 function updateButtons() {

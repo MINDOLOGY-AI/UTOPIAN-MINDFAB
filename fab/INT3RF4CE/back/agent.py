@@ -14,6 +14,12 @@ from fab.INT3RF4CE.back.config import DATA_DIR
 
 logger = logging.getLogger(__name__)
 
+# EXEC is synchronous — a wedged command (training run, dead-mirror download)
+# would park the whole turn forever without this. over the limit the command is
+# NOT killed: it's demoted to a background task (id + logfile) and the agent is
+# notified when it finishes. long jobs can also start backgrounded directly.
+EXEC_TIMEOUT = 30
+
 
 class Agent:
     """
@@ -36,7 +42,7 @@ class Agent:
     MOUSE_TOOLS = {"MOVE", "LCLICK", "RCLICK", "DCLICK",
                    "LDOWN", "LUP", "RDOWN", "RUP", "SCROLLUP", "SCROLLDOWN"}
     # graph commands (host-side, access-enforced against the agent's graph.json)
-    GRAPH_TOOLS = {"CHECK_ACCESS", "GREAD", "GUPDATE", "GEDIT", "GCREATE", "GMOVE", "GLINK", "GMAP", "ASCII_MAP"}
+    GRAPH_TOOLS = {"CHECK_ACCESS", "GREAD", "GWRITE", "GRENAME", "GMETA", "GEDIT", "GCREATE", "GMOVE", "GLINK", "GMAP", "ASCII_MAP", "TODO"}
     # chat commands (host-side, membership-enforced against chat/channels.json)
     CHAT_TOOLS = {"CHAT_SEND", "CHAT_READ", "CHECK_CHANNELS", "CHAT_FILE_DOWNLOAD", "CHAT_FILE_UPLOAD"}
     # secrets commands (host-side, grant-enforced against config/specific/{agent}/secrets.json)
@@ -70,6 +76,10 @@ class Agent:
         # server-side hook: called when the agent STOPs itself
         self.on_stop: callable | None = None
 
+        # background EXEC tasks: id -> {command, log, status, exit, task, proc}
+        self._bg_tasks: dict[int, dict] = {}
+        self._bg_next_id = 1
+
         # dispatch: tool name -> bound handler(self, args) -> (content, is_perception)
         self._tool_handlers: dict[str, callable] = {
             "MOVE": self._h_move,
@@ -87,7 +97,6 @@ class Agent:
             "LOOK": self._h_look,
             "TERM": self._h_term,
             "TERM_LAST_COMMAND": self._h_term_last_command,
-            "EXEC": self._h_exec,
             "WAIT": self._h_wait,
             "READ": self._h_read,
             "WRITE": self._h_write,
@@ -103,8 +112,9 @@ class Agent:
 
     async def turn(self, user_input: str | None = None) -> dict:
         # returns the canonical assistant message (content + tool_calls)
-        if user_input:
-            self.context.add_user_text(user_input)
+        notes = self._drain_finished_bg()
+        if user_input or notes:
+            self.context.add_user_text("\n".join(filter(None, [user_input] + notes)))
 
         # chat mode: only docker control is offered — the agent can ask for a computer
         allowed = self.CHAT_MODE_TOOLS if self.chat_mode else None
@@ -144,6 +154,8 @@ class Agent:
             try:
                 if name in self.DOCKER_TOOLS:
                     result_content, perception = await self._docker_control(name)
+                elif name == "EXEC":
+                    result_content, perception = await self._exec_tool(args)
                 else:
                     result_content, perception = self._dispatch(name, args)
             except Exception as exc:
@@ -205,7 +217,7 @@ class Agent:
         # tool_result_content: str (action ack / text) OR list[dict] (image_url parts)
 
         # graph commands are host-side and work without a container
-        if name.startswith("G") or name.startswith("ASCII_") or name == "CHECK_ACCESS":
+        if name.startswith("G") or name.startswith("ASCII_") or name in ("CHECK_ACCESS", "TODO"):
             return self._graph_dispatch(name, args), True
 
         if name == "STOP":
@@ -227,6 +239,9 @@ class Agent:
 
         if name in {"SEE_COMPUTERS", "USE_COMPUTER", "RELEASE_COMPUTER"}:
             return self._compute_dispatch(name, args), True
+
+        if name == "TASKS":
+            return self._tasks_list(), True
 
         assert self.container
 
@@ -397,32 +412,70 @@ class Agent:
                     return "[GREAD ERROR] no read access to that node — CHECK_ACCESS shows your access"
                 return f"[GREAD]\n{json.dumps(graph_actions.read_node(self.user, e[0], e[1]), indent=2)}"
 
-            if name == "GUPDATE":
-                wants_state = "state" in args
-                wants_write = any(k in args for k in ("title", "node_type", "content", "expanded"))
-                e = None
-                if wants_write:
-                    e = resolve(args["node"], write=True)
-                    if not e:
-                        return "[GUPDATE ERROR] no write access to that node — CHECK_ACCESS shows your access"
-                if wants_state:
-                    # state flips need to-do (time) access — write does NOT imply it
-                    te = entry_of(args["node"], time_entries) or resolve_in_folders(args["node"])
-                    if not te:
-                        return "[GUPDATE ERROR] no to-do (time) access to that node — CHECK_ACCESS shows your access"
-                    e = e or te
-                if not e:
-                    return "[GUPDATE ERROR] nothing to update — pass title, node_type, expanded, and/or state"
-                node = graph_actions.update_node(
-                    self.user, e[0], e[1],
-                    title=args.get("title"),
-                    node_type=args.get("node_type"),
-                    state=args["state"] if "state" in args else ...,
-                    content=args.get("content"),
-                    expanded=args.get("expanded"),
-                    actor=self.name,  # claiming/completing tasks records WHO did it
+            if name == "GWRITE":
+                board = args.get("board")
+                if not board:
+                    return "[GWRITE ERROR] board required — GWRITE board node content [parent]"
+                if board not in {b for b, _ in scope} | {e["board"] for e in readable}:
+                    return "[GWRITE ERROR] no access to that board — CHECK_ACCESS shows your access"
+                meta = meta_of(board)
+                ref = args["node"]
+                exists = ref in meta["nodes"] or any(n["title"] == ref for n in meta["nodes"].values())
+                if exists:
+                    # overwrite: the node itself must be in write access / total control
+                    e = resolve(ref, write=True)
+                    if not e or e[0] != board:
+                        return "[GWRITE ERROR] no write access to that node — CHECK_ACCESS shows your access"
+                else:
+                    # create: the parent folder must be in write access / total control
+                    parent_ref = args.get("parent")
+                    if not parent_ref:
+                        return "[GWRITE ERROR] parent required for new docs — GWRITE board node content parent"
+                    pe = resolve(parent_ref, write=True)
+                    if not pe or pe[0] != board:
+                        return "[GWRITE ERROR] parent folder must be inside your write access on that board"
+                    parent_node = meta["nodes"].get(pe[1])
+                    if not parent_node or parent_node["kind"] != "folder":
+                        return "[GWRITE ERROR] parent must be a folder"
+                return graph_actions.write_node(
+                    self.user, board, ref, args["content"],
+                    parent=args.get("parent"),
                 )
-                return f"[GUPDATE] '{node['title']}' (id {e[1]}) updated"
+
+            if name == "GRENAME":
+                e = resolve(args["node"], write=True)
+                if not e:
+                    return "[GRENAME ERROR] no write access to that node"
+                if "title" not in args:
+                    return "[GRENAME ERROR] title required"
+                old = meta_of(e[0])["nodes"][e[1]]["title"]
+                graph_actions.rename_node(self.user, e[0], e[1], args["title"])
+                return f"[GRENAME] '{old}' → '{args['title']}'"
+
+            if name == "GMETA":
+                e = resolve(args["node"], write=True)
+                if not e:
+                    return "[GMETA ERROR] no write access to that node"
+                if "node_type" not in args and "expanded" not in args:
+                    return "[GMETA ERROR] pass node_type and/or expanded"
+                node = graph_actions.update_meta(
+                    self.user, e[0], e[1],
+                    node_type=args.get("node_type"),
+                    expanded=args.get("expanded"),
+                )
+                return f"[GMETA] '{node['title']}' updated"
+
+            if name == "TODO":
+                wanted_state = args.get("state")
+                if wanted_state:
+                    e = entry_of(args["node"], time_entries) or resolve_in_folders(args["node"])
+                    if not e:
+                        return "[TODO ERROR] no to-do (time) access to that node — CHECK_ACCESS shows your tasks"
+                    graph_actions.flip_task_state(self.user, e[0], e[1], wanted_state, actor=self.name)
+                    # fall through to re-list tasks
+                settings = self._graph_settings()
+                time_entries = settings.get("time", []) if settings else []
+                return graph_actions.list_tasks(self.user, self.name, time_entries)
 
             if name == "GMAP":
                 # dry listing — the primary picture of the graph
@@ -490,15 +543,16 @@ class Agent:
             if name == "GCREATE":
                 parent_ref = args.get("parent")
                 if not parent_ref:
-                    return "[GCREATE ERROR] parent folder required — nodes are created inside your total-control folders"
+                    return "[GCREATE ERROR] parent folder required — folders are created inside your total-control folders"
                 pe = resolve(parent_ref, write=True)
                 if not pe:
                     return "[GCREATE ERROR] parent must be a folder inside your access — CHECK_ACCESS shows it"
                 parent_node = meta_of(pe[0])["nodes"].get(pe[1])
                 if not parent_node or parent_node["kind"] != "folder":
                     return "[GCREATE ERROR] parent must be a folder"
+                # folders only — docs are created with GWRITE
                 node = graph_actions.create_node(
-                    self.user, pe[0], args["title"], args["kind"], args["node_type"],
+                    self.user, pe[0], args["title"], "folder", "folder",
                     parent=pe[1], state=args.get("state"),
                 )
                 return f"[GCREATE] created '{node['title']}' (id {node['id']}, kind {node['kind']}) in '{parent_node['title']}'"
@@ -524,7 +578,7 @@ class Agent:
 
             if name == "GLINK":
                 if not args.get("edge_type"):
-                    return "[GLINK ERROR] edge_type required (support|reject|inference|training)"
+                    return "[GLINK ERROR] edge_type required (support|reject|causes|training)"
                 se = resolve(args["source"], write=True)
                 te = resolve(args["target"], write=True)
                 if not se or not te:
@@ -668,17 +722,38 @@ class Agent:
 
     def _workspace_path(self, file: str) -> Path:
         """Resolve a file argument inside the workspace, rejecting anything that escapes it."""
+        # the agent sees its workspace as /home/agent inside the container — accept
+        # those absolute paths too instead of rejecting them as escapes
+        if file == "/home/agent":
+            file = "."
+        elif file.startswith("/home/agent/"):
+            file = file[len("/home/agent/"):]
         path = (self.workspace / file).resolve()
         # cybersec: confine file tools to the agent's own workspace — without this the LLM (or a prompt injection) could read/write any file on the host, e.g. ../../.env
         if not path.is_relative_to(self.workspace.resolve()):
             raise ValueError(f"path escapes workspace: {file}")
         return path
 
+    def _container_rel(self, path: Path) -> str:
+        # workspace host path -> the same file's path inside the container
+        return f"/home/agent/{path.relative_to(self.workspace.resolve())}"
+
+    def _container_file(self, file: str) -> str:
+        """Validate a workspace file arg and return its in-container path.
+
+        ALL file ops go through the container (docker exec as root): the
+        container is the single writer, so ownership is uniform and host-side
+        permission mismatches can't happen. File tools aren't advertised in
+        chat mode, so requiring a running container here is consistent."""
+        if not self.container or not self.container._running:
+            raise ValueError("container not running — DOCKER_START first")
+        return self._container_rel(self._workspace_path(file))
+
     def _read_file(self, args: dict) -> str:
-        path = self._workspace_path(args["file"])
-        if not path.exists():
+        cpath = self._container_file(args["file"])
+        if self.container.run(f"test -e '{cpath}' && echo y").strip() != "y":
             return f"[READ {args['file']}] file not found"
-        content = path.read_text()
+        content = self.container.read_file(cpath)
         lines = content.split("\n")
         start = int(args["start"]) - 1 if "start" in args else 0
         end = int(args["end"]) if "end" in args else len(lines)
@@ -686,19 +761,17 @@ class Agent:
         return f"[READ {args['file']}]\n" + "\n".join(numbered)
 
     def _write_file(self, file: str, content: str):
-        path = self._workspace_path(file)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content)
+        self.container.write_file(self._container_file(file), content)
 
     def _edit_file(self, args: dict) -> str:
         file = args["file"]
         old = args["old"]
         new = args["new"]
         which = args["which"]
-        path = self._workspace_path(file)
-        if not path.exists():
+        cpath = self._container_file(file)
+        if self.container.run(f"test -e '{cpath}' && echo y").strip() != "y":
             return f"[EDIT {file}] file not found"
-        content = path.read_text()
+        content = self.container.read_file(cpath)
         count = content.count(old)
         if count == 0:
             return f"[EDIT {file}] text not found"
@@ -712,7 +785,7 @@ class Agent:
             for _ in range(n + 1):
                 idx = content.index(old, idx + 1)
             result = content[:idx] + new + content[idx + len(old):]
-        path.write_text(result)
+        self.container.write_file(cpath, result)
         return f"[EDIT {file}] done"
 
     # ---- tool-dispatch handlers (called via self._tool_handlers dict) ----
@@ -775,9 +848,6 @@ class Agent:
     def _h_term_last_command(self, _):
         return self._term_last_command(), True
 
-    def _h_exec(self, args):
-        return self._exec(args["command"]), True
-
     def _h_wait(self, args):
         return f"waited {args.get('secs', 5)}s", False
 
@@ -818,13 +888,96 @@ class Agent:
         text = new_bytes.decode("utf-8", errors="replace")[-5000:]
         return f"[TERM_LAST_COMMAND]\n{text}"
 
-    def _exec(self, command: str) -> str:
+    # ---- background EXEC (kimi-code-style task registry) ----
+
+    async def _exec_bg_spawn(self, command: str) -> int:
+        """Spawn a docker exec as an asyncio task; stream output to workspace/exec_logs/{id}.log."""
+        tid = self._bg_next_id
+        self._bg_next_id += 1
+        log_rel = f"exec_logs/{tid}.log"
+        log_host = self.workspace / log_rel
+        log_host.parent.mkdir(parents=True, exist_ok=True)
+        entry: dict = {"command": command, "log": log_rel, "status": "running", "exit": None}
+        self._bg_tasks[tid] = entry
+
+        async def runner():
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "exec", self.container.name, "bash", "-c", command,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+            )
+            entry["proc"] = proc
+            with open(log_host, "wb") as f:
+                f.write(f"$ {command}\n".encode())
+                while True:
+                    chunk = await proc.stdout.read(65536)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    f.flush()
+                f.write(f"\n[exit {await proc.wait()}]\n")
+            entry["exit"] = proc.returncode
+            entry["status"] = "done"
+            # user visibility: note the finish in the VNC terminal log too
+            await asyncio.to_thread(
+                self.container.append_file, "/home/agent/term.log",
+                f"\n$ {command}\n[background exec {tid} finished, exit {proc.returncode}] log: /home/agent/{log_rel}")
+
+        entry["task"] = asyncio.create_task(runner())
+        return tid
+
+    def _bg_log_tail(self, entry: dict, chars: int = 1500) -> str:
+        log_host = self.workspace / entry["log"]
+        if not log_host.exists():
+            return ""
+        return log_host.read_text(errors="replace")[-chars:]
+
+    def _drain_finished_bg(self) -> list[str]:
+        """Completion notes for background EXECs that finished since the last turn —
+        injected as a user message so the agent never has to poll 'just in case'."""
+        notes = []
+        for tid, e in self._bg_tasks.items():
+            if e["status"] == "done" and not e.get("notified"):
+                e["notified"] = True
+                notes.append(f"[EXEC BG {tid} finished, exit {e['exit']}] log: /home/agent/{e['log']}\n"
+                             f"last output:\n{self._bg_log_tail(e)}")
+        return notes
+
+    def _tasks_list(self) -> str:
+        if not self._bg_tasks:
+            return "[TASKS] no background tasks"
+        lines = ["[TASKS]"]
+        for tid, e in self._bg_tasks.items():
+            lines.append(f"  {tid}: {e['status']} (exit {e['exit']}) log /home/agent/{e['log']} — {e['command'][:80]}")
+        return "\n".join(lines)
+
+    async def _exec_tool(self, args: dict) -> tuple:
+        """EXEC tool entry (async). background=true: spawn and return immediately.
+        foreground: wait up to EXEC_TIMEOUT; over the limit the command keeps
+        running as a background task instead of being killed."""
         assert self.container
-        output = self.container.run(command)
-        # append to term.log so the user can see exec'd commands in the VNC terminal
-        log_path = self.container.workspace / "term.log"
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(log_path, "a") as f:
-            f.write(f"\n$ {command}\n{output}")
+        command = args["command"]
+        if args.get("background"):
+            tid = await self._exec_bg_spawn(command)
+            return (f"[EXEC BG started: id {tid}] log: /home/agent/exec_logs/{tid}.log — "
+                    f"you'll be notified when it finishes; peek with EXEC tail /home/agent/exec_logs/{tid}.log"), True
+
+        tid = await self._exec_bg_spawn(command)
+        entry = self._bg_tasks[tid]
+        done, _ = await asyncio.wait({entry["task"]}, timeout=EXEC_TIMEOUT)
+        if not done:
+            # demote to background — asyncio.wait does not cancel the runner
+            note = (f"[EXEC $ {command}]\nstill running after {EXEC_TIMEOUT}s — moved to background id {tid}. "
+                    f"you'll be notified when it finishes; peek with EXEC tail /home/agent/{entry['log']}\n"
+                    f"output so far:\n{self._bg_log_tail(entry)}")
+            await asyncio.to_thread(self.container.append_file, "/home/agent/term.log",
+                                    f"\n$ {command}\n[moved to background exec {tid}]")
+            return note, True
+
+        # foreground completion: return the output (minus the log's "$ cmd" header)
+        raw = self._bg_log_tail(entry, chars=10_000_000)
+        output = raw.split("\n", 1)[1] if "\n" in raw else raw
+        await asyncio.to_thread(self.container.append_file, "/home/agent/term.log",
+                                f"\n$ {command}\n{output}")
+        entry["notified"] = True  # foreground: the tool result IS the notification
         trimmed = output[-5000:] if len(output) > 5000 else output
-        return f"[EXEC $ {command}]\n{trimmed}"
+        return f"[EXEC $ {command}]\n{trimmed}", True

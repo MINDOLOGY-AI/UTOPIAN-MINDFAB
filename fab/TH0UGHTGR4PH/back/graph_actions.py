@@ -451,3 +451,162 @@ def ascii_map(user: str, board: str, ref: str | None = None) -> str:
         for e in edges:
             out.append(f'  {nodes[e["source"]]["title"]} -[{e.get("edge_type", "?")}]-> {nodes[e["target"]]["title"]} ({e["id"]})')
     return "\n".join(out)
+
+
+# ---- surgical tools (replacing GUPDATE) ----
+
+
+def write_node(user: str, board: str, ref: str, content: str, parent: str | None = None) -> str:
+    _require_board(user, board)
+    meta = storage.load_meta(user, board)
+    title = storage.validate_title(ref)
+    try:
+        nid = resolve_node(meta, ref)
+        node = meta["nodes"][nid]
+        if node["kind"] != "doc":
+            raise ValueError("GWRITE requires a doc node")
+        if len(content) > MAX_CONTENT_CHARS:
+            raise ValueError(f"content too large (max {MAX_CONTENT_CHARS} chars)")
+        storage.write_content(user, board, meta, nid, content)
+        return f"[GWRITE] '{node['title']}' updated ({len(content)} chars)"
+    except ValueError as e:
+        if "node not found" not in str(e):
+            raise
+    storage.require_unique_title(meta, title)
+    if parent is None:
+        raise ValueError("parent folder required for new docs — GWRITE board title content parent")
+    pnid = resolve_node(meta, parent)
+    if meta["nodes"][pnid]["kind"] != "folder":
+        raise ValueError("parent must be a folder")
+    pos = next_position(meta, None, parent=pnid)
+    full_content = f"# {title}\n\n{content}"
+    if len(full_content) > MAX_CONTENT_CHARS:
+        raise ValueError(f"content too large (max {MAX_CONTENT_CHARS} chars)")
+    node = create_node(user, board, title, "doc", "doc", parent=pnid, x=pos["x"], y=pos["y"])
+    # create_node saved a fresh meta — reload or the new node is missing from ours
+    meta = storage.load_meta(user, board)
+    storage.write_content(user, board, meta, node["id"], full_content)
+    return f"[GWRITE] '{title}' created ({len(full_content)} chars)"
+
+
+def rename_node(user: str, board: str, ref: str, title: str) -> dict:
+    _require_board(user, board)
+    meta = storage.load_meta(user, board)
+    old_meta = copy.deepcopy(meta)
+    nid = resolve_node(meta, ref)
+    node = meta["nodes"][nid]
+    title = storage.validate_title(title)
+    storage.require_unique_title(meta, title, exclude_id=nid)
+    node["title"] = title
+    storage.save_meta(user, board, meta)
+    storage.move_content(user, board, old_meta, meta, nid)
+    return node
+
+
+def update_meta(user: str, board: str, ref: str, node_type: str | None = None,
+                expanded: bool | None = None) -> dict:
+    _require_board(user, board)
+    meta = storage.load_meta(user, board)
+    nid = resolve_node(meta, ref)
+    node = meta["nodes"][nid]
+    if node_type is not None:
+        _validate_type(user, node["kind"], node_type)
+        node["node_type"] = node_type
+    if expanded is not None:
+        node["expanded"] = bool(expanded)
+    storage.save_meta(user, board, meta)
+    return node
+
+
+def list_tasks(user: str, agent_name: str, time_entries: list[dict]) -> str:
+    if not time_entries:
+        return f"TODO — {agent_name}\n\n  (no tasks assigned)"
+
+    tasks = []  # [{"board", "nid", "title", "state", "assignee"}]
+    metas = {}  # {board: meta}
+
+    for entry in time_entries:
+        board, nid = entry["board"], entry["id"]
+        if board not in metas:
+            metas[board] = storage.load_meta(user, board)
+        meta = metas[board]
+        node = meta["nodes"].get(nid)
+        if not node:
+            continue
+        tasks.append({
+            "board": board,
+            "nid": nid,
+            "title": node["title"],
+            "state": node.get("state"),
+            "assignee": node.get("assignee"),
+        })
+
+    if not tasks:
+        return f"TODO — {agent_name}\n\n  (no tasks found — assigned nodes may have been deleted)"
+
+    task_ids = {(t["board"], t["nid"]) for t in tasks}
+    board_task_nids = {}  # {board: {nid}}
+    for t in tasks:
+        board_task_nids.setdefault(t["board"], set()).add(t["nid"])
+
+    edges = []  # [{"source_title", "target_title"}]
+    for board, meta in metas.items():
+        task_nids = board_task_nids.get(board, set())
+        for e in meta["edges"].values():
+            if e["source"] in task_nids and e["target"] in task_nids:
+                src = meta["nodes"][e["source"]]
+                tgt = meta["nodes"][e["target"]]
+                edges.append({"source_title": src["title"], "target_title": tgt["title"]})
+
+    done = [t for t in tasks if t["state"] == "done"]
+    doing = [t for t in tasks if t["state"] == "doing"]
+    todo = [t for t in tasks if t["state"] == "todo"]
+    unset = [t for t in tasks if t["state"] not in ("done", "doing", "todo")]
+
+    def sort_key(task):
+        return next((i for i, e in enumerate(time_entries)
+                     if e["board"] == task["board"] and e["id"] == task["nid"]), 999)
+
+    for g in (done, doing, todo, unset):
+        g.sort(key=sort_key)
+
+    todo_titles = {t["title"] for t in todo}
+    blocker_map = {}  # {title: [blocker_title]}
+    for e in edges:
+        if e["target_title"] in todo_titles:
+            src_state = next((t["state"] for t in tasks if t["title"] == e["source_title"]), None)
+            if src_state != "done":
+                blocker_map.setdefault(e["target_title"], []).append(e["source_title"])
+
+    out = [f"TODO — {agent_name}"]
+    out.append("")
+
+    state_order = [
+        ("\u2713 done", done),
+        ("\u25b6 doing", doing),
+        ("  todo", todo),
+    ]
+    if unset:
+        state_order.append(("  ----", unset))
+
+    for label, group in state_order:
+        for t in group:
+            short_nid = t["nid"][:6]
+            assignee = f" [{t['assignee']}]" if t["state"] == "doing" and t["assignee"] else ""
+            line = f"  {label:<8} {t['title']:<40} (id={short_nid}, {t['board']}){assignee}"
+            blockers = blocker_map.get(t["title"], [])
+            if blockers:
+                line += f"    \u2190 needs: {', '.join(blockers)}"
+            out.append(line)
+
+    if edges:
+        out.append("")
+        out.append("edges (A \u2192 B = A before B):")
+        for e in sorted(edges, key=lambda e: (e["source_title"], e["target_title"])):
+            out.append(f"  {e['source_title']} \u2192 {e['target_title']}")
+
+    return "\n".join(out)
+
+
+def flip_task_state(user: str, board: str, ref: str, state: str, actor: str) -> dict:
+    return update_node(user, board, ref, state=state, actor=actor)

@@ -36,7 +36,7 @@ DEFAULT_DOC_TYPES = {
 DEFAULT_EDGE_TYPES = {
     "support": {"color": "#00FF41"},
     "reject": {"color": "#FF0055"},
-    "inference": {"color": "#6BC4FF"},
+    "causes": {"color": "#6BC4FF"},
     "training": {"color": "#FF8C00"},
 }
 

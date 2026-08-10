@@ -1,29 +1,59 @@
 # fab  
-my own AI workflow. i should use this exclusively and not other chat / agent wrappers.   
-an external memory + a computer use wrapper + agent chat   
+my own AI workflow. i should use this exclusively for everything (doc writing, chatting, coding, video making) and not other chat / agent wrappers.   
 i want to see minds build better minds in a factory game like UI.  
-the best AI harness, for myself, for ML research, and for Mindology AI with Primy.  
+an external memory + a computer use wrapper + agent chat   
+
+# interface  
+
+give models docker containers and computer use tools.  
+essential tools: type, mouse, screenshot, term  
+useful tools: exec, read, write, edit  
+allows the definition of other tools in an openai format.  
+auto summarization when limit reached.  
+
+# secrets  
+
+for account logins, github sshs and repo names, etc  
+special programmable secrets:  
+LLM APIs: mindfab uses this to call LLMs  
+Compute Autorent (i.e. AutoDL): Tool Calls to rent compute  
+
+# thoughtgraph  
+
+a md files manager with  
+to be the shared external memory of myself and all the agents  
+all knowledge should be supported by evidence and previous knowledge.  
+
+# chat  
+
+a group chat with users and agents for important messages and file sharing  
+useful for sharing big files for ML like datasets and weights  
+
+# workflows  
+
+a to do app for the agents  
+define custom repeated workflows like the ML workflow and Software workflow  
 
 
-# open source tier and paid tier  
 
-honestly open sourcing make sense. docker is really hard to secure.  
+# open source CLI local version  
 
-get users first before offering a paid option where i rent AWS and AutoDL and Openrouter for them. and paid accounts can talk to other accounts and collaborate on thoughtgraph.    
+open sourcing makes sense — docker is really hard to secure.  
+and we need to gather attention first  
 
+we need a CLI version that can edit local files. start by forking Tau  
 
-# CLI local version  
+experiment with just a FLAT LIST view rather than graphs for CLI? no thoughtgraphs just folders and docs  
 
-this can wait since im not using this actually.  
-
-we do need a CLI version that can edit local files. maybe just start with forking Aider.  
-we choose Aider cause it's the simplest.  
-because the goal is to make the best harness i dont want to switch between kimicode and this.  
-
-remote? to literally ssh into remote machines see what is up?  
-
-# paid online tier  
-give each user a docker to run all their agents. we are NOT doing size limits / compute limits. way too difficult. still they get the benefit of remote work i guess.  
-more importantly enable human human collaboration.  
+/agents (switchable into THEIR context)  
+/settings  
+/graph (Nice Graph display of thoughtgraph, toggleble view display)   
+/todo (manage to dos)  
+/chat (chat rooms)  
 
 
+
+# paid online tier (later)  
+
+then a paid tier where i rent AWS on their behalf: each paying user gets a docker to run all their agents. NO size limits or compute limits — way too difficult to enforce.  
+the real draw is human-human collaboration: paid accounts can talk to each other and collaborate on thoughtgraph.  

@@ -7,6 +7,9 @@
 // nodes. write does NOT imply time.
 // secrets: names dragged from the pool into the granted list, stored in
 // config/specific/{agent}/secrets.json — the agent reads them with READ_SECRETS.
+// compute: click a free machine in the pool to assign it to the agent
+// (assign_compute/unassign_compute over the same websocket).
+// dropping a FOLDER into the to-do list expands to every stateful node inside it.
 
 class CtxPanel {
   constructor(board, agentName) {
@@ -16,6 +19,7 @@ class CtxPanel {
     this.files = [];
     this.secretNames = [];       // every secret name in the user's store
     this.secretGrants = [];      // names granted to this agent
+    this.computes = [];          // [{name, ssh_command, used_by}] from list_computes
     this.graphs = {};            // board_id -> meta (for titles across boards)
     this.ws = null;
     this.el = document.getElementById("ctx-panel");
@@ -55,6 +59,7 @@ class CtxPanel {
       this.send({cmd: "list_settings_files"});
       this.send({cmd: "list_secrets"});
       this.send({cmd: "get_secret_grants", name: this.agent});
+      this.send({cmd: "list_computes"});
     };
     this.ws.onmessage = (event) => {
       let msg;
@@ -75,6 +80,10 @@ class CtxPanel {
       if (msg.type === "secret_grants" && msg.name === this.agent) {
         this.secretGrants = msg.grants || [];
         this.renderSecrets();
+      }
+      if (msg.type === "computes") {
+        this.computes = msg.computes || [];
+        this.renderComputes();
       }
       if (msg.type === "error") {
         const err = this.el.querySelector(".ctx-error");
@@ -134,7 +143,7 @@ class CtxPanel {
         btag.className = "ctx-board-tag";
         btag.textContent = e.board;
         chip.appendChild(btag);
-        if (key === "prompt_docs" && idx > 0) {
+        if ((key === "prompt_docs" || key === "time") && idx > 0) {
           const up = document.createElement("button");
           up.textContent = "↑";
           up.title = "move up";
@@ -242,11 +251,78 @@ class CtxPanel {
     }
   }
 
+  renderComputes() {
+    const mineEl = this.el.querySelector("#ctx-compute");
+    const poolEl = this.el.querySelector("#ctx-compute-pool");
+    mineEl.innerHTML = "";
+    poolEl.innerHTML = "";
+    for (const c of this.computes) {
+      const chip = document.createElement("span");
+      chip.className = "ctx-chip";
+      if (c.used_by === this.agent) {
+        // assigned to this agent — × releases it
+        chip.textContent = c.name;
+        const x = document.createElement("button");
+        x.textContent = "×";
+        x.addEventListener("click", () => this.send({cmd: "unassign_compute", name: this.agent, compute: c.name}));
+        chip.appendChild(x);
+        mineEl.appendChild(chip);
+      } else if (!c.used_by) {
+        // free — click assigns it to this agent
+        chip.textContent = c.name;
+        chip.classList.add("ctx-chip-click");
+        chip.title = "assign to " + this.agent;
+        chip.addEventListener("click", () => this.send({cmd: "assign_compute", name: this.agent, compute: c.name}));
+        poolEl.appendChild(chip);
+      } else {
+        // held by someone else — display only
+        chip.textContent = `${c.name} (${c.used_by})`;
+        chip.classList.add("ctx-chip-held");
+        poolEl.appendChild(chip);
+      }
+    }
+    for (const [el, list] of [[mineEl, this.computes.filter(c => c.used_by === this.agent)], [poolEl, this.computes]]) {
+      if (!list.length) {
+        const hint = document.createElement("span");
+        hint.className = "ctx-hint";
+        hint.textContent = "empty";
+        el.appendChild(hint);
+      }
+    }
+  }
+
   addEntry(key, boardId, nodeId) {
     const node = this.board.store.nodes[nodeId];
     if (key === "folders" && node && node.kind !== "folder") {
       const err = this.el.querySelector(".ctx-error");
       if (err) err.textContent = "total control only accepts folders";
+      return;
+    }
+    if (key === "time" && node && node.kind === "folder") {
+      // a folder dropped into to-do expands to every stateful node inside it (recursive)
+      const nodes = this.board.store.nodes;
+      const tasks = Object.values(nodes).filter(n => {
+        if (!n.state) return false;
+        let cur = n.parent;
+        while (cur) {
+          if (cur === nodeId) return true;
+          cur = nodes[cur] ? nodes[cur].parent : null;
+        }
+        return false;
+      });
+      const err = this.el.querySelector(".ctx-error");
+      if (!tasks.length) {
+        if (err) err.textContent = "no task nodes inside that folder";
+        return;
+      }
+      for (const t of tasks) {
+        if (!this.settings.time.some(e => e.board === boardId && e.id === t.id)) {
+          this.settings.time.push({board: boardId, id: t.id});
+        }
+      }
+      if (err) err.textContent = "";
+      this.save();
+      this.loadGraphsThenRender();
       return;
     }
     const entries = this.settings[key];

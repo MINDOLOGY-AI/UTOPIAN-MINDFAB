@@ -9,8 +9,9 @@ from fab.hub.auth import store
 from fab.hub.auth.store import COOKIE_NAME
 
 # login/register attempts per (username, ip), in-memory (resets on restart — fine for now)
-MAX_ATTEMPTS = 10
+MAX_ATTEMPTS = 20
 ATTEMPT_WINDOW = 300  # seconds
+# (username, ip), [timesteps]  
 _attempts: dict[tuple[str, str], list[float]] = {}
 
 router = APIRouter(prefix="/auth")
