@@ -81,11 +81,3 @@ make this entire website keyboard usable like vim
 have a "cyber mehancial style" the entire website feels like a computer with a keyboard theme literal button styled press down buttons and like stuff that light up like information in circuits  
 
 
-# cyberMechanical Style  
-
-buttons -> actual buttons. press down effect. make it look like a mechanical keyboard.  
-link -> sol buttons. cut side on bottom, diff color the side, text changes color when hovered (same color as side). makes sense cause looks like a it's a "different tab" on the page.  
-led lights: show status  
-circuit like connections. 
-
-text: try to avoid using background components whenever possible. really like the idea of white or patel colored text on a pure black background. makes whole web looks like a markdown doc.  

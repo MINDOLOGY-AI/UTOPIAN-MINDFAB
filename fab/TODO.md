@@ -1,5 +1,7 @@
 - better UI! sidebar and main different color. only lavender purple and sky blue. and a tiny bit of pink for user stuff. consistant borders.     
 
+- make thoughtgraph editing feel like neovim so it's actually usable  
+
 - thoughtgraph expansion logic: only push everything if it will touch.  
 
 - workflows! the to do, doing, done is kind of very bad    
