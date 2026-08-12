@@ -10,6 +10,7 @@ import logging
 
 import torch
 
+from mind.EV0K3.Qwen3_5_4b.run.asy_prompt import asy_prompt
 from mind.EV0K3.Qwen3_5_4b.run.config import QWEN3_5_4B_CONFIG
 from mind.EV0K3.Qwen3_5_4b.run.loader import build_model_and_tokenizer
 
@@ -26,6 +27,9 @@ MAX_NEW_TOKENS = 8192
 # Qwen3.5 thinks by default; the chat template can disable it
 ENABLE_THINKING = False
 
+# persistent system message; set to None to disable
+SYSTEM_PROMPT = asy_prompt
+
 
 @torch.no_grad()
 def generate(
@@ -37,34 +41,32 @@ def generate(
     top_p=0.9,
     do_sample=True,
     eos_token_ids=None,
+    past_key_values=None,
     on_token=None,
 ):
     """
     Generate tokens with the hybrid (KV + recurrent) cache.
 
-    input_ids:     (batch, seq_len)
-    attention_mask:(batch, seq_len)
+    input_ids:     (batch, seq_len) -- only the NEW tokens to process; anything
+                   before them must already live in past_key_values
+    attention_mask:(batch, cache_len + seq_len)
+    past_key_values: optional incoming cache from previous turns
     on_token:      optional callback called with the full generated tensor
                    after each new token (used for streaming output)
+    returns:       (generated, past_key_values)
     """
     device = input_ids.device
-    past_key_values = None
     generated = input_ids.clone()
+    cur = input_ids
 
     for _ in range(max_new_tokens):
-        if past_key_values is None:
-            # first forward: process full prompt
-            logits, _, past_key_values = model(
-                input_ids=generated,
-                attention_mask=attention_mask,
-            )
-        else:
-            # subsequent forwards: only the last token
-            logits, _, past_key_values = model(
-                input_ids=generated[:, -1:],
-                attention_mask=attention_mask,
-                past_key_values=past_key_values,
-            )
+        # first forward processes the whole new chunk; later ones just the
+        # last sampled token
+        logits, _, past_key_values = model(
+            input_ids=cur,
+            attention_mask=attention_mask,
+            past_key_values=past_key_values,
+        )
 
         next_token_logits = logits[:, -1, :]
 
@@ -105,6 +107,7 @@ def generate(
             ],
             dim=-1,
         )
+        cur = next_token
 
         if on_token is not None:
             on_token(generated)
@@ -112,7 +115,7 @@ def generate(
         if eos_token_ids is not None and next_token.item() in eos_token_ids:
             break
 
-    return generated
+    return generated, past_key_values
 
 
 def main():
@@ -125,33 +128,56 @@ def main():
     eos_token_ids = {config.eos_token_id, tokenizer.eos_token_id}
     eos_token_ids.discard(None)
 
-    messages = []
     print("Qwen3.5-4B chat. Type 'quit', 'exit', or 'q' to exit.\n")
+
+    # generation prompt, mirroring the chat template
+    GEN_PROMPT = "<|im_start|>assistant\n" + (
+        "<think>\n" if ENABLE_THINKING else "<think>\n\n</think>\n\n"
+    )
+
+    # the cache persists across turns; history is NEVER re-rendered or re-fed.
+    # turn 0 goes through the chat template (system prompt, tools, etc.);
+    # later turns hand-build the small delta: "\n<|im_start|>user\n...".
+    # after every reply we feed the closing <|im_end|>, so the cache always
+    # ends exactly where the template's assistant turn would.
+    past = None
+    n_cached = 0  # tokens the model has ingested so far
+    first_turn = True
 
     while True:
         user_text = input("You: ").strip()
         if user_text.lower() in {"quit", "exit", "q"}:
             break
 
-        messages.append({"role": "user", "content": user_text})
+        if first_turn:
+            messages = []
+            if SYSTEM_PROMPT is not None:
+                messages.append({"role": "system", "content": SYSTEM_PROMPT})
+            messages.append({"role": "user", "content": user_text})
+            encoded = tokenizer.apply_chat_template(
+                messages,
+                tokenize=True,
+                add_generation_prompt=True,
+                enable_thinking=ENABLE_THINKING,
+            )
+            delta = encoded["input_ids"]
+            if isinstance(delta[0], list):
+                delta = delta[0]  # unbatch: single conversation
+            first_turn = False
+        else:
+            delta_text = (
+                "\n<|im_start|>user\n" + user_text + "<|im_end|>\n" + GEN_PROMPT
+            )
+            delta = tokenizer(delta_text, add_special_tokens=False)["input_ids"]
 
-        # build prompt with the Qwen chat template
-        encoded = tokenizer.apply_chat_template(
-            messages,
-            tokenize=True,
-            return_tensors="pt",
-            add_generation_prompt=True,
-            return_dict=True,
-            enable_thinking=ENABLE_THINKING,
+        delta_tensor = torch.tensor([delta], device=device)
+        attention_mask = torch.ones(
+            (1, n_cached + len(delta)), dtype=torch.long, device=device
         )
-        prompt_tensor = encoded.input_ids.to(device)
-
-        # attention mask: all real tokens
-        attention_mask = encoded.attention_mask.to(device)
 
         # stream: re-decode the whole reply each step and print only the new
         # text, so multi-token characters never get mangled
-        prompt_len = prompt_tensor.shape[-1]
+        prompt_len = delta_tensor.shape[-1]
         printed = [0]
 
         def stream(generated):
@@ -160,24 +186,36 @@ def main():
             printed[0] = len(text)
 
         print("Bot: ", end="", flush=True)
-        outputs = generate(
+        outputs, past = generate(
             model,
-            prompt_tensor,
+            delta_tensor,
             attention_mask,
             max_new_tokens=MAX_NEW_TOKENS,
             temperature=0.7,
             top_p=0.9,
             do_sample=True,
             eos_token_ids=eos_token_ids,
+            past_key_values=past,
             on_token=stream,
         )
         print("\n")
 
-        # decode only the new tokens
-        reply_ids = outputs[0][prompt_len:]
-        reply = tokenizer.decode(reply_ids, skip_special_tokens=True)
-
-        messages.append({"role": "assistant", "content": reply})
+        # close the turn: the final sampled token was never fed (generation
+        # stops when it is produced), and if the model hit the cap without
+        # emitting <|im_end|> we inject one -- either way the cache ends right
+        # after the assistant turn's <|im_end|>
+        closing = outputs[0][-1:].tolist()
+        if closing[0] not in eos_token_ids:
+            closing.append(config.eos_token_id)
+        n_cached = past.get_seq_length()
+        _, _, past = model(
+            input_ids=torch.tensor([closing], device=device),
+            attention_mask=torch.ones(
+                (1, n_cached + len(closing)), dtype=torch.long, device=device
+            ),
+            past_key_values=past,
+        )
+        n_cached = past.get_seq_length()
 
 
 if __name__ == "__main__":
