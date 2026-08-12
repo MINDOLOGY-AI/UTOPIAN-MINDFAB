@@ -80,10 +80,11 @@ class Heaviside_STE(torch.autograd.Function):
 # 3. JUMPRELU SAE MODULE
 # =============================================================================
 class JumpReLU_SAE(nn.Module):
-    def __init__(self, d_in, d_sae, sparsity_coeff=0.1, eps=0.05):
+    def __init__(self, embed_dim, expansion_factor, sparsity_coeff=0.1, eps=0.05):
         super().__init__()
-        self.d_in = d_in
-        self.d_sae = d_sae          # M dictionary features
+        self.d_in = embed_dim
+        self.d_sae = embed_dim * expansion_factor
+        d_in, d_sae = self.d_in, self.d_sae
         self.sparsity_coeff = sparsity_coeff
         self.eps = eps
 
@@ -146,15 +147,16 @@ class JumpReLU_SAE(nn.Module):
 # 4. MINIMAL DEMO
 # =============================================================================
 if __name__ == "__main__":
-    B, d_in, d_sae = 4096, 768, 131072
-    model = JumpReLU_SAE(d_in, d_sae, eps=0.001)
+    B = 4096
+    model = JumpReLU_SAE(768, 16, eps=0.001)
     opt = torch.optim.Adam(model.parameters(), lr=7e-5, betas=(0.0, 0.999))
 
-    # Fake normalized activations (paper normalizes to mean squared norm = 1)
-    x = torch.randn(B, d_in) / (d_in ** 0.5)
+    # Fake activations at a realistic scale (pre-acts must reach theta ≈ 0.1
+    # for anything to fire; unit-variance inputs do that with 0.01-scaled weights)
+    x = torch.randn(B, model.d_in)
 
     loss, metrics = model.compute_loss(x)
-    print(f"Total: {loss.item():.4f} | Recon: {metrics['recon']:.4f} | L0: {metrics['l0']:.4f} | Active: {metrics['active']:.2f}")
+    print(f"Total: {loss.item():.4f} | Recon%: {metrics['recon_pct']:.4f} | L0: {metrics['l0']:.4f} | Avg theta: {metrics['avg_theta']:.2f}")
 
     # Verify gradient flow
     loss.backward()

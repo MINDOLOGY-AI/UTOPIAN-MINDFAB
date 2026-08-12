@@ -55,13 +55,13 @@ class NumpySupervisedDataset(Dataset):
 
 
 class BinUnsupervisedDataset(Dataset):
-    # streams each sample from a flat binary file on disk.
-    # shape includes N first, e.g. (N, seq_len) for token ids.
+    # memmaps a flat binary file; shape includes N first, e.g. (N, seq_len) for token ids.
     def __init__(self, path: str, dtype: torch.dtype, shape: tuple[int, ...]):
         assert len(shape) >= 1, "shape must include the sample count dimension"
 
         self.path = path
         self.dtype = dtype
+        self.np_dtype = torch.empty(0, dtype=dtype).numpy().dtype
         self.shape = shape
         self.num_samples = shape[0]
         self.sample_shape = shape[1:]
@@ -75,14 +75,15 @@ class BinUnsupervisedDataset(Dataset):
             f"for shape {shape} and dtype {dtype}"
         )
 
+        # opened lazily so each dataloader worker gets its own memmap handle
+        self._mm = None
+
     def __len__(self) -> int:
         return self.num_samples
 
     def __getitem__(self, idx: int):
         assert 0 <= idx < self.num_samples
-        offset = idx * self.sample_bytes
-        with open(self.path, "rb") as f:
-            f.seek(offset)
-            raw = f.read(self.sample_bytes)
-        # frombuffer views immutable bytes, so clone into writable tensor memory.
-        return torch.frombuffer(raw, dtype=self.dtype).reshape(self.sample_shape).clone()
+        if self._mm is None:
+            self._mm = np.memmap(self.path, dtype=self.np_dtype, mode="r", shape=self.shape)
+        # memmap pages are read-only; clone into writable tensor memory
+        return torch.from_numpy(self._mm[idx].copy())

@@ -11,10 +11,10 @@ from mind.SYN4P5E.probes.sae.SlabConeSAE import SlabConeSAE
 from mind.SYN4P5E.probes.sae.TopKSAE import TopKSAE
 
 
-BIN_DIR = Path.cwd() / "mind" / "data" / "D4T4STEPS" / "tokenized" / "interp_dataset"
+BIN_DIR = Path.cwd() / "mind" / "data" / "D4T4STEPS" / "tokenized" / "olmo2_1b_interp_dataset"
 WEIGHTS_DIR = Path.cwd() / "mind" / "weights" / "EV0K3" / "OlMo2_1b" / "sae_compare"
 D_IN = 2048
-D_SAE = D_IN * 16  # 32768
+EXPANSION = 16  # d_sae = 2048 * 16 = 32768
 INIT_COEFF = 0.1
 TOPK_KS = [64, 96, 128]
 MAX_STEPS = 10_000
@@ -97,7 +97,7 @@ def main():
     print(f"=== jumprelu (coeff={INIT_COEFF}) ===")
     print(f"{'='*60}")
     _run("jumprelu",
-         JumpReLU_SAE(D_IN, D_SAE, sparsity_coeff=INIT_COEFF),
+         JumpReLU_SAE(D_IN, EXPANSION, sparsity_coeff=INIT_COEFF),
          results)
 
     # SlabCone — original gates, same adaptive sparsity mechanism
@@ -105,7 +105,7 @@ def main():
     print(f"=== slabcone (coeff={INIT_COEFF}) ===")
     print(f"{'='*60}")
     _run("slabcone",
-         SlabConeSAE(D_IN, 16, sparsity_coeff=INIT_COEFF),
+         SlabConeSAE(D_IN, EXPANSION, sparsity_coeff=INIT_COEFF),
          results)
 
     # TopK — fixed k sweep, no sparsity penalty
@@ -114,7 +114,7 @@ def main():
         print(f"=== topk (k={k}) ===")
         print(f"{'='*60}")
         _run(f"topk/k_{k}",
-             TopKSAE(D_IN, D_SAE, k=k),
+             TopKSAE(D_IN, EXPANSION, k=k),
              results)
 
     print(f"\n{'='*60}")

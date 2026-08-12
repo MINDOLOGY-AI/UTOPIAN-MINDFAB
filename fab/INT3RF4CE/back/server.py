@@ -1244,6 +1244,40 @@ async def websocket_endpoint(ws: WebSocket):
         print(f"WebSocket error: {e}")
 
 
+@app.get("/debug/stacks")
+def debug_stacks(request: Request):
+    """Where is each agent's loop parked right now? For post-wedge diagnosis."""
+    user = user_for_token(request.cookies.get(COOKIE_NAME))
+    if not user:
+        raise HTTPException(status_code=401, detail="login required")
+    out = {}
+    for name, info in users.get(user, {}).items():
+        for key in ("work_loop", "chat_task"):
+            task = info.get(key)
+            if task is None:
+                out[f"{name}.{key}"] = None
+            elif task.done():
+                out[f"{name}.{key}"] = f"done (exception: {task.exception()!r})" if not task.cancelled() else "cancelled"
+            else:
+                out[f"{name}.{key}"] = [
+                    f"{f.f_code.co_filename}:{f.f_lineno} in {f.f_code.co_name}" for f in task.get_stack()
+                ]
+    return out
+
+
+@app.get("/debug/all-tasks")
+async def debug_all_tasks(request: Request):
+    """Every asyncio task in the process and where it's suspended."""
+    user = user_for_token(request.cookies.get(COOKIE_NAME))
+    if not user:
+        raise HTTPException(status_code=401, detail="login required")
+    out = []
+    for task in asyncio.all_tasks():
+        stack = [f"{f.f_code.co_filename.split('/')[-1]}:{f.f_lineno} in {f.f_code.co_name}" for f in task.get_stack()]
+        out.append({"name": task.get_name(), "done": task.done(), "stack": stack})
+    return out
+
+
 def _owned_vnc_port(user: str, port: str) -> int | None:
     """Return the port as int only if it belongs to one of the user's own agents, else None."""
     # cybersec: only proxy numeric ports that belong to the requesting user's own containers — otherwise anyone could reach arbitrary localhost services through this proxy

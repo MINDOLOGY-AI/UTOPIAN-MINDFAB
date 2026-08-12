@@ -1,5 +1,3 @@
-# see theory at thoughts/AI/probes/gatedSAE.md
-
 import torch
 import torch.nn as nn
 

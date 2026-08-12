@@ -6,6 +6,10 @@ RMS(x) = sqrt (1/n * sum(x^2)) * gamma
 
 OlMo2 tweak: cast to float32 for numerical stability, multiply by weight,
 then cast back to the input dtype.
+
+Qwen3.5 tweak: centered=True switches to the zero-centered variant
+    out = x_norm * (1 + weight),   weight initialized to zeros.
+This is the Qwen3.5 RMSNorm style; the checkpoint weight maps 1:1.
 '''
 
 import torch
@@ -13,11 +17,13 @@ import torch.nn as nn
 
 
 class RMSNorm(nn.Module):
-    def __init__(self, dim, eps=1e-6, cast_to_float32=True):
+    def __init__(self, dim, eps=1e-6, cast_to_float32=True, centered=False):
         super().__init__()
         self.eps = eps
         self.cast_to_float32 = cast_to_float32
-        self.weight = nn.Parameter(torch.ones(dim))
+        self.centered = centered
+        init = torch.zeros(dim) if centered else torch.ones(dim)
+        self.weight = nn.Parameter(init)
 
     def forward(self, x):
         # x: (batch, seq, dim)
@@ -29,8 +35,12 @@ class RMSNorm(nn.Module):
         x_norm = x * torch.rsqrt(variance + self.eps)
 
         # OlMo2 multiplies weight before dtype conversion
-        out = self.weight * x_norm
+        # Qwen3.5 centers the weight around 1 instead
+        if self.centered:
+            out = x_norm * (1.0 + self.weight)
+        else:
+            out = self.weight * x_norm
         return out.to(input_dtype)
 
     def extra_repr(self):
-        return f"{tuple(self.weight.shape)}, eps={self.eps}, cast_to_float32={self.cast_to_float32}"
+        return f"{tuple(self.weight.shape)}, eps={self.eps}, cast_to_float32={self.cast_to_float32}, centered={self.centered}"

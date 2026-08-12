@@ -2,7 +2,7 @@ import json
 import numpy as np
 from pathlib import Path
 from mind.EV0K3.OlMo2_1b.run.loader import load_olmo2_tokenizer
-from mind.D4T4STEPS.config import OUTPUT_DIR
+from mind.D4T4STEPS.olmo2_1b_interp.config import OUTPUT_DIR
 
 CHUNK_SIZE = 1024
 TRAIN_SPLIT = 0.7
@@ -10,7 +10,7 @@ SHUFFLE_SEED = 42
 WRITE_BATCH = 10_000
 
 TXT_DIR = OUTPUT_DIR  # mind/data/D4T4STEPS/txt/interp_dataset
-OUT_DIR = Path.cwd() / "mind" / "data" / "D4T4STEPS" / "tokenized" / "interp_dataset"
+OUT_DIR = Path.cwd() / "mind" / "data" / "D4T4STEPS" / "tokenized" / "olmo2_1b_interp_dataset"
 
 
 def main():

@@ -626,8 +626,8 @@ class FabBoard extends HTMLElement {
     };
   }
 
-  // bottom-right grip drag on an expanded doc: width/height are render-time
-  // only, never sent to the server — collapsing the doc forgets the size
+  // bottom-right grip drag on an expanded doc: width/height persist on mouseup
+  // (snapped to whole grid cells)
   onResizeStart({node, originalEvent: e}) {
     this.store.dragging = {
       resize: true,
@@ -663,14 +663,9 @@ class FabBoard extends HTMLElement {
     const wasExpanded = node.expanded;
     if (!wasExpanded) this.expandAncestors(id);
     node.expanded = !wasExpanded;
-    const updates = {expanded: node.expanded};
-    if (node.expanded) {
-      updates.width = FabStore.EXPANDED_W;
-      updates.height = FabStore.EXPANDED_H;
-      node.width = updates.width;
-      node.height = updates.height;
-    }
-    await this.store.updateNode(id, updates);
+    // no width/height reset on expand: nodes are created at the default size
+    // anyway, and a user's custom resize should survive collapse→expand
+    await this.store.updateNode(id, {expanded: node.expanded});
     this.render();
   }
 
@@ -788,14 +783,15 @@ class FabBoard extends HTMLElement {
     }
     if (drag.resize) {
       // snap the result to whole grid cells (footprint = integer multiple of
-      // GRID) so the board lands back in alignment; temporary by design:
-      // nothing is persisted
+      // GRID) so the board lands back in alignment, then persist — otherwise the
+      // 60s poll sees local≠server forever and clobbers the custom size
       const node = this.store.nodes[drag.nodeId];
       const M = FabStore.MARGIN;
       const snapCells = (v, min) => Math.max(min, FabStore.snap(v + 2 * M) - 2 * M);
       node.width = snapCells(node.width, FabStore.MIN_EXPANDED_W);
       node.height = snapCells(node.height, FabStore.MIN_EXPANDED_H);
       this.store.dragging = null;
+      this.store.updateNode(drag.nodeId, {width: node.width, height: node.height});
       this.render();
       return;
     }

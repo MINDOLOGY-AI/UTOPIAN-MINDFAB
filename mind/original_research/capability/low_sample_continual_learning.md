@@ -40,3 +40,44 @@ we can let the model self generate different questions and correct answers based
 then let the model self test [question] without [new_knowledge] to see if it even needs to learn this or it already knows.  
 if it doesn't, we do our continual learning methods and retest.  
 
+# Dual-Mask Gradient Updates for Continual Learning
+
+Catastrophic forgetting occurs when neural networks lose previously learned knowledge upon learning new tasks. We propose a simple method that combines two complementary masking strategies to select which parameters to update.
+
+## Method
+
+Standard EWC penalizes changes to important parameters but still updates everything. Top-k gradient sparsity limits updates but doesn't know which parameters matter for old tasks.
+
+We take the intersection: only update parameters that are **both** high-gradient for the new task **and** low-Fisher for old tasks.
+
+```
+mask = (fisher < θ_fisher) & topk(|∇L|, k)
+∇L_masked = ∇L * mask
+```
+
+This explicitly routes new learning through parameters that won't damage old knowledge.
+
+## Why It Works
+
+| Method | What it does | Problem |
+|--------|--------------|---------|
+| EWC | Soft penalty on important params | Still updates everything |
+| Top-k | Sparse updates | Doesn't know what to protect |
+| **Ours** | Sparse updates avoiding important params | — |
+
+## Results
+
+TODO
+
+## Usage
+
+```bash
+python train.py --method dual_mask --dataset split_cifar100 --k 0.1 --fisher_threshold 0.5
+```
+
+## Citation
+
+```
+TODO
+```
+

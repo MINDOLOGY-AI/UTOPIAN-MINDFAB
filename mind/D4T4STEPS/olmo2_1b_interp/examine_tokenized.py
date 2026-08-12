@@ -4,7 +4,7 @@ from pathlib import Path
 
 from mind.EV0K3.OlMo2_1b.run.loader import load_olmo2_tokenizer
 
-BIN_PATH = Path.cwd() / "mind" / "data" / "D4T4STEPS" / "tokenized" / "interp_dataset" / "train.bin"
+BIN_PATH = Path.cwd() / "mind" / "data" / "D4T4STEPS" / "tokenized" / "olmo2_1b_interp_dataset" / "train.bin"
 
 
 def main():

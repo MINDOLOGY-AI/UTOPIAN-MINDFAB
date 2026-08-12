@@ -9,10 +9,10 @@ from mind.SYN4P5E.train.data_to_loaders import BinUnsupervisedDataset
 from mind.SYN4P5E.probes.sae.DirectionalTopKSAE import DirectionalTopKSAE
 
 
-BIN_DIR = Path.cwd() / "mind" / "data" / "D4T4STEPS" / "tokenized" / "interp_dataset"
+BIN_DIR = Path.cwd() / "mind" / "data" / "D4T4STEPS" / "tokenized" / "olmo2_1b_interp_dataset"
 WEIGHTS_DIR = Path.cwd() / "mind" / "weights" / "EV0K3" / "OlMo2_1b" / "directional_topk"
 D_IN = 2048
-D_SAE = D_IN * 16  # 32768
+EXPANSION = 16  # d_sae = 2048 * 16 = 32768
 K = 64
 MAX_STEPS = 10_000
 BATCH_SIZE = 4
@@ -102,7 +102,7 @@ def main():
         print(f"=== directionalTopK dir={dir_c} val={val_c} k={K} ===")
         print(f"{'='*60}")
         _run(f"k_{K}/dir_{dir_c}_val_{val_c}",
-             DirectionalTopKSAE(D_IN, D_SAE, k=K, direction_coeff=dir_c, val_coeff=val_c),
+             DirectionalTopKSAE(D_IN, EXPANSION, k=K, direction_coeff=dir_c, val_coeff=val_c),
              results)
 
     print(f"\n{'='*60}")

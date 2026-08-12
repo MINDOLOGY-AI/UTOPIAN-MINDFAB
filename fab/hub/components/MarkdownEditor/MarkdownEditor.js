@@ -61,6 +61,16 @@ class MarkdownEditor extends HTMLElement {
 
     this.textarea.addEventListener("input", () => this.onInput());
     this.textarea.addEventListener("blur", () => this.showPreview());
+    this.textarea.addEventListener("keydown", (e) => {
+      // tab = a literal tab character, not focus change (which would blur -> exit edit mode)
+      if (e.key === "Tab") {
+        e.preventDefault();
+        e.stopPropagation();
+        const ta = this.textarea;
+        ta.setRangeText("\t", ta.selectionStart, ta.selectionEnd, "end");
+        this.onInput();
+      }
+    });
     this.textarea.addEventListener("mousedown", (e) => e.stopPropagation());
     this.preview.addEventListener("mousedown", (e) => e.stopPropagation());
     this.preview.addEventListener("click", (e) => this.onPreviewClick(e));

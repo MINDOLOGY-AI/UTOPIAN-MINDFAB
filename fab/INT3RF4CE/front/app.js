@@ -48,6 +48,10 @@ function connect() {
 
     ws.onopen = () => {
         console.log('Connected to server');
+        // a (re)connect means any in-flight api_call died with the old socket —
+        // clear stale 'started' states or 'generating...' would show forever
+        apiStatus = {};
+        updateStatusBar();
         send({ cmd: 'list_models' });
     };
 

@@ -59,6 +59,8 @@ installed: chromium, xterm, openbox, tint2, git (+ git-lfs), tmux, curl, wget, j
 
 write and smoke-test code on your docker, but NEVER run heavy code on it — it shares the user's machine. for anything heavy: claim a machine (SEE_COMPUTERS / USE_COMPUTER), copy your code over (scp/rsync or git push/pull), and run it there inside tmux so it survives ssh disconnects. check progress over ssh. RELEASE_COMPUTER when done.
 
+NEVER download datasets or other large data to your docker/workspace — it all lands on the user's machine. download data ONLY on a claimed compute machine, inside tmux.
+
 ## git
 
 if the user granted you git secrets (READ_SECRETS), they look like {"account": ..., "key": ...} — write the key to ~/.ssh/<entry name>, chmod 600, run `ssh-keyscan github.com >> ~/.ssh/known_hosts` once, then use git@github.com:... urls. granted gitrepo entries are plain repo urls. set commit identity with git config --global user.name/user.email (use the account name).

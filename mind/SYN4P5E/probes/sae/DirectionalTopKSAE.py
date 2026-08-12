@@ -4,10 +4,11 @@ from pathlib import Path
 
 
 class DirectionalTopKSAE(nn.Module):
-    def __init__(self, d_in, d_sae, k=64, direction_coeff=1.0, val_coeff=1.0):
+    def __init__(self, embed_dim, expansion_factor, k=64, direction_coeff=1.0, val_coeff=1.0):
         super().__init__()
-        self.d_in = d_in
-        self.d_sae = d_sae
+        self.d_in = embed_dim
+        self.d_sae = embed_dim * expansion_factor
+        d_in, d_sae = self.d_in, self.d_sae
         self.k = k
         self.direction_coeff = direction_coeff
         self.val_coeff = val_coeff

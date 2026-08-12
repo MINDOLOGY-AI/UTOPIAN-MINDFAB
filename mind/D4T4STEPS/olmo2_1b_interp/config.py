@@ -1,7 +1,7 @@
 from pathlib import Path
 
 HF_MIRROR = "https://hf-mirror.com"
-OUTPUT_DIR = Path.cwd() / "mind" / "data" / "D4T4STEPS" / "txt" / "interp_dataset"
+OUTPUT_DIR = Path.cwd() / "mind" / "data" / "D4T4STEPS" / "txt" / "olmo2_1b_interp_dataset"
 
 TARGETS = {
     "dclm_baseline":      300_000_000,

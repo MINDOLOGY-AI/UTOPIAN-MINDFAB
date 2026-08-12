@@ -57,7 +57,6 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from mind.interp_journey.function_approximator.back.router import router as function_approximator_router
 from fab.INT3RF4CE.back.server import app as INT3RF4CE_app
 from fab.TH0UGHTGR4PH.back.api import app as TH0UGHTGR4PH_app
 from mind.INT3RPV1Z.back.server import app as INT3RPV1Z_app
@@ -71,7 +70,6 @@ HUB_MODE = "display"
 
 hub_front = project_root / "fab" / "hub" / "front"
 hub_components = project_root / "fab" / "hub" / "components"
-fa_front = project_root / "mind" / "interp_journey" / "function_approximator" / "front"
 
 app = FastAPI(
     # cybersec: hide /docs, /redoc and /openapi.json — a public API map makes attack-surface scouting easy
@@ -109,7 +107,6 @@ async def revalidate_statics(request: Request, call_next):
     return response
 
 # backend routes
-app.include_router(function_approximator_router, prefix="/api")
 app.include_router(auth_router)
 
 
@@ -126,7 +123,6 @@ def hub_index():
 app.mount("/TH0UGHTGR4PH", TH0UGHTGR4PH_app, name="TH0UGHTGR4PH")
 app.mount("/INT3RPV1Z", INT3RPV1Z_app, name="INT3RPV1Z")
 app.mount("/INT3RF4CE", INT3RF4CE_app, name="INT3RF4CE")
-app.mount("/interp_journey/function_approximator/front", StaticFiles(directory=fa_front, html=True), name="fa_front")
 app.mount("/components", StaticFiles(directory=hub_components), name="hub_components")
 app.mount("/", StaticFiles(directory=hub_front, html=True), name="hub_front")
 

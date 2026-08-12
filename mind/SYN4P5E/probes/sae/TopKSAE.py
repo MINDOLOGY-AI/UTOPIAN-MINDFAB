@@ -1,14 +1,14 @@
-import json
 import torch
 import torch.nn as nn
 # =============================================================================
 # TopK SAE — built-in sparsity via top-k selection, no penalty coefficient
 # =============================================================================
 class TopKSAE(nn.Module):
-    def __init__(self, d_in, d_sae, k=64):
+    def __init__(self, embed_dim, expansion_factor, k=64):
         super().__init__()
-        self.d_in = d_in
-        self.d_sae = d_sae
+        self.d_in = embed_dim
+        self.d_sae = embed_dim * expansion_factor
+        d_in, d_sae = self.d_in, self.d_sae
         self.k = k
 
         self.W_enc = nn.Parameter(torch.randn(d_in, d_sae) * 0.01)

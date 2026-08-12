@@ -87,6 +87,14 @@ OlMo2 tweaks:
 - Optional q_norm / k_norm after projection (controlled by qk_norm param).
 - Optional flash/SDPA path vs manual eager attention (controlled by use_flash param).
 - position_embeddings come from outside (cos, sin) to support KV-cache decoding.
+
+Qwen3.5 tweaks (all off by default, OlMo2 path unchanged):
+- query_gate: q_proj outputs 2x the query dim; per head the output is split
+  into (query, gate) and the attention output is multiplied by sigmoid(gate)
+  before o_proj.
+- qk_norm_per_head: q_norm / k_norm are per-head RMSNorm over head_dim
+  (applied after the heads reshape) instead of over the flattened q_out/kv_out.
+- norm_centered: use the zero-centered Qwen3.5 RMSNorm style for the qk norms.
 '''
 
 import torch
@@ -111,6 +119,9 @@ class GQA(nn.Module):
         qk_norm=False,
         rms_norm_eps=1e-6,
         use_flash=False,
+        query_gate=False,
+        qk_norm_per_head=False,
+        norm_centered=False,
     ):
         super().__init__()
         self.num_q_heads = num_q_heads
@@ -120,19 +131,24 @@ class GQA(nn.Module):
         self.attention_dropout = attention_dropout
         self.qk_norm = qk_norm
         self.use_flash = use_flash
+        self.query_gate = query_gate
+        self.qk_norm_per_head = qk_norm_per_head
 
         q_out = num_q_heads * head_dim
         kv_out = num_kv_heads * head_dim
 
-        self.q_proj = nn.Linear(embed_dim, q_out, bias=attention_bias)
+        # query_gate doubles the q projection: per head it emits (query | gate)
+        self.q_proj = nn.Linear(embed_dim, q_out * 2 if query_gate else q_out, bias=attention_bias)
         self.k_proj = nn.Linear(embed_dim, kv_out, bias=attention_bias)
         self.v_proj = nn.Linear(embed_dim, kv_out, bias=attention_bias)
         self.o_proj = nn.Linear(q_out, embed_dim, bias=attention_bias)
 
         if self.qk_norm:
             from ..basic.RMSnorm import RMSNorm
-            self.q_norm = RMSNorm(q_out, eps=rms_norm_eps)
-            self.k_norm = RMSNorm(kv_out, eps=rms_norm_eps)
+            q_norm_dim = head_dim if qk_norm_per_head else q_out
+            k_norm_dim = head_dim if qk_norm_per_head else kv_out
+            self.q_norm = RMSNorm(q_norm_dim, eps=rms_norm_eps, centered=norm_centered)
+            self.k_norm = RMSNorm(k_norm_dim, eps=rms_norm_eps, centered=norm_centered)
 
     def forward(self, x, position_embeddings, attention_mask=None, past_key_value=None):
         """
@@ -148,14 +164,31 @@ class GQA(nn.Module):
         key_states = self.k_proj(x)
         value_states = self.v_proj(x)
 
-        if self.qk_norm:
+        # qwen3.5 query gate: split each head's 2*head_dim into (query | gate)
+        gate = None
+        if self.query_gate:
+            query_states = query_states.view(batch, seq, self.num_q_heads, self.head_dim * 2)
+            query_states, gate = query_states.chunk(2, dim=-1)  # each (batch, seq, num_q_heads, head_dim)
+            gate = gate.reshape(batch, seq, -1)  # (batch, seq, num_q_heads * head_dim)
+
+        if self.qk_norm and not self.qk_norm_per_head:
             query_states = self.q_norm(query_states)
             key_states = self.k_norm(key_states)
 
-        # reshape to (batch, num_heads, seq, head_dim)
-        query_states = query_states.view(batch, seq, self.num_q_heads, self.head_dim).transpose(1, 2)
-        key_states = key_states.view(batch, seq, self.num_kv_heads, self.head_dim).transpose(1, 2)
-        value_states = value_states.view(batch, seq, self.num_kv_heads, self.head_dim).transpose(1, 2)
+        # reshape to (batch, seq, num_heads, head_dim)
+        query_states = query_states.view(batch, seq, self.num_q_heads, self.head_dim)
+        key_states = key_states.view(batch, seq, self.num_kv_heads, self.head_dim)
+        value_states = value_states.view(batch, seq, self.num_kv_heads, self.head_dim)
+
+        # qwen3.5 per-head qk norm: RMSNorm over head_dim
+        if self.qk_norm and self.qk_norm_per_head:
+            query_states = self.q_norm(query_states)
+            key_states = self.k_norm(key_states)
+
+        # (batch, num_heads, seq, head_dim)
+        query_states = query_states.transpose(1, 2)
+        key_states = key_states.transpose(1, 2)
+        value_states = value_states.transpose(1, 2)
 
         cos, sin = position_embeddings
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
@@ -176,6 +209,7 @@ class GQA(nn.Module):
                 attn_mask=attention_mask,
                 dropout_p=self.attention_dropout if self.training else 0.0,
                 is_causal=attention_mask is None,
+                enable_gqa=self.num_kv_groups > 1,
             )
             if not GQA._printed_backend:
                 GQA._printed_backend = True
@@ -209,4 +243,7 @@ class GQA(nn.Module):
 
         # (batch, seq, embed_dim)
         out = out.transpose(1, 2).contiguous().view(batch, seq, -1)
+        # qwen3.5 query gate: scale the attention output by sigmoid(gate)
+        if self.query_gate:
+            out = out * torch.sigmoid(gate)
         return self.o_proj(out), current_kv

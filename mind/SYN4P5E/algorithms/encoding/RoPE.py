@@ -15,6 +15,13 @@ however at later positions it rotates too many circles and becomes indistinguish
 OlMo2 tweak: this module only *computes* cos/sin from position_ids.
 The actual rotation is done by apply_rotary_pos_emb in rope_utils.py.
 This matches the HF-style separation and makes KV-cache decoding easy.
+
+Qwen3.5 tweak: partial_rotary_factor < 1 rotates only the first
+int(dim * partial_rotary_factor) coordinates (Qwen3.5 uses 64 of 256 head dims);
+the remaining dims pass through untouched in apply_rotary_pos_emb.
+The inv_freq denominator uses the *rotary* dim, matching the HF checkpoint.
+(Qwen3.5's MRoPE interleaving of the 3 spatial grids is a no-op for text,
+so it is intentionally not implemented here.)
 '''
 
 import torch
@@ -22,30 +29,33 @@ import torch.nn as nn
 
 
 class RoPE(nn.Module):
-    def __init__(self, dim, max_seq_len=8192, base=10000.0):
+    def __init__(self, dim, max_seq_len=8192, base=10000.0, partial_rotary_factor=1.0):
         super().__init__()
         self.dim = dim
         self.max_seq_len = max_seq_len
         self.base = base
+        self.partial_rotary_factor = partial_rotary_factor
+        # number of leading coordinates that get rotated
+        self.rotary_dim = int(dim * partial_rotary_factor)
 
         # one freq per dimension pair
-        inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2, dtype=torch.float32) / dim))
+        inv_freq = 1.0 / (base ** (torch.arange(0, self.rotary_dim, 2, dtype=torch.float32) / self.rotary_dim))
         self.register_buffer('inv_freq', inv_freq, persistent=False)
 
     def forward(self, x, position_ids):
         """
         x:           (batch, seq_len, ...) -- only device/dtype is used
         position_ids:(batch, seq_len) integer positions
-        returns:     (cos, sin), each (batch, seq_len, dim)
+        returns:     (cos, sin), each (batch, seq_len, rotary_dim)
         """
-        # inv_freq: (dim//2)
+        # inv_freq: (rotary_dim//2)
         # position_ids: (batch, seq)
-        # freqs: (batch, seq, dim//2)
+        # freqs: (batch, seq, rotary_dim//2)
         freqs = torch.outer(position_ids.view(-1).float(), self.inv_freq)
         freqs = freqs.view(*position_ids.shape, -1)
 
-        # concat so cos/sin have full dim
-        emb = torch.cat([freqs, freqs], dim=-1)  # (batch, seq, dim)
+        # concat so cos/sin have full rotary dim
+        emb = torch.cat([freqs, freqs], dim=-1)  # (batch, seq, rotary_dim)
 
         cos = emb.cos().to(x.dtype)
         sin = emb.sin().to(x.dtype)

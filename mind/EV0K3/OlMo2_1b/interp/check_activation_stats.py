@@ -7,7 +7,7 @@ from mind.EV0K3.OlMo2_1b.run.loader import build_model_and_tokenizer
 from mind.SYN4P5E.train.data_to_loaders import BinUnsupervisedDataset
 from mind.SYN4P5E.train.simple_train import _to_cuda
 
-BIN_DIR = Path.cwd() / "mind" / "data" / "D4T4STEPS" / "tokenized" / "interp_dataset"
+BIN_DIR = Path.cwd() / "mind" / "data" / "D4T4STEPS" / "tokenized" / "olmo2_1b_interp_dataset"
 
 
 def main():
