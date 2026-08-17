@@ -9,6 +9,9 @@ Run from UTOPIAN-MINDFAB root as a module:
 import logging
 
 import torch
+from rich.console import Console
+from rich.live import Live
+from rich.markdown import Markdown
 
 from mind.EV0K3.Qwen3_5_4b.run.asy_prompt import asy_prompt
 from mind.EV0K3.Qwen3_5_4b.run.config import QWEN3_5_4B_CONFIG
@@ -29,6 +32,8 @@ ENABLE_THINKING = False
 
 # persistent system message; set to None to disable
 SYSTEM_PROMPT = asy_prompt
+
+console = Console()
 
 
 @torch.no_grad()
@@ -175,30 +180,29 @@ def main():
             (1, n_cached + len(delta)), dtype=torch.long, device=device
         )
 
-        # stream: re-decode the whole reply each step and print only the new
-        # text, so multi-token characters never get mangled
+        # stream: re-decode the whole reply each step and re-render it as
+        # markdown in place (re-decoding avoids mangling multi-token chars)
         prompt_len = delta_tensor.shape[-1]
-        printed = [0]
 
         def stream(generated):
             text = tokenizer.decode(generated[0][prompt_len:], skip_special_tokens=True)
-            print(text[printed[0]:], end="", flush=True)
-            printed[0] = len(text)
+            live.update(Markdown(text))
 
-        print("Bot: ", end="", flush=True)
-        outputs, past = generate(
-            model,
-            delta_tensor,
-            attention_mask,
-            max_new_tokens=MAX_NEW_TOKENS,
-            temperature=0.7,
-            top_p=0.9,
-            do_sample=True,
-            eos_token_ids=eos_token_ids,
-            past_key_values=past,
-            on_token=stream,
-        )
-        print("\n")
+        console.print("Bot: ", end="")
+        with Live(Markdown(""), console=console, refresh_per_second=12) as live:
+            outputs, past = generate(
+                model,
+                delta_tensor,
+                attention_mask,
+                max_new_tokens=MAX_NEW_TOKENS,
+                temperature=0.7,
+                top_p=0.9,
+                do_sample=True,
+                eos_token_ids=eos_token_ids,
+                past_key_values=past,
+                on_token=stream,
+            )
+        console.print()
 
         # close the turn: the final sampled token was never fed (generation
         # stops when it is produced), and if the model hit the cap without

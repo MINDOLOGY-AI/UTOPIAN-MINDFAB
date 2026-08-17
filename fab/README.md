@@ -20,9 +20,10 @@ Compute Autorent (i.e. AutoDL): Tool Calls to rent compute
 
 # thoughtgraph  
 
-a md files manager with  
+a (.md) files graph viewer and accessm manager with purely a json and associated tools  
 to be the shared external memory of myself and all the agents  
 all knowledge should be supported by evidence and previous knowledge.  
+
 
 # chat  
 
@@ -57,3 +58,11 @@ experiment with just a FLAT LIST view rather than graphs for CLI? no thoughtgrap
 
 then a paid tier where i rent AWS on their behalf: each paying user gets a docker to run all their agents. NO size limits or compute limits — way too difficult to enforce.  
 the real draw is human-human collaboration: paid accounts can talk to each other and collaborate on thoughtgraph.  
+
+
+
+
+
+
+
+

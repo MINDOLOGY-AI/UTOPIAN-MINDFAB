@@ -1,5 +1,5 @@
 '''
-RMSnorm scales by sqrt(n) and then multiplies by a learnable weight.
+RMSnorm scales by sqrt(n) and then scales by weight per coordinate.
 RMS is applied at the token level across the embed_dim. the total would be sqrt(n)*gamma rather than normal norm would be 1.
 without gamma the mean(x_norm^2) = 1
 RMS(x) = sqrt (1/n * sum(x^2)) * gamma
@@ -31,8 +31,8 @@ class RMSNorm(nn.Module):
         if self.cast_to_float32 and x.dtype != torch.float32:
             x = x.to(torch.float32)
 
-        variance = x.pow(2).mean(-1, keepdim=True)
-        x_norm = x * torch.rsqrt(variance + self.eps)
+        variance = x.pow(2).mean(-1, keepdim=True) # not technically variance
+        x_norm = x * torch.rsqrt(variance + self.eps) #reciprocal square root
 
         # OlMo2 multiplies weight before dtype conversion
         # Qwen3.5 centers the weight around 1 instead
@@ -42,5 +42,3 @@ class RMSNorm(nn.Module):
             out = self.weight * x_norm
         return out.to(input_dtype)
 
-    def extra_repr(self):
-        return f"{tuple(self.weight.shape)}, eps={self.eps}, cast_to_float32={self.cast_to_float32}, centered={self.centered}"
