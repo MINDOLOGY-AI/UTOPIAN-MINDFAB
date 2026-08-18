@@ -10,9 +10,11 @@ Built from the generic primitives in SYN4P5E/algorithms:
 - encoding.mask.create_olmo_causal_mask
 
 Architecture toggles are driven by the config object:
-- pre_norm / post_norm
 - qk_norm / use_flash_attention
 - mlp_bias / separate_gate_up_proj
+
+OlMo2 itself is always post-norm: norms are applied to sub-layer outputs
+inside the residual branch, no config flag.
 '''
 
 import torch
@@ -31,8 +33,6 @@ class Olmo2DecoderLayer(nn.Module):
         super().__init__()
         self.config = config
         self.hidden_size = config.hidden_size
-        self.pre_norm = config.pre_norm
-        self.post_norm = config.post_norm
 
         self.self_attn = GQA(
             embed_dim=config.hidden_size,
@@ -54,52 +54,31 @@ class Olmo2DecoderLayer(nn.Module):
             separate_gate_up_proj=config.separate_gate_up_proj,
         )
 
-        # allocate norm layers based on config flags
-        # OlMo2 uses post-norm, but we support pre-norm too for experimentation
-        if config.post_norm:
-            self.post_attention_layernorm = RMSNorm(
-                config.hidden_size, eps=config.rms_norm_eps, cast_to_float32=config.cast_norm_to_float32
-            )
-            self.post_feedforward_layernorm = RMSNorm(
-                config.hidden_size, eps=config.rms_norm_eps, cast_to_float32=config.cast_norm_to_float32
-            )
-        else:
-            self.post_attention_layernorm = None
-            self.post_feedforward_layernorm = None
-
-        if config.pre_norm:
-            self.pre_attention_layernorm = RMSNorm(
-                config.hidden_size, eps=config.rms_norm_eps, cast_to_float32=config.cast_norm_to_float32
-            )
-            self.pre_feedforward_layernorm = RMSNorm(
-                config.hidden_size, eps=config.rms_norm_eps, cast_to_float32=config.cast_norm_to_float32
-            )
-        else:
-            self.pre_attention_layernorm = None
-            self.pre_feedforward_layernorm = None
+        # OlMo2 is post-norm: the norm sits inside the residual branch,
+        # applied to the sub-layer output before the residual add
+        self.post_attention_layernorm = RMSNorm(
+            config.hidden_size, eps=config.rms_norm_eps, cast_to_float32=config.cast_norm_to_float32
+        )
+        self.post_feedforward_layernorm = RMSNorm(
+            config.hidden_size, eps=config.rms_norm_eps, cast_to_float32=config.cast_norm_to_float32
+        )
 
     def forward(self, hidden_states, attention_mask, position_embeddings, past_key_value=None):
         # attention branch
         residual = hidden_states
-        if self.pre_norm:
-            hidden_states = self.pre_attention_layernorm(hidden_states)
         attn_output, present_kv = self.self_attn(
             hidden_states,
             position_embeddings=position_embeddings,
             attention_mask=attention_mask,
             past_key_value=past_key_value,
         )
-        if self.post_norm:
-            attn_output = self.post_attention_layernorm(attn_output)
+        attn_output = self.post_attention_layernorm(attn_output)
         hidden_states = residual + attn_output
 
         # mlp branch
         residual = hidden_states
-        if self.pre_norm:
-            hidden_states = self.pre_feedforward_layernorm(hidden_states)
         mlp_output = self.mlp(hidden_states)
-        if self.post_norm:
-            mlp_output = self.post_feedforward_layernorm(mlp_output)
+        mlp_output = self.post_feedforward_layernorm(mlp_output)
         hidden_states = residual + mlp_output
 
         return hidden_states, present_kv

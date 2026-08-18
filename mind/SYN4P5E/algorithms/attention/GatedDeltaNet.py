@@ -30,24 +30,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
-class RMSNormGated(nn.Module):
-    # gated RMSNorm used inside the Gated DeltaNet block:
-    # out = rmsnorm(x) * weight * silu(gate)
-    def __init__(self, hidden_size, eps=1e-6):
-        super().__init__()
-        self.weight = nn.Parameter(torch.ones(hidden_size))
-        self.variance_epsilon = eps
-
-    def forward(self, hidden_states, gate):
-        # hidden_states, gate: (..., hidden_size)
-        input_dtype = hidden_states.dtype
-        hidden_states = hidden_states.to(torch.float32)
-        variance = hidden_states.pow(2).mean(-1, keepdim=True)
-        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
-        hidden_states = self.weight * hidden_states.to(input_dtype)
-        hidden_states = hidden_states * F.silu(gate.to(torch.float32))
-        return hidden_states.to(input_dtype)
+from ..basic.RMSnorm import RMSNorm
 
 
 def torch_causal_conv1d_update(hidden_states, conv_state, weight, bias=None, activation=None):
@@ -295,7 +278,7 @@ class GatedDeltaNet(nn.Module):
         A = torch.empty(self.num_v_heads).uniform_(0, 16)
         self.A_log = nn.Parameter(torch.log(A))
 
-        self.norm = RMSNormGated(self.head_v_dim, eps=self.layer_norm_epsilon)
+        self.norm = RMSNorm(self.head_v_dim, eps=self.layer_norm_epsilon)
         self.out_proj = nn.Linear(self.value_dim, self.hidden_size, bias=False)
 
         self.in_proj_qkv = nn.Linear(
@@ -404,10 +387,10 @@ class GatedDeltaNet(nn.Module):
         if cache_params is not None:
             cache_params.update_recurrent_state(last_recurrent_state, self.layer_idx)
 
-        # gated RMSNorm against z, per v-head
+        # per-head RMSNorm gated by z (silu valve on the way out)
         core_attn_out = core_attn_out.reshape(-1, self.head_v_dim)
         z = z.reshape(-1, self.head_v_dim)
-        core_attn_out = self.norm(core_attn_out, z)
+        core_attn_out = self.norm(core_attn_out) * F.silu(z)
         core_attn_out = core_attn_out.reshape(batch_size, seq_len, -1)
 
         output = self.out_proj(core_attn_out)  # (batch, seq_len, hidden_size)

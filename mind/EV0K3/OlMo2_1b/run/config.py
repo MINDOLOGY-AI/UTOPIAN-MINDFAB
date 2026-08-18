@@ -48,10 +48,6 @@ class Olmo2Config:
     use_cache: bool = True
 
     # architecture toggles: lets us reuse the same primitives across models
-    # pre/post-norm per layer
-    pre_norm: bool = False
-    post_norm: bool = True
-
     # attention extras
     qk_norm: bool = True
     use_flash_attention: bool = False

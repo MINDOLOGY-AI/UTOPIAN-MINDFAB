@@ -1,10 +1,13 @@
 # low sample continual earning  
 
-the most important capability gap between llms and humans  
+being able to learn information from low data like in context learning but in weights without catastrphoic forgetting is the most important capability gap between llms and humans  
+
+(by the way, context rot is fundementally the same problem, if model can learn important context into weights it won't forget information evreytime it compresses)  
 
 if the llm has sth in it's context it didnt know before, from a simple fact to a complex skill, when the context is wiped, it will forget it.  
 
 for example if i tell it some user preference like "i like eating apples" or some coding project information it has no way to remember it  
+
 
 this seems weird, cause llms can solve advanced open math problems but they cannot permanently remember simple facts from a single sentence without significantly destroying their own abilities (catastrphoic forgetting)  
 
