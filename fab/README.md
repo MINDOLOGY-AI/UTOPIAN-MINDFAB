@@ -1,7 +1,11 @@
 # fab  
 my own AI workflow. i should use this exclusively for everything (doc writing, chatting, coding, video making) and not other chat / agent wrappers.   
+
 i want to see minds build better minds in a factory game like UI.  
+
 an external memory + a computer use wrapper + agent chat   
+
+MUST BE < 10 K LOC. do not make this overcomplicated.  
 
 # interface  
 
@@ -58,11 +62,5 @@ experiment with just a FLAT LIST view rather than graphs for CLI? no thoughtgrap
 
 then a paid tier where i rent AWS on their behalf: each paying user gets a docker to run all their agents. NO size limits or compute limits — way too difficult to enforce.  
 the real draw is human-human collaboration: paid accounts can talk to each other and collaborate on thoughtgraph.  
-
-
-
-
-
-
 
 
