@@ -1,0 +1,147 @@
+$ cd /tmp/cfmb && sed -n 495,640p src/datasets.py
+            target_for_eval=target_for_eval,
+        ))
+        global_sample_id += 1
+
+    if 'mix' in task_mode:
+        ratio = kwargs.get('mix_ratio', 1.0)
+        mix_num_datapoints = int(len(datapoints) * ratio)
+        mix_datapoints = get_add_mixing_datapoints(dataset_name, mix_num_datapoints, task_mode)
+        datapoints += mix_datapoints
+    print(f'Total datapoints available for {dataset_name}: {len(datapoints)}')
+    return datapoints
+
+
+def get_add_mixing_datapoints(dataset_name, mix_num_datapoints, task_mode):
+    mix_datapoints = []
+
+    if 'knowledge-pile' in task_mode:
+        mixing_dataset_name = [t for t in task_mode if 'knowledge-pile' in t][0]
+        mix_datapoints += load_the_pile(mixing_dataset_name)
+    elif 'arxiv-pile' in task_mode:
+        mixing_dataset_name = [t for t in task_mode if 'arxiv-pile' in t][0]
+        mix_datapoints += load_the_pile(mixing_dataset_name)
+    elif 'fineweb' in task_mode:
+        mix_datapoints += load_fineweb('fineweb')
+    elif 'random-pretraining' in task_mode:
+        mix_datapoints += load_random_pretraining(dataset_name)
+    else:
+        raise ValueError(f'Invalid task_mode: {task_mode}')
+    random.shuffle(mix_datapoints)
+    mix_datapoints = mix_datapoints[:mix_num_datapoints]
+    return mix_datapoints
+
+
+def load_the_pile(dataset_name, **kwargs):
+    """
+    This is only used for mixing. Won't be used as A/B/C datasets.
+    """
+    global global_sample_id
+    task_mode = kwargs.get('task_mode', 'none')
+    task_mode = task_mode.split('+')
+    
+    if dataset_name == 'knowledge-pile':
+        dataset = load_from_disk(Path(DATA_DIR) / 'Query-of-CC/Knowledge_Pile')
+    elif dataset_name == 'arxiv-pile':
+        dataset = load_from_disk(Path(DATA_DIR) / 'haritzpuerto/the_pile_arxiv_50k_sample')
+    else:
+        raise ValueError(f'Invalid dataset_name: {dataset_name}')
+
+    datapoints = []
+    dataset = dataset['train'].select(range(20000))
+    for datapoint in dataset:
+        if dataset_name == 'knowledge-pile':
+            text = datapoint['content']
+        elif dataset_name == 'arxiv-pile':
+            text = datapoint['text']
+        
+        tokens = text.split()
+        if len(tokens) < 100:
+            continue
+
+        input_text = ' '.join(tokens[:50])
+        input_text = 'Complete the following partial passage:\n\n' + input_text
+        target_text = ' '.join(tokens[50:100])
+        messages = [
+            dict(role='user', content=input_text),
+            dict(role='assistant', content=target_text),
+        ]
+        datapoints.append(Datapoint(
+            sample_id=global_sample_id,
+            group_name=dataset_name,
+            messages=messages,
+            input_text=input_text,
+            target_text=target_text,
+        ))
+        global_sample_id += 1
+    print(f'Total datapoints available for {dataset_name}: {len(datapoints)}')
+    return datapoints
+
+
+def load_fineweb(dataset_name, **kwargs):
+    global global_sample_id
+    task_mode = kwargs.get('task_mode', 'none')
+    task_mode = task_mode.split('+')
+
+    dataset = load_from_disk(Path(DATA_DIR) / 'kh4dien/fineweb-100m-sample')
+    datapoints = []
+    for datapoint in dataset['train'].select(range(20000)):
+        text = datapoint['text']
+        tokens = text.split()
+        if len(tokens) < 100:
+            continue
+
+        input_text = ' '.join(tokens[:50])
+        input_text = 'Complete the following partial passage:\n\n' + input_text
+        target_text = ' '.join(tokens[50:100])
+        messages = [
+            dict(role='user', content=input_text),
+            dict(role='assistant', content=target_text),
+        ]
+        datapoints.append(Datapoint(
+            sample_id=global_sample_id,
+            group_name=dataset_name,
+            messages=messages,
+            input_text=input_text,
+            target_text=target_text,
+        ))
+        global_sample_id += 1
+    print(f'Total datapoints available for {dataset_name}: {len(datapoints)}')
+    return datapoints
+
+
+def load_random_pretraining(dataset_name, **kwargs):
+    task_mode = kwargs.get('task_mode', 'none')
+    task_mode = task_mode.split('+')
+
+    if len(task_mode) > 1:
+        num_words = task_mode[1]
+        path = Path(DATA_DIR) / f'random_pretraining_{num_words}.jsonl'
+    else:
+        path = Path(DATA_DIR) / 'random_pretraining.jsonl'
+
+    with open(path, 'r') as f:
+        dataset = [json.loads(line) for line in f]
+    
+    datapoints = []
+    for datapoint in dataset:
+        datapoint_idx = datapoint['datapoint_idx']
+        input_text = datapoint['input_text']
+        target_text = datapoint['target_text']
+        messages = [
+            dict(role='user', content=input_text),
+            dict(role='assistant', content=target_text),
+        ]
+        datapoints.append(Datapoint(
+            sample_id=datapoint_idx,
+            group_name=dataset_name,
+            messages=messages,
+            input_text=input_text,
+            target_text=target_text,
+        ))
+    return datapoints
+
+
+prefix_datapoints = None
+def random_prefix_collator(batch, finetuning_data_manager):
+    global prefix_datapoints

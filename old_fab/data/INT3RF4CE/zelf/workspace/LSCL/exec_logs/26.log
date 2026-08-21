@@ -1,0 +1,121 @@
+$ cd /home/agent/UTOPIAN-MINDFAB && sed -n 1,120p mind/SYN4P5E/algorithms/transformer/olmo2.py
+'''
+OlMo2 decoder-only causal LM.
+
+Built from the generic primitives in SYN4P5E/algorithms:
+- basic.RMSnorm.RMSNorm
+- encoding.RoPE.RoPE
+- encoding.rope_utils.apply_rotary_pos_emb
+- attention.GQA.GQA
+- basic.gatedMLP.GatedMLP
+- encoding.mask.create_olmo_causal_mask
+
+Architecture toggles are driven by the config object:
+- pre_norm / post_norm
+- qk_norm / use_flash_attention
+- mlp_bias / separate_gate_up_proj
+'''
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from ..basic.RMSnorm import RMSNorm
+from ..basic.gatedMLP import GatedMLP
+from ..encoding.RoPE import RoPE
+from ..encoding.mask import create_olmo_causal_mask
+from ..attention.GQA import GQA
+
+
+class Olmo2DecoderLayer(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.hidden_size = config.hidden_size
+        self.pre_norm = config.pre_norm
+        self.post_norm = config.post_norm
+
+        self.self_attn = GQA(
+            embed_dim=config.hidden_size,
+            num_q_heads=config.num_attention_heads,
+            num_kv_heads=config.num_key_value_heads,
+            head_dim=config.head_dim,
+            max_seq_len=config.max_position_embeddings,
+            attention_bias=config.attention_bias,
+            attention_dropout=config.attention_dropout,
+            qk_norm=config.qk_norm,
+            rms_norm_eps=config.rms_norm_eps,
+            use_flash=config.use_flash_attention,
+        )
+
+        self.mlp = GatedMLP(
+            hidden_size=config.hidden_size,
+            intermediate_size=config.intermediate_size,
+            bias=config.mlp_bias,
+            separate_gate_up_proj=config.separate_gate_up_proj,
+        )
+
+        # allocate norm layers based on config flags
+        # OlMo2 uses post-norm, but we support pre-norm too for experimentation
+        if config.post_norm:
+            self.post_attention_layernorm = RMSNorm(
+                config.hidden_size, eps=config.rms_norm_eps, cast_to_float32=config.cast_norm_to_float32
+            )
+            self.post_feedforward_layernorm = RMSNorm(
+                config.hidden_size, eps=config.rms_norm_eps, cast_to_float32=config.cast_norm_to_float32
+            )
+        else:
+            self.post_attention_layernorm = None
+            self.post_feedforward_layernorm = None
+
+        if config.pre_norm:
+            self.pre_attention_layernorm = RMSNorm(
+                config.hidden_size, eps=config.rms_norm_eps, cast_to_float32=config.cast_norm_to_float32
+            )
+            self.pre_feedforward_layernorm = RMSNorm(
+                config.hidden_size, eps=config.rms_norm_eps, cast_to_float32=config.cast_norm_to_float32
+            )
+        else:
+            self.pre_attention_layernorm = None
+            self.pre_feedforward_layernorm = None
+
+    def forward(self, hidden_states, attention_mask, position_embeddings, past_key_value=None):
+        # attention branch
+        residual = hidden_states
+        if self.pre_norm:
+            hidden_states = self.pre_attention_layernorm(hidden_states)
+        attn_output, present_kv = self.self_attn(
+            hidden_states,
+            position_embeddings=position_embeddings,
+            attention_mask=attention_mask,
+            past_key_value=past_key_value,
+        )
+        if self.post_norm:
+            attn_output = self.post_attention_layernorm(attn_output)
+        hidden_states = residual + attn_output
+
+        # mlp branch
+        residual = hidden_states
+        if self.pre_norm:
+            hidden_states = self.pre_feedforward_layernorm(hidden_states)
+        mlp_output = self.mlp(hidden_states)
+        if self.post_norm:
+            mlp_output = self.post_feedforward_layernorm(mlp_output)
+        hidden_states = residual + mlp_output
+
+        return hidden_states, present_kv
+
+
+class Olmo2Model(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.vocab_size = config.vocab_size
+        self.padding_idx = config.pad_token_id
+
+        self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
+        self.layers = nn.ModuleList([Olmo2DecoderLayer(config) for _ in range(config.num_hidden_layers)])
+        self.norm = RMSNorm(
+            config.hidden_size, eps=config.rms_norm_eps, cast_to_float32=config.cast_norm_to_float32
+        )
+        self.rotary_emb = RoPE(

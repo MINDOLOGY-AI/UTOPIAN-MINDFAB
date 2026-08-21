@@ -1,0 +1,64 @@
+$ cd /tmp/cfmb && grep -n "def \|accuracy\|exact" src/run_eval.py | head -40 && sed -n 1,60p src/run_eval.py
+64:def parse_qa_pred_and_gold(pred_text, gold_text):
+75:def parse_con_pred_and_gold(pred_text, gold_text):
+81:def parse_gsm8k_pred_and_gold(pred_text, gold_text):
+"""
+python -m src.run_eval --dataset_name kvr --dataset_name_B none --model_name ${model_name} --verbose
+"""
+import re
+import os
+import gc
+import yaml
+import json
+import random
+import argparse
+from pathlib import Path
+from tqdm import tqdm
+from rich import print
+import torch
+from torch.utils.data import DataLoader, SequentialSampler
+import transformers
+from transformers import logging
+from transformers import AutoTokenizer, AutoModelForCausalLM
+from rouge_score import rouge_scorer
+
+from src.core.data.sft import FinetuningDataManager
+from src.config import RUN_BASE_DIR
+
+logging.set_verbosity_error()
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--seed', type=int, default=0)
+parser.add_argument('--run_base_dir', type=str, default=RUN_BASE_DIR)
+parser.add_argument('--max_seq_length', type=int, default=8000)
+parser.add_argument('--train_num_examples', type=int, default=0)
+parser.add_argument('--dev_num_examples', type=int, default=2000)
+parser.add_argument('--batch_size', type=int, default=20)
+parser.add_argument('--stopping_condition', type=str, default='sc=loss')
+
+parser.add_argument('--base_model_name', type=str, default='llama-3-8b')
+parser.add_argument('--dataset_name', type=str, default=None)
+parser.add_argument('--dataset_name_B', type=str, default='none')
+parser.add_argument('--add_icl', action='store_true')
+parser.add_argument('--verbose', action='store_true')
+parser.add_argument('--task_mode', type=str, default='none', choices=['none', 'qa_multiple_choice+eval'])
+parser.add_argument('--mix_ratio', type=float, default=-1.0)
+parser.add_argument('--mixd', type=str, default='none')
+parser.add_argument('--bsz', type=str, default=-1)
+parser.add_argument('--mix_ratio_B', type=float, default=-1.0)
+parser.add_argument('--mixd_B', type=str, default='none')
+parser.add_argument('--bsz_B', type=str, default=-1)
+parser.add_argument('--model_name', type=str, default=None)
+parser.add_argument('--eval_known', action='store_true')
+parser.add_argument('--save_results', action='store_true')
+parser.add_argument('--base_format', action='store_true')
+args = parser.parse_args()
+
+generation_config = dict(
+    do_sample=False,
+    max_new_tokens=1000,
+    num_return_sequences=1,
+    temperature=1.0,
+    top_p=1.0,

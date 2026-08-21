@@ -1,0 +1,43 @@
+$ cd /home/agent/UTOPIAN-MINDFAB && cat mind/D4T4STEPS/README.md && echo ==== && cat mind/D4T4STEPS/config.py && echo ==== && cat mind/D4T4STEPS/benchmarks/README.md && echo ==== && cat mind/D4T4STEPS/benchmarks/utopiaBench/README.md
+# internal data standards  
+
+--DOCSPLIT-- as the file seperator in txts we download. need to pick up in txt -> bin step. 
+====
+from pathlib import Path
+
+HF_MIRROR = "https://hf-mirror.com"
+OUTPUT_DIR = Path.cwd() / "mind" / "data" / "D4T4STEPS" / "txt" / "interp_dataset"
+
+TARGETS = {
+    "dclm_baseline":      300_000_000,
+    "starcoder_python":    40_000_000,
+    "starcoder_cpp":       40_000_000,
+    "starcoder_html":      40_000_000,
+    "starcoder_css":       40_000_000,
+    "starcoder_javascript": 40_000_000,
+    "wikipedia_en":       100_000_000,
+    "openwebmath":        150_000_000,
+    "arxiv":              100_000_000,
+    "tulu3_sft":          150_000_000,
+}
+
+TOTAL_TARGET = sum(TARGETS.values())
+assert TOTAL_TARGET == 1_000_000_000, f"targets must sum to 1B, got {TOTAL_TARGET:,}"
+====
+# benchmarks  
+benchmarks, original and foreign, and associated code to standadize benchmarking various models  
+
+overall this should match the curriculum and absolutely not overlap with D4TA5TEPS.  
+
+very important for continual learning. as we need to use these general benchmarks to test catatrophic forgetting.  
+
+also just a great thing to have on my website to draw people to it. great for having a comprehensive comparison of models. and also single model cross quant levels.  
+
+
+
+====
+private benchmark testing how much llms align to utopian ideals  
+
+various questions on morality from basic western cannon to elvish engineering, s risk prevention, ubi, etc.  
+
+each question will be asked in various tones and scenarios. maybe just ask model to rank 1-10 how much they agree with the value system.  

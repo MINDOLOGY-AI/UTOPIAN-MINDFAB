@@ -1,0 +1,7 @@
+[
+  {
+    "name": "LSCL_lab",
+    "ssh_command": "ssh -p 20068 root@connect.weste.seetacloud.com",
+    "password": "iVoAUdVqGtxD"
+  }
+]

@@ -1,0 +1,47 @@
+$ cd /home/agent/UTOPIAN-MINDFAB && ls mind/ && echo ==== && ls mind/SYN4P5E/ && echo ==== && ls mind/SYN4P5E/algorithms/ && echo ==== && cat common_commands.md && echo ==== && cat requirements.txt
+D4T4STEPS
+EV0K3
+EXPERIMENTAL
+INT3RPV1Z
+PR1MY
+README.md
+SYN4P5E
+TODO.md
+original_research
+results
+====
+DOC.md
+README.md
+algorithms
+interp
+neuromorphic
+peripherals
+probes
+train
+====
+__init__.py
+attention
+basic
+encoding
+transformer
+====
+# Run these from YOUR LAPTOP (in ~/Desktop/UTOPIAN-MINDFAB/):
+
+scp -P 29202 -r mind/weights/ root@connect.westb.seetacloud.com:~/autodl-tmp/UTOPIAN-MINDFAB/mind/weights/
+
+scp -P 29202 -r mind/data/D4T4STEPS/tokenized/ root@connect.westb.seetacloud.com:~/autodl-tmp/UTOPIAN-MINDFAB/mind/data/D4T4STEPS/
+
+====
+torch
+torchvision
+
+transformers
+
+matplotlib
+
+textual
+
+fastapi
+uvicorn
+httpx
+websockets

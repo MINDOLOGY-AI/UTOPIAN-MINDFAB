@@ -1,0 +1,7 @@
+$ ls -la /home/agent/UTOPIAN-MINDFAB/mind/EXPERIMENTAL/ && cat /home/agent/UTOPIAN-MINDFAB/mind/EXPERIMENTAL/* 2>/dev/null | head -40
+total 12
+drwxr-xr-x  2 root root 4096 Aug 11 05:56 .
+drwxr-xr-x 10 root root 4096 Aug 11 05:56 ..
+-rw-r--r--  1 root root  207 Aug 11 05:56 README.md
+# experimental   
+this folder is for experimental architectures that might be good or bad. put this in here. finish the experiment. then i will decide whether to integrate it into synapse formally or not.  

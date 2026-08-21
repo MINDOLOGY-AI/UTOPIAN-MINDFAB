@@ -1,0 +1,57 @@
+/* grayscale & pastel */
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&display=swap');
+
+:root {
+  --background: #1a1a1a;
+  --component: #323232;
+  --border: #808080;
+  --text: #FFFFFF;
+
+  --pink: #ffcad4;
+  --green: #77dd77;
+  --lavender: #B8A0FF;
+  --blue: #6BC4FF;
+  --orange:#ffc067;
+  --red: #ff6961;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  min-height: 100vh;
+  /* to make text big and cause im 21 when writing this */
+  font-size: 21px;
+  font-family: 'Space Grotesk', sans-serif;
+  display: flex;
+  background-color: var(--background);
+  color: var(--text);
+  /* for no horizontal scroll bar */
+  overflow-x: hidden;
+}
+
+body {
+  padding: 0.5rem;
+}
+
+ul {
+  list-style: none;
+}
+
+a {
+  text-decoration: none;
+  color: var(--blue);
+}
+
+a:visited {
+  color: var(--blue);
+}
+
+a:hover {
+  color: var(--lavender);
+}

@@ -1,0 +1,12 @@
+{
+  "dm-LSCL": {
+    "id": "dm-LSCL",
+    "name": "LSCL",
+    "members": [
+      "__user__",
+      "LSCL"
+    ],
+    "dm": true,
+    "created": 1786427245.4042163
+  }
+}

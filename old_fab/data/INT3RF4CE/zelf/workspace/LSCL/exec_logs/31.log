@@ -1,0 +1,151 @@
+$ cd /home/agent/UTOPIAN-MINDFAB && cat mind/SYN4P5E/algorithms/basic/gatedMLP.py mind/SYN4P5E/algorithms/basic/RMSnorm.py mind/SYN4P5E/algorithms/encoding/RoPE.py mind/SYN4P5E/algorithms/encoding/mask.py 2>/dev/null | head -150
+'''
+gated mlp has double the parameters in the first half. one gate and one up. chunked together for parallelism.
+first half function:
+hidden = sigmoid(gate) * gate * up
+think of it like the gate part deciding IF and the up part deciding WHAT. they can target DIFFERENT PARTS OF THE ACTIVATION.
+for example, say a two dimensional vector, i want to pass coordinate_2 through IF coordinate_1 is positive:
+in a traditional single no gate MLP this would be impossible:
+[0,1] : misses coordinate_1 conditional. [1,0]: misses coordinate_2 value. [1,1]: mixes values of coordinate_1 and coordinate_2.
+but in swiglu:
+gate: [1 , 0]. up : [0,1]. this passes through value of coordinate_2 IF coordinate_1 is positive.
+
+it is sigmoid(gate) * gate * up rather than sigmoid (gate) * up due to the potential for gate to amplify the up.
+
+OlMo2 tweaks:
+- separate gate_proj / up_proj by default so HF weight names map directly.
+- optional fused gate_up_proj if you want fewer params (set separate_gate_up_proj=False).
+- bias is configurable (OlMo2 uses False).
+'''
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+class GatedMLP(nn.Module):
+    def __init__(
+        self,
+        hidden_size=3072,
+        intermediate_size=8192,
+        bias=False,
+        separate_gate_up_proj=True,
+    ):
+        super().__init__()
+        self.separate_gate_up_proj = separate_gate_up_proj
+
+        if separate_gate_up_proj:
+            self.gate_proj = nn.Linear(hidden_size, intermediate_size, bias=bias)
+            self.up_proj = nn.Linear(hidden_size, intermediate_size, bias=bias)
+        else:
+            self.gate_up_proj = nn.Linear(hidden_size, 2 * intermediate_size, bias=bias)
+
+        self.down_proj = nn.Linear(intermediate_size, hidden_size, bias=bias)
+
+    def forward(self, x):
+        # x: (batch, seq, hidden_size)
+        if self.separate_gate_up_proj:
+            gate = self.gate_proj(x)
+            up = self.up_proj(x)
+        else:
+            gate_up = self.gate_up_proj(x)
+            gate, up = gate_up.chunk(2, dim=-1)
+
+        # SiLU(gate) * up - this is the gating
+        hidden = F.silu(gate) * up
+        out = self.down_proj(hidden)
+        return out
+'''
+RMSnorm scales by sqrt(n) and then multiplies by a learnable weight.
+RMS is applied at the token level across the embed_dim. the total would be sqrt(n)*gamma rather than normal norm would be 1.
+without gamma the mean(x_norm^2) = 1
+RMS(x) = sqrt (1/n * sum(x^2)) * gamma
+
+OlMo2 tweak: cast to float32 for numerical stability, multiply by weight,
+then cast back to the input dtype.
+'''
+
+import torch
+import torch.nn as nn
+
+
+class RMSNorm(nn.Module):
+    def __init__(self, dim, eps=1e-6, cast_to_float32=True):
+        super().__init__()
+        self.eps = eps
+        self.cast_to_float32 = cast_to_float32
+        self.weight = nn.Parameter(torch.ones(dim))
+
+    def forward(self, x):
+        # x: (batch, seq, dim)
+        input_dtype = x.dtype
+        if self.cast_to_float32 and x.dtype != torch.float32:
+            x = x.to(torch.float32)
+
+        variance = x.pow(2).mean(-1, keepdim=True)
+        x_norm = x * torch.rsqrt(variance + self.eps)
+
+        # OlMo2 multiplies weight before dtype conversion
+        out = self.weight * x_norm
+        return out.to(input_dtype)
+
+    def extra_repr(self):
+        return f"{tuple(self.weight.shape)}, eps={self.eps}, cast_to_float32={self.cast_to_float32}"
+'''
+RoPE (Rotary Positional Encoding) is a positional encoding used on the Q and K vectors per layer.
+smaller embed coordinate rotate faster and larger sentence pos rotates more
+the formula is for angle to rotate by is:
+theta_p,d = p * 1.0 / (base ** (2d/D))
+we rotate by dimension pairs so each even dimension is the x and each odd dimension is the y. we rotate with the cos and sin rotation matrix.
+a benefit of this is dot product only sees the difference in angles. at the same embed coordinate pair, the angle difference between pos 100 and 98 is the same difference as pos 5 and 3.
+Qrot dot Krot = |Q||K|cos(theta_original + a - b)
+theta_original is the unrotated angle between Q and K. a is angle of how Q is rotated and b is angle of how K is rotated.
+a = pos_a * inv_freq, b = pos_b * inv_freq, so a - b = (pos_a - pos_b) * inv_freq. so it is only determined by the difference in positions.
+
+earlier coordinates have larger inv_freq so rotate faster, more useful for earlier positions
+however at later positions it rotates too many circles and becomes indistinguishable for the model so we rely on latter coordinates with smaller inv_freq to maintain distinctiveness.
+
+OlMo2 tweak: this module only *computes* cos/sin from position_ids.
+The actual rotation is done by apply_rotary_pos_emb in rope_utils.py.
+This matches the HF-style separation and makes KV-cache decoding easy.
+'''
+
+import torch
+import torch.nn as nn
+
+
+class RoPE(nn.Module):
+    def __init__(self, dim, max_seq_len=8192, base=10000.0):
+        super().__init__()
+        self.dim = dim
+        self.max_seq_len = max_seq_len
+        self.base = base
+
+        # one freq per dimension pair
+        inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2, dtype=torch.float32) / dim))
+        self.register_buffer('inv_freq', inv_freq, persistent=False)
+
+    def forward(self, x, position_ids):
+        """
+        x:           (batch, seq_len, ...) -- only device/dtype is used
+        position_ids:(batch, seq_len) integer positions
+        returns:     (cos, sin), each (batch, seq_len, dim)
+        """
+        # inv_freq: (dim//2)
+        # position_ids: (batch, seq)
+        # freqs: (batch, seq, dim//2)
+        freqs = torch.outer(position_ids.view(-1).float(), self.inv_freq)
+        freqs = freqs.view(*position_ids.shape, -1)
+
+        # concat so cos/sin have full dim
+        emb = torch.cat([freqs, freqs], dim=-1)  # (batch, seq, dim)
+
+        cos = emb.cos().to(x.dtype)
+        sin = emb.sin().to(x.dtype)
+        return cos, sin
+'''
+Causal mask construction for decoder-only LMs.
+Supports optional padding masks and KV-cache offsets so generation works.
+
+Returns an additive mask: 0 means "attend", -inf means "ignore".
+Shape: (batch, 1, query_len, key_len) so it broadcasts over heads.

@@ -1,0 +1,18 @@
+$ cd /tmp/cfmb && cat scripts/prepare_data.sh && grep -n "random" src/datasets.py | head -20
+5:import random
+20:random.seed(0)
+112:                random.shuffle(target_candidates)
+519:    elif 'random-pretraining' in task_mode:
+520:        mix_datapoints += load_random_pretraining(dataset_name)
+523:    random.shuffle(mix_datapoints)
+606:def load_random_pretraining(dataset_name, **kwargs):
+612:        path = Path(DATA_DIR) / f'random_pretraining_{num_words}.jsonl'
+614:        path = Path(DATA_DIR) / 'random_pretraining.jsonl'
+639:def random_prefix_collator(batch, finetuning_data_manager):
+653:        prefix_datapoint = random.choice(prefix_datapoints)
+654:        prefix_text_length = random.randint(0, 50)
+682:def construct_random_option(
+688:    random.shuffle(target_candidates)
+712:            random.shuffle(target_candidates)
+745:    elif task_mode == 'random_prefix':
+746:        collator = functools.partial(random_prefix_collator, finetuning_data_manager=finetuning_data_manager)

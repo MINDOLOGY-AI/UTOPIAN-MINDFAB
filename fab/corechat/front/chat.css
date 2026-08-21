@@ -1,0 +1,99 @@
+#chat {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 900px;
+  height: 100vh;
+  margin: 0 auto;
+  gap: 0.5rem;
+}
+
+#msgs {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.5rem 0;
+}
+
+.msg {
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  background: var(--component);
+  font-size: 0.8rem;
+}
+
+.role {
+  font-size: 0.65rem;
+  color: var(--border);
+  margin-bottom: 0.2rem;
+}
+
+.content {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* thin blocks: reasoning, tool calls, tool results — collapsed until the label is clicked */
+.msg.thin {
+  background: transparent;
+  border-left: 3px solid var(--border);
+  font-size: 0.7rem;
+  color: var(--border);
+}
+
+.msg.thin .role {
+  cursor: pointer;
+}
+
+/* reasoning is still the agent talking — lavender like assistant */
+.msg.thin.reasoning {
+  border-left-color: var(--lavender);
+}
+
+.content.collapsed {
+  display: none;
+}
+
+.msg.user {
+  border-left: 3px solid var(--orange);
+}
+
+.msg.assistant {
+  border-left: 3px solid var(--lavender);
+}
+
+#composer {
+  display: flex;
+  gap: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+
+#input {
+  flex: 1;
+  resize: none;
+  height: 3rem;
+  padding: 0.5rem;
+  background: var(--component);
+  color: var(--text);
+  border: none;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.8rem;
+}
+
+#send {
+  padding: 0 1.5rem;
+  background: var(--component);
+  color: var(--text);
+  border: none;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#send:hover {
+  color: var(--lavender);
+}

@@ -1,0 +1,2 @@
+$ cd /home/agent/UTOPIAN-MINDFAB && rsync -avz --exclude='data/' --exclude='weights/' --exclude='__pycache__' -e "sshpass -p 'iVoAUdVqGtxD' ssh -o StrictHostKeyChecking=no -p 20068" mind/EXPERIMENTAL/ root@connect.weste.seetacloud.com:/root/UTOPIAN-MINDFAB/mind/EXPERIMENTAL/ 2>&1 | tail -5
+bash: line 1: rsync: command not found

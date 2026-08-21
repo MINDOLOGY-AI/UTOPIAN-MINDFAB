@@ -1,0 +1,1 @@
+a neural computer that could be conscious

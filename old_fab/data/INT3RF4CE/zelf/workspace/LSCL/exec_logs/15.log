@@ -1,0 +1,21 @@
+$ cd /home/agent/UTOPIAN-MINDFAB && find mind/D4T4STEPS -type f | head -40 && echo ==== && cat mind/PR1MY/README.md 2>/dev/null | head -40
+mind/D4T4STEPS/README.md
+mind/D4T4STEPS/download_scripts/__init__.py
+mind/D4T4STEPS/download_scripts/interp_dataset/starcoder.py
+mind/D4T4STEPS/download_scripts/interp_dataset/wikipedia_en.py
+mind/D4T4STEPS/download_scripts/interp_dataset/dclm_baseline.py
+mind/D4T4STEPS/download_scripts/interp_dataset/download_all.py
+mind/D4T4STEPS/download_scripts/interp_dataset/utils.py
+mind/D4T4STEPS/download_scripts/interp_dataset/arxiv.py
+mind/D4T4STEPS/download_scripts/interp_dataset/openwebmath.py
+mind/D4T4STEPS/download_scripts/interp_dataset/tulu3_sft.py
+mind/D4T4STEPS/__init__.py
+mind/D4T4STEPS/config.py
+mind/D4T4STEPS/scripts/examine_tokenized.py
+mind/D4T4STEPS/scripts/tokenize_interp_dataset.py
+mind/D4T4STEPS/benchmarks/README.md
+mind/D4T4STEPS/benchmarks/utopiaBench/README.md
+====
+steps of:  
+
+capability, benchmark, data, algorithm, training, probes, gradually expanding weights and algorithms.  

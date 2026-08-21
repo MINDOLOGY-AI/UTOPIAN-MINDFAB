@@ -1,0 +1,15 @@
+$ cd /home/agent/UTOPIAN-MINDFAB && wc -l mind/SYN4P5E/algorithms/transformer/olmo2.py mind/SYN4P5E/algorithms/attention/GQA.py mind/SYN4P5E/algorithms/basic/*.py mind/SYN4P5E/algorithms/encoding/*.py mind/SYN4P5E/train/data_to_loaders.py mind/SYN4P5E/peripherals/tokenizer.py mind/SYN4P5E/train/train_helpers.py
+  228 mind/SYN4P5E/algorithms/transformer/olmo2.py
+  212 mind/SYN4P5E/algorithms/attention/GQA.py
+   30 mind/SYN4P5E/algorithms/basic/MLP.py
+   36 mind/SYN4P5E/algorithms/basic/RMSnorm.py
+    2 mind/SYN4P5E/algorithms/basic/__init__.py
+   56 mind/SYN4P5E/algorithms/basic/gatedMLP.py
+   52 mind/SYN4P5E/algorithms/encoding/RoPE.py
+    3 mind/SYN4P5E/algorithms/encoding/__init__.py
+   60 mind/SYN4P5E/algorithms/encoding/mask.py
+   33 mind/SYN4P5E/algorithms/encoding/rope_utils.py
+   88 mind/SYN4P5E/train/data_to_loaders.py
+    1 mind/SYN4P5E/peripherals/tokenizer.py
+  151 mind/SYN4P5E/train/train_helpers.py
+  952 total

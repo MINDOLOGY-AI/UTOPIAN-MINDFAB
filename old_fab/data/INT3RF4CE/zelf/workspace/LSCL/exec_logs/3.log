@@ -1,0 +1,21 @@
+$ sshpass -p 'iVoAUdVqGtxD' ssh -o StrictHostKeyChecking=no -p 20068 root@connect.weste.seetacloud.com 'ls -la /root/ | head -30; echo ===; ls /root/UTOPIAN-MINDFAB 2>/dev/null | head; find / -maxdepth 3 -name "UTOPIAN-MINDFAB" -o -maxdepth 3 -name "mind" -type d 2>/dev/null | grep -v proc | head'
+total 36
+drwx------ 1 root root  4096 Aug 11 15:06 .
+drwxr-xr-x 1 root root   139 Aug 10 16:14 ..
+-rw------- 1 root root   948 Aug 10 17:59 .bash_history
+-rw-r--r-- 1 root root  3150 May 19  2025 .bashrc
+drwx------ 3 root root    57 Aug 10 22:26 .cache
+drwxr-xr-x 2 root root    38 May 19  2025 .conda
+-rw-r--r-- 1 root root   243 Aug 10 16:14 .condarc
+drwxr-xr-x 2 root root    10 Aug 10 16:14 .ipython
+drwxr-xr-x 3 root root    25 Aug 10 16:14 .jupyter
+drwxr-xr-x 3 root root    27 Aug 10 16:14 .local
+drwx------ 3 root root    34 Aug 10 17:58 .nv
+-rw-r--r-- 1 root root   161 Jul  9  2019 .profile
+drwxr-xr-x 2 root root    38 Aug 10 16:14 .ssh
+lrwxrwxrwx 1 root root    21 Aug 10 16:14 autodl-pub -> ../../autodl-pub/data
+drwxr-xr-x 4 root root    47 Aug 10 17:58 autodl-tmp
+-rw-r--r-- 1 root root 16169 Aug 11 15:06 lscl_code.tgz
+drwxr-xr-x 1 root root    25 May 19  2025 miniconda3
+drwxr-xr-x 2 root root    10 Aug 10 16:14 tf-logs
+===

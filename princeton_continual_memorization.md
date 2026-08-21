@@ -1,4 +1,4 @@
-e Princeton Continual Factoid Memorization Benchmark
+Princeton Continual Factoid Memorization Benchmark
 
 ## What It Is
 A two-stage continual learning benchmark for language models. The model first memorizes a set of facts ($D_A$), then is trained on a second set ($D_B$), and finally is tested on how much of $D_A$ it still remembers. The metric is **retention**: the percentage of $D_A$ facts the model answers correctly after learning $D_B$.

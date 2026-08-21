@@ -1,0 +1,33 @@
+$ sshpass -p 'iVoAUdVqGtxD' ssh -o StrictHostKeyChecking=no -p 20068 root@connect.weste.seetacloud.com 'hostname; nvidia-smi; echo ----; df -h / /root/autodl-tmp 2>/dev/null; echo ----; ls /root; ls /root/autodl-tmp 2>/dev/null'
+Warning: Permanently added '[connect.weste.seetacloud.com]:20068' (ED25519) to the list of known hosts.
+autodl-container-f8we5up1vu-d471f782
+Tue Aug 11 13:58:34 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 595.71.05              Driver Version: 595.71.05      CUDA Version: 13.2     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 5090        On  |   00000000:50:00.0 Off |                  N/A |
+| 42%   31C    P8             16W /  575W |       2MiB /  32607MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+----
+Filesystem      Size  Used Avail Use% Mounted on
+overlay          30G   11G   20G  36% /
+/dev/md0         50G  1.5M   50G   1% /root/autodl-tmp
+----
+autodl-pub
+autodl-tmp
+miniconda3
+tf-logs
+mathml

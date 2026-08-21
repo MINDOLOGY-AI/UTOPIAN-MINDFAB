@@ -1,3 +1,4 @@
+# mind   
 All our research code will be here!  
 
 SYN4P5E for algorithms, training, probes, interp, and peripherals.  
@@ -11,5 +12,15 @@ results is where you write a concise .md results in it's README defined format.
 
 all theories are using the mind/thoughtgraph program, a seperate system  
 
+# goal: single model focused interp  
 
+cross validate all interpretablity methods on a single model i.e. OlMo2_1b.  
 
+build a database of labeling for each part of the model across generality from different methods.  
+i.e. labeling MLP neurons, labeling a activation direction magntidue pair  
+
+one major problem in current mech interp research is you try different methods, SAE, CLT, NLA, activation patching, etc. but you never compare them. you never build towards anything. in this single model focused thing, we are building towards the complete understanding of ONE model with all these methods.  
+
+we will build a querieble vector database of like say we click an activation, we see it's direct labelling via k++, we see it's SAE decomposition and labeling, etc.  
+
+all visually routed through a general 

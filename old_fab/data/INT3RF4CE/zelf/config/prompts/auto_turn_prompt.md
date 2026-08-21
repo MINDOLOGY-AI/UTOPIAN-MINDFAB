@@ -1,0 +1,1 @@
+your last response ended without any environment returns. that is fine — you can think across multiple turns without acting. continue working. whether that is more thinking, terminal control, GUI control, or file editing.

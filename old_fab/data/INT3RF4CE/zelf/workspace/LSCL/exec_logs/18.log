@@ -1,0 +1,188 @@
+$ cd /home/agent/UTOPIAN-MINDFAB && cat mind/EV0K3/OlMo2_1b/README.md && echo ==== && cat mind/EV0K3/OlMo2_1b/run/config.py && echo ==== && cat mind/EV0K3/OlMo2_1b/run/loader.py | head -60
+# interp  
+this is the model we seek to understand completely!  
+we will try every interp method, from anthropic and original ones, on this model. and see if the features they find are corresponding.  
+
+## sae
+first run our 4 SAEs on a layer 8 residue layer to compare them.  
+normal, topK, jumpRELU, slabCone  
+
+or honestly also run:  
+slab, slab with set 30 degree cone, slab with set 90 degree cone  
+since we are writing the slabconeSAE paper i really want to make sure whats good whats not.  
+
+pick the best one!  
+
+## interp data mix  
+
+we want 1b tokens which is on the lower end since this is a small model   
+
+the dataset to gather activations should 1: reflect original training corpus 2: cover all concepts we try to find 3: not over bias any conceptual area   
+
+we try to keep sae dataset english only because olmo is mostly trained on english  
+
+
+we choose to the mix:  
+
+- DCLM baseline (web)  
+30%  
+
+- starcoder  
+20%.  
+(python 4% C++ 4% html 4% css 4% js 4%)  
+
+- wikipedia  
+10%   
+
+- OpenWebMATH  
+real world math blogs and qna  
+15%  
+
+- arxiv  
+academic papers  
+togethercomputer/RedPajama-Data-1T (the one olmo uses)  
+10%  
+
+- allenai/tulu-3-sft-mixture  
+15%, posttraining talk like a bot.      
+====
+"""
+Config for allenai/OLMo-2-0425-1B-Instruct.
+
+This is the concrete 1B checkpoint config, pulled from the cached HF weights.
+Keep model-specific hyperparameters here so the generic modules in
+SYN4P5E/algorithms stay reusable.
+"""
+
+from dataclasses import dataclass, field
+from typing import Optional
+
+
+@dataclass
+class Olmo2Config:
+    """Configuration for the OLMo2 1B Instruct model."""
+
+    # tokenization
+    vocab_size: int = 100352
+    pad_token_id: int = 100277
+    bos_token_id: Optional[int] = None
+    eos_token_id: int = 100257
+
+    # model size
+    hidden_size: int = 2048
+    num_hidden_layers: int = 16
+    num_attention_heads: int = 16
+    num_key_value_heads: int = 16
+    intermediate_size: int = 8192
+
+    # activation / norm
+    hidden_act: str = "silu"
+    rms_norm_eps: float = 1e-6
+    cast_norm_to_float32: bool = True
+
+    # RoPE
+    max_position_embeddings: int = 4096
+    rope_theta: float = 500000.0
+    rope_type: str = "default"
+
+    # attention
+    attention_bias: bool = False
+    attention_dropout: float = 0.0
+
+    # init
+    initializer_range: float = 0.02
+
+    # inference
+    use_cache: bool = True
+
+    # architecture toggles: lets us reuse the same primitives across models
+    # pre/post-norm per layer
+    pre_norm: bool = False
+    post_norm: bool = True
+
+    # attention extras
+    qk_norm: bool = True
+    use_flash_attention: bool = False
+
+    # mlp extras
+    mlp_bias: bool = False
+    separate_gate_up_proj: bool = True
+
+    # lm head
+    tie_word_embeddings: bool = False
+
+    # checkpoint dtype stored on disk
+    torch_dtype: str = "bfloat16"
+
+    # convenience derived props
+    head_dim: int = field(init=False)
+    num_key_value_groups: int = field(init=False)
+
+    def __post_init__(self):
+        self.head_dim = self.hidden_size // self.num_attention_heads
+        self.num_key_value_groups = self.num_attention_heads // self.num_key_value_heads
+
+
+# shortcut for the 1B instruct checkpoint
+OLMO2_1B_INSTRUCT_CONFIG = Olmo2Config()
+====
+"""
+Build a local OlMo2-1B model from the generic SYN4P5E algorithms and load the
+pre-downloaded HF weights.
+
+Weights are expected at:
+    UTOPIAN-MINDFAB/mind/weights/EV0K3/OlMo2_1b/
+
+Tokenizer is loaded via transformers from the same cache directory.
+"""
+
+import importlib.util
+import sys
+from pathlib import Path
+
+# make SYN4P5E importable when running from project root
+PROJECT_ROOT = Path.cwd()
+sys.path.insert(0, str(PROJECT_ROOT))
+
+import torch
+from safetensors.torch import load_file
+from transformers import AutoTokenizer
+
+from mind.SYN4P5E.algorithms.transformer.olmo2 import Olmo2ForCausalLM
+
+# Load config from this same hyphenated folder via importlib because Python
+# packages cannot contain '-'.
+CONFIG_PATH = PROJECT_ROOT / "mind" / "EV0K3" / "OlMo2_1b" / "run" / "config.py"
+spec = importlib.util.spec_from_file_location("olmo2_1b_config", CONFIG_PATH)
+olmo2_1b_config = importlib.util.module_from_spec(spec)
+sys.modules["olmo2_1b_config"] = olmo2_1b_config
+spec.loader.exec_module(olmo2_1b_config)
+OLMO2_1B_INSTRUCT_CONFIG = olmo2_1b_config.OLMO2_1B_INSTRUCT_CONFIG
+
+
+# --- paths ---
+WEIGHTS_DIR = PROJECT_ROOT / "mind" / "weights" / "EV0K3" / "OlMo2_1b"
+MODEL_NAME = "allenai/OLMo-2-0425-1B-Instruct"
+
+
+def load_olmo2_model(device=None, dtype=None, strict=True):
+    """
+    Build OlMo2-1B-Instruct from SYN4P5E algorithms and load HF weights.
+
+    device: torch device; default cuda if available else cpu
+    dtype:  torch dtype; default bfloat16 on cuda, float32 on cpu
+    strict: passed to load_state_dict
+    """
+    config = OLMO2_1B_INSTRUCT_CONFIG
+
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if dtype is None:
+        dtype = torch.bfloat16 if device.type == "cuda" else torch.float32
+
+    model = Olmo2ForCausalLM(config).to(device=device, dtype=dtype)
+
+    # find the cached safetensors file
+    safetensors_path = WEIGHTS_DIR / "models--allenai--OLMo-2-0425-1B-Instruct" / "snapshots"
+    safetensors_files = list(safetensors_path.rglob("model.safetensors"))
+    if not safetensors_files:
