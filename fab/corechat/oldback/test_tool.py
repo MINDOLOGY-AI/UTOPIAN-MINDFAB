@@ -1,6 +1,6 @@
 '''TEST: echo tool to prove the registry works end to end.'''
 
-from fab.corechat.back.commands import register
+from fab.corechat.oldback.commands import register
 
 SCHEMA = {
     "name": "TEST",

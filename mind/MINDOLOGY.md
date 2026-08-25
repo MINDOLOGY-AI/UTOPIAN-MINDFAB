@@ -15,3 +15,11 @@ i prefer graph based modular things in the thoughtgraph repo but i do want a sin
 
 
 # linear representation hypothesis  
+
+
+# single model focus: OlMo2 1b  
+
+we can answer many hypothesis by qualitatively cross validating mech interp methods focused on a single model  
+
+## is embedding space persisted across layers?  
+how similar is the middle layer direction magnitude pairs to front or late layers  

@@ -12,7 +12,7 @@ import torch
 from fastapi import FastAPI, WebSocket
 from fastapi.staticfiles import StaticFiles
 
-from fab.hub.auth.store import COOKIE_NAME, user_for_token
+from hub.auth.store import COOKIE_NAME, user_for_token
 from mind.INT3RPV1Z.back.config import DEVICE
 from mind.INT3RPV1Z.back.inspector import ModelInspector
 from mind.INT3RPV1Z.back.layout import compute_layout, compute_effective_graph

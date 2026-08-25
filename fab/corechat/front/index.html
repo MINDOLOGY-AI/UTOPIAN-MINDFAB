@@ -5,16 +5,36 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>corechat</title>
   <link rel="stylesheet" href="/TechnoParadisal.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
   <link rel="stylesheet" href="chat.css">
 </head>
 <body>
+  <nav id="sidebar">
+    <a id="home" href="/">hub</a>
+    <div id="controls">
+      <input id="new-name" placeholder="agent name" autocomplete="off">
+      <button id="create">add</button>
+    </div>
+    <div id="pinned"></div>
+    <div id="agents"></div>
+    <div id="agent-menu" style="display:none;">
+      <button id="menu-pin">pin</button>
+      <button id="menu-rename">rename</button>
+      <button id="menu-delete">delete</button>
+    </div>
+  </nav>
   <main id="chat">
     <div id="msgs"></div>
+    <div id="attachments"></div>
     <div id="composer">
       <textarea id="input" placeholder="message... (enter to send, shift+enter for newline)"></textarea>
       <button id="send">send</button>
     </div>
   </main>
+  <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script src="/components/MarkdownEditor/markdown-it-katex.js"></script>
+  <script src="/components/MarkdownEditor/markdown-render.js"></script>
   <script src="chat.js"></script>
 </body>
 </html>

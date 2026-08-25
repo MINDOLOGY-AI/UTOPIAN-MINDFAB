@@ -37,17 +37,32 @@ logging.basicConfig(
 )
 
 import uvicorn
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from fab.corechat.back.server import app as corechat_app
+from fab.corechat.back.api import app as corechat_app
+from fab.corechat.back.websocket import start_broadcaster
 
 HOST = "0.0.0.0"
 PORT = 2121
 
-hub_front = project_root / "fab" / "hub" / "front"
+hub_front = project_root / "hub" / "front"
 
-app = FastAPI()
+# mounted sub-app lifespans don't run — background tasks of mounted apps start here
+@asynccontextmanager
+async def lifespan(app):
+    start_broadcaster()
+    yield
+
+app = FastAPI(lifespan=lifespan)
+
+# dev: force revalidation every load so stale css/js never survives an edit
+@app.middleware("http")
+async def no_cache(request, call_next):
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-cache"
+    return response
 
 # sub-app mounts land here as they're built:
 # app.mount("/dockeruse", dockeruse_app)
@@ -60,4 +75,4 @@ app.mount("/", StaticFiles(directory=hub_front, html=True))
 if __name__ == "__main__":
     # log_config=None keeps the logging.basicConfig() setup above
     # reload=True: autoreload on code edits
-    uvicorn.run("fab.hub.back.app:app", host=HOST, port=PORT, reload=True, log_config=None)
+    uvicorn.run("hub.back.app:app", host=HOST, port=PORT, reload=True, log_config=None)

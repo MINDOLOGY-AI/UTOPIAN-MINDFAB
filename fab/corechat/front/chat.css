@@ -1,20 +1,23 @@
+
 #chat {
   display: flex;
   flex-direction: column;
   width: 100%;
   max-width: 900px;
-  height: 100vh;
+  height: 100%;
+  box-sizing: border-box;
   margin: 0 auto;
   gap: 0.5rem;
 }
 
 #msgs {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  padding: 0.5rem 0;
+  padding: 0.5rem 0.5rem 0.5rem 0;
 }
 
 .msg {
@@ -35,21 +38,18 @@
   word-break: break-word;
 }
 
-/* thin blocks: reasoning, tool calls, tool results — collapsed until the label is clicked */
+/* thin blocks: reasoning, tool calls, tool results — collapsed until clicked */
 .msg.thin {
   background: transparent;
-  border-left: 3px solid var(--border);
+  border: 1px solid var(--border);
   font-size: 0.7rem;
   color: var(--border);
-}
-
-.msg.thin .role {
   cursor: pointer;
 }
 
 /* reasoning is still the agent talking — lavender like assistant */
 .msg.thin.reasoning {
-  border-left-color: var(--lavender);
+  border-color: var(--lavender);
 }
 
 .content.collapsed {
@@ -57,11 +57,11 @@
 }
 
 .msg.user {
-  border-left: 3px solid var(--orange);
+  border: 1px solid var(--orange);
 }
 
 .msg.assistant {
-  border-left: 3px solid var(--lavender);
+  border: 1px solid var(--lavender);
 }
 
 #composer {
@@ -83,6 +83,11 @@
   font-size: 0.8rem;
 }
 
+/* one clean focus ring, no browser default double-outline */
+#input:focus, #new-name:focus {
+  outline: 1px solid var(--text);
+}
+
 #send {
   padding: 0 1.5rem;
   background: var(--component);
@@ -94,6 +99,157 @@
   cursor: pointer;
 }
 
-#send:hover {
-  color: var(--lavender);
+body {
+  display: flex;
+  margin: 0;
+  box-sizing: border-box;
+  height: 100vh;
+  overflow: hidden;
+}
+
+#sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 160px;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem;
+  font-size: 0.8rem;
+}
+
+#home {
+  color: var(--orange);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+#controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+#new-name, #create {
+  padding: 0.4rem 0.6rem;
+  background: var(--component);
+  color: var(--text);
+  border: none;
+  border-radius: 8px;
+  font: inherit;
+}
+
+#create {
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#agents {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.agent-row {
+  display: flex;
+  align-items: center;
+  background: var(--component);
+  border-radius: 8px;
+}
+
+.agent-row.active {
+  border: 1px solid var(--green);
+}
+
+.agent-row a {
+  flex: 1;
+  padding: 0.4rem 0.6rem;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.menu-btn {
+  background: none;
+  border: none;
+  color: var(--border);
+  cursor: pointer;
+  font: inherit;
+  padding-right: 0.6rem;
+}
+
+#agent-menu {
+  position: fixed;
+  flex-direction: column;
+  background: var(--component);
+  border-radius: 8px;
+  z-index: 10;
+}
+
+#agent-menu button {
+  background: none;
+  border: none;
+  color: var(--text);
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+/* markdown-rendered chat text (user + assistant). tool/reasoning stays plain */
+.content.md {
+  white-space: normal;
+}
+
+.content.md p { margin: 0 0 8px; }
+.content.md p:last-child { margin-bottom: 0; }
+.content.md ul, .content.md ol { margin: 4px 0; padding-left: 22px; }
+.content.md li { margin: 2px 0; }
+.content.md pre { overflow-x: auto; }
+
+/* pending image attachments, small thumbs above the composer */
+#attachments {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.attach-thumb {
+  position: relative;
+}
+
+.attach-thumb img {
+  height: 3rem;
+  border-radius: 8px;
+}
+
+.attach-thumb button {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: var(--component);
+  color: var(--text);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+/* images inside message bubbles */
+.msg img {
+  max-width: 100%;
+  border-radius: 8px;
+}
+
+/* pinned agents sit above the rest, divided on both sides; hidden entirely when empty */
+#pinned {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--component);
+  border-bottom: 1px solid var(--component);
+}
+
+#pinned:empty {
+  display: none;
 }

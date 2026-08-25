@@ -30,4 +30,4 @@ async def dispatch(name: str, arguments: str) -> str:
 
 
 # tool modules register themselves on import
-from fab.corechat.back import test_tool  # noqa: E402,F401
+from fab.corechat.oldback import test_tool  # noqa: E402,F401

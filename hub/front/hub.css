@@ -33,14 +33,14 @@ body {
 }
 
 .link-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, 180px);
+  display: flex;
   gap: 1rem;
 }
 
 .btn,
 .btn:visited {
   display: block;
+  flex: 1;
   padding: 1rem;
   background: var(--component);
   color: var(--text);

@@ -6,14 +6,14 @@
   --background: #1a1a1a;
   --component: #323232;
   --border: #808080;
-  --text: #FFFFFF;
+  --text: #eff1f5;
 
-  --pink: #ffcad4;
-  --green: #77dd77;
-  --lavender: #B8A0FF;
-  --blue: #6BC4FF;
-  --orange:#ffc067;
-  --red: #ff6961;
+  --pink: #f7d2d9;
+  --green: #86ce86;
+  --lavender: #bfaef1;
+  --blue: #81c0e9;
+  --orange:#e8bc7e;
+  --red: #e77e79;
 }
 
 * {

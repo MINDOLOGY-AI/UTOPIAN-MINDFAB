@@ -8,7 +8,7 @@ working.jsonl
 import json
 
 from fab.config import FAB_DIR, MAX_WORDS, PRESERVE_LAST
-from fab.corechat.back.prompt import REPAIR_NOTE, WORK_MSG
+from fab.corechat.oldback.prompt import REPAIR_NOTE, WORK_MSG
 
 DATA_DIR = FAB_DIR / "corechat"
 

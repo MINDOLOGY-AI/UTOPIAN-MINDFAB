@@ -201,7 +201,7 @@ def main():
 
     server = subprocess.Popen(
         [str(PROJECT_ROOT / "venv" / "bin" / "python"), "-m", "uvicorn",
-         "fab.hub.back.app:app", "--host", "127.0.0.1", "--port", str(TEST_PORT)],
+         "hub.back.app:app", "--host", "127.0.0.1", "--port", str(TEST_PORT)],
         cwd=PROJECT_ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     try:
