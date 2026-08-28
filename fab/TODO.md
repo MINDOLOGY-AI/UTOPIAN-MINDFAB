@@ -2,6 +2,8 @@
 
 - make docs concise and not say "not do something" just say what it does  
 
+- all button hover light gray  
+
 - Tool Call config: which tools allowed. besides model selector in core chat.  
 
 - make tool call schemas much more concise. these burn tokens.  
