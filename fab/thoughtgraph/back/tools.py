@@ -44,8 +44,11 @@ def _require_edge(user: str, agent_name: str, board: str, src: str, tgt: str):
     raise ValueError("edge needs your write on one endpoint and at least read on the other")
 
 
+# no args: always dumps every board with everything the agent can see on it
 async def _gmap(args: dict, agent) -> str:
-    return actions.gmap(agent.user, args["board"], ref=args.get("ref"), visible=_visible_set(agent.user, agent.name, args["board"]))
+    return "\n\n".join(
+        actions.gmap(agent.user, board, visible=_visible_set(agent.user, agent.name, board))
+        for board in storage.list_boards(agent.user))
 
 
 async def _gread(args: dict, agent) -> str:
@@ -117,7 +120,7 @@ async def _gdlink(args: dict, agent) -> str:
     return "[GDLINK] edge removed"
 
 
-_BOARD = {"type": "string", "description": "board name, usually 'main'"}
+_BOARD = {"type": "string", "description": "board name (GMAP lists them)"}
 _REF = {"type": "string", "description": "node title or id"}
 
 
@@ -128,8 +131,8 @@ def _schema(name, description, properties, required):
 
 
 register("GMAP", _schema(
-    "GMAP", "list the thoughtgraph docs you can see: one line per node as 'path (type)', then all edges between them. pass a folder title as ref to scope to its subtree",
-    {"board": _BOARD, "ref": {"type": "string", "description": "optional folder title to scope to"}}, ["board"]), _gmap)
+    "GMAP", "list every board and all the docs you can see on each: one line per node as 'path (type)', then all edges between them. call this first to see your world",
+    {}, []), _gmap)
 
 register("GREAD", _schema(
     "GREAD", "read one node you have access to: its meta, full markdown content, and connected nodes",

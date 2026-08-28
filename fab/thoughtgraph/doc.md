@@ -249,7 +249,7 @@ the G* tools (back/tools.py) register into corechat's central COMMANDS via the i
 
 final tool surface (7 tools — ascii map and GWRITE deleted, GRENAME/GMOVE/GUPDATE folded into GMETA, retype into GLINK, GLIST into GMAP):
 
-- **GMAP** {board, ref?} — the graph as a text listing, filtered to the agent's visible set
+- **GMAP** {} — every board, each as a text listing filtered to the agent's visible set (the discovery entry point — call first)
 - **GREAD** {board, ref} — one node: meta, full content, connections
 - **GEDIT** {board, ref, old, new} — single-occurrence search/replace; `old: ""` on an empty doc writes `new` as the full content (the bootstrap)
 - **GMETA** {board, ref, title?, node_type?, x?, y?, parent?, expanded?, color?} — meta write

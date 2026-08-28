@@ -10,6 +10,9 @@
 
 - context save load. besides tool call.  
 
+- workspace save load. i.e. a github configed git cloned project docker.  
+
+
 - local computer use. read write edit?? mouse click keyboard screenshot? treat local as just another computer the agent can be assigned to like docker?
 
 - settings page. max tokens. summary tokens.  
