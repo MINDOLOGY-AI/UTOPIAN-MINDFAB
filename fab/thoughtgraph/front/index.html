@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>thoughtgraph</title>
+  <link rel="stylesheet" href="/TechnoParadisal.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <fab-board board-id="main"></fab-board>
+  <!-- access panel: per-agent thoughtgraph grants. hidden until the toolbar `access` button slides it in (.open). -->
+  <div id="acc-panel">
+    <div class="acc-header">
+      <span class="acc-title">access</span>
+      <button id="acc-close" class="x-btn">×</button>
+    </div>
+    <select id="acc-agent"></select>
+    <div class="acc-sub">read</div>
+    <div class="acc-list acc-drop" data-key="read" id="acc-read"></div>
+    <div class="acc-sub">write</div>
+    <div class="acc-list acc-drop" data-key="write" id="acc-write"></div>
+    <div class="acc-sub">presets</div>
+    <div class="acc-preset-row">
+      <input id="acc-preset-name" placeholder="preset name" spellcheck="false">
+      <button id="acc-preset-save">save</button>
+    </div>
+    <div class="acc-preset-row">
+      <select id="acc-preset-select"></select>
+      <button id="acc-preset-load">load</button>
+    </div>
+    <div class="acc-error"></div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script src="/components/MarkdownEditor/markdown-it-katex.js"></script>
+  <script src="/components/MarkdownEditor/markdown-render.js"></script>
+  <script src="mdeditor.js"></script>
+  <script src="store.js"></script>
+  <script src="edges.js"></script>
+  <script src="nodes.js"></script>
+  <script src="accesspanel.js"></script>
+  <script src="board.js"></script>
+</body>
+</html>

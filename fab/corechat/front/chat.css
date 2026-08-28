@@ -3,13 +3,13 @@
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 900px;
   height: 100%;
   box-sizing: border-box;
-  margin: 0 auto;
   gap: 0.5rem;
 }
 
+/* the scroll container is full-width so the scrollbar sits at the screen edge;
+   the message column is centered inside it with calc padding */
 #msgs {
   flex: 1;
   min-height: 0;
@@ -17,7 +17,31 @@
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  padding: 0.5rem 0.5rem 0.5rem 0;
+  padding: 0.5rem max(0.5rem, calc(50% - 450px));
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+/* thin grey thumb, invisible track */
+#msgs::-webkit-scrollbar {
+  width: 6px;
+}
+
+#msgs::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#msgs::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+/* everything below the messages stays in the centered 900px column */
+#attachments, #generating, #composer, #modelbar {
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  box-sizing: border-box;
 }
 
 .msg {
@@ -70,10 +94,25 @@
   padding-bottom: 0.5rem;
 }
 
+/* "generating..." above the input, only while a turn is in flight */
+#generating {
+  display: none;
+  font-size: 0.7rem;
+  color: var(--border);
+  padding-left: 0.25rem;
+}
+
+#generating.on {
+  display: block;
+}
+
 #input {
   flex: 1;
   resize: none;
   height: 3rem;
+  max-height: 9rem;
+  overflow-y: auto;
+  scrollbar-width: none;
   padding: 0.5rem;
   background: var(--component);
   color: var(--text);
@@ -83,20 +122,32 @@
   font-size: 0.8rem;
 }
 
+/* overflow scrolls, but the scrollbar itself stays hidden */
+#input::-webkit-scrollbar {
+  display: none;
+}
+
 /* one clean focus ring, no browser default double-outline */
 #input:focus, #new-name:focus {
   outline: 1px solid var(--text);
 }
 
-#send {
+/* run toggle: green ▶ parked, orange ⏹ running */
+#run-toggle {
   padding: 0 1.5rem;
+  height: 3rem;
+  align-self: flex-end;
   background: var(--component);
-  color: var(--text);
+  color: var(--green);
   border: none;
   border-radius: 8px;
   font: inherit;
   font-weight: 600;
   cursor: pointer;
+}
+
+#run-toggle.running {
+  color: var(--orange);
 }
 
 body {
@@ -252,4 +303,108 @@ body {
 
 #pinned:empty {
   display: none;
+}
+
+/* model selector: bottom bar, hover opens the menu and it stays open while the mouse is inside */
+#modelbar {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: var(--border);
+  padding-bottom: 0.5rem;
+}
+
+#model-selector {
+  position: relative;
+  display: inline-block;
+  cursor: pointer;
+}
+
+/* left side of the bar: model selector + agent toggle grouped together */
+#modelbar-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+#model-menu {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  width: 18rem;
+  background: var(--component);
+  border-radius: 8px;
+  padding: 0.4rem;
+  gap: 1rem;
+  z-index: 10;
+}
+
+.menu-section {
+  flex: 2;
+}
+
+/* reasoning effort and context limit get half the model section's width */
+.menu-section:not(:first-child) {
+  flex: 1;
+}
+
+#model-selector:hover #model-menu {
+  display: flex;
+}
+
+.menu-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.menu-title {
+  color: var(--lavender);
+}
+
+#model-menu button {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+}
+
+#model-menu button:hover {
+  background: var(--background);
+}
+
+/* context limit input, k suffix sits right of the box */
+#ctx-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--text);
+}
+
+#ctx-input {
+  width: 100%;
+  min-width: 0;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text);
+  font: inherit;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+}
+
+/* kill the number input's spinner arrows, we type only */
+#ctx-input::-webkit-outer-spin-button,
+#ctx-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+#ctx-input {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }

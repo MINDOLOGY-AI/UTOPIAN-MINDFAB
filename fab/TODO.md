@@ -1,18 +1,23 @@
 # to do  
 
-- model selector (just by name for now no settings)  
-- model selector settings for max tokens, thinking effort, 
 - tool call center  
+
 - wait tool  
+- stop tool  
+
 - generating tag.  
 
 - docker use  
-
 - thoughtgraph  
+- local computer use. read write edit?? mouse click keyboard screenshot? treat local as just another computer the agent can be assigned to like docker?
 
+- settings page. max tokens. summary tokens.  
 
+- multi user  
+- broadcast make it take users instead of clients. broadcast to all clients of that user   
 
-- local read write edit?? mouse click keyboard screenshot? treat local as just another computer the agent can be assigned to like docker?
+- claude support in modelserver.py it's just all openai compatible so not needed rn. but will need for claude. the call should convert context_format -> claude_format and then convert claude_format -> context_format when it's done.  
+
 
 
 

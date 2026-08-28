@@ -26,9 +26,35 @@
   <main id="chat">
     <div id="msgs"></div>
     <div id="attachments"></div>
+    <div id="generating">generating...</div>
     <div id="composer">
       <textarea id="input" placeholder="message... (enter to send, shift+enter for newline)"></textarea>
-      <button id="send">send</button>
+      <button id="run-toggle">▶</button>
+    </div>
+    <div id="modelbar">
+      <div id="modelbar-left">
+        <div id="model-selector">
+          <span id="model-label">no agent</span>
+          <div id="model-menu">
+            <div class="menu-section">
+              <div class="menu-title">model</div>
+              <button class="model-opt" data-server="kimi" data-model="kimi-k3">kimi-k3</button>
+              <button class="model-opt" data-server="deepseek" data-model="deepseek-v4-flash-vision-exp">deepseek-v4-flash-vision</button>
+            </div>
+            <div class="menu-section">
+              <div class="menu-title">reasoning effort</div>
+              <button class="effort-opt" data-effort="low">low</button>
+              <button class="effort-opt" data-effort="high">high</button>
+              <button class="effort-opt" data-effort="max">max</button>
+            </div>
+            <div class="menu-section">
+              <div class="menu-title">context limit</div>
+              <div id="ctx-row"><input id="ctx-input" type="number" min="1" step="10"><span>k</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <span id="ctx-meter"></span>
     </div>
   </main>
   <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>

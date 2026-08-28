@@ -1,10 +1,11 @@
 const agent = new URLSearchParams(location.search).get("agent"); // null when no agent picked yet
 const msgs = document.getElementById("msgs");
 const input = document.getElementById("input");
-const sendBtn = document.getElementById("send");
 
 // shared markdown renderer (katex, raw html escaped) from the hub component
+// breaks: single newlines become <br>, so shift+enter in your own message shows as a newline
 const md = makeMarkdownRenderer();
+md.set({ breaks: true });
 
 // one-liner dom builder: make element, set class and text if given (textContent, never html)
 function el(tag, cls, text) {
@@ -41,8 +42,17 @@ function addThinBlock(cssClass, label, text, useMd) {
   msgs.appendChild(div);
 }
 
+let lastDrawn = null; // last message we rendered, optimistic or not
+
 function render(m) {
+  lastDrawn = m;
   if (m.role === "user") {
+    // tool deposits arrive as user messages — render as a thin gray block, not a "you" bubble
+    const firstText = m.content.find(b => b.type === "text")?.text || "";
+    if (firstText.startsWith("[tool result]")) {
+      addThinBlock("tool", "slow tool return", firstText);
+      return;
+    }
     // user content is always content blocks
     const div = el("div", "msg user");
     div.appendChild(el("div", "role", "you"));
@@ -50,6 +60,7 @@ function render(m) {
       if (b.type === "text") div.appendChild(mdDiv(b.text));
       else if (b.type === "image_url") {
         const img = document.createElement("img");
+        img.onload = scrollDown;
         img.src = b.image_url.url;
         div.appendChild(img);
       }
@@ -67,8 +78,43 @@ function render(m) {
   }
 }
 
+// rAF so layout (markdown, the generating bar, images) settles before we measure
 function scrollDown() {
-  msgs.scrollTop = msgs.scrollHeight;
+  requestAnimationFrame(() => { msgs.scrollTop = msgs.scrollHeight; });
+}
+
+// context meter, bottom right of the composer: "context: 7% (62.9k/1M)"
+let contextWords = 0;
+let contextLimit = 0;
+let agentMode = false;
+
+// status line state: a turn in flight, and seconds if a WAIT tool is sleeping
+let generating = false;
+let waiting = 0;
+
+// the one toggle: ▶ starts agent mode (and a turn), ⏹ cancels the live turn and parks it
+const runBtn = document.getElementById("run-toggle");
+runBtn.onclick = () => {
+  if (!agent) return;
+  sendCmd({ cmd: "toggle_run", name: agent });
+};
+
+function renderRunBtn() {
+  runBtn.textContent = agentMode ? "⏹" : "▶";
+  runBtn.classList.toggle("running", agentMode);
+}
+
+// always k, M only at 1M+; sub-1k floors to 0k
+function fmtWords(n) {
+  if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, "") + "M";
+  return (n / 1000).toFixed(1).replace(/\.0$/, "") + "k";
+}
+
+function renderMeter() {
+  const meter = document.getElementById("ctx-meter");
+  if (!agent || !contextLimit) { meter.textContent = ""; return; }
+  const pct = Math.round(contextWords / contextLimit * 100);
+  meter.textContent = `context: ${pct}% (${fmtWords(contextWords)}/${fmtWords(contextLimit)})`;
 }
 
 let rendered = 0;
@@ -126,19 +172,52 @@ function sendCmd(cmd) {
 }
 
 function handleMessage(msg) {
-  if (msg.type === "agents") return renderAgentList(msg.agents);
+  // a tool changed agent state server-side (STOP parked itself) — re-ask for the list
+  if (msg.type === "agents_changed") {
+    sendCmd({ cmd: "list_agents" });
+    return;
+  }
+  if (msg.type === "agents") {
+    renderAgentList(msg.agents);
+    // keep the model bar in sync with the current agent's settings
+    const cur = msg.agents.find(a => a.name === agent);
+    document.getElementById("model-label").textContent = cur ? `${cur.model_name} · ${cur.reasoning_effort}` : "no agent";
+    // don't clobber the box while the user is typing in it
+    if (cur && document.activeElement !== ctxInput) ctxInput.value = cur.context_limit / 1000;
+    contextLimit = cur ? cur.context_limit : 0;
+    agentMode = cur ? cur.agent_mode : false;
+    renderRunBtn();
+    renderMeter();
+    return;
+  }
+  if (msg.type === "status") {
+    // one status line above the input: "waiting Ns..." while a WAIT runs, else "generating..." while a turn runs
+    if (msg.name !== agent) return;
+    if (msg.generating !== undefined) generating = msg.generating;
+    if (msg.waiting !== undefined) waiting = msg.waiting || 0;
+    // a finished (or cancelled) turn kills any wait display with it
+    if (!generating) waiting = 0;
+    const statusEl = document.getElementById("generating");
+    statusEl.textContent = waiting ? `waiting ${waiting}s...` : "generating...";
+    statusEl.classList.toggle("on", generating);
+    scrollDown();
+    return;
+  }
   if (msg.type === "error") {
     // turn died server-side (api error, rate limit, ...) — show it where the reply would be
     if (msg.name === agent) addThinBlock("tool", "error", msg.msg);
     return;
   }
   if (msg.type === "messages" && msg.name === agent) {
-    // compression rewrote history shorter than what we've drawn, wipe and re-render everything
-    if (msg.messages.length < rendered) {
+    // the drawn tail must match the server's tail — compression, repairs, or mid-context inserts
+    // (optimistic draws make our count unreliable, so compare content, not length)
+    if (rendered > 0 && JSON.stringify(msg.messages[rendered - 1]) !== JSON.stringify(lastDrawn)) {
       msgs.innerHTML = "";
       rendered = 0;
     }
     for (; rendered < msg.messages.length; rendered++) render(msg.messages[rendered]);
+    contextWords = msg.words;
+    renderMeter();
     scrollDown();
   }
 }
@@ -147,6 +226,7 @@ function send() {
   const text = input.value.trim();
   if ((!text && !pendingAttachments.length) || !agent) return;
   input.value = "";
+  input.style.height = "";
   // show our message immediately, the reply streams in via the socket
   const blocks = toBlocks(text);
   render({ role: "user", content: blocks });
@@ -157,7 +237,12 @@ function send() {
   renderAttachments();
 }
 
-sendBtn.addEventListener("click", send);
+// auto-grow the input as lines pile up; css max-height caps it, overflow scrolls without a scrollbar
+input.addEventListener("input", () => {
+  input.style.height = "3rem";
+  input.style.height = input.scrollHeight + "px";
+});
+
 input.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
 });
@@ -233,5 +318,30 @@ document.getElementById("create").onclick = () => {
   sendCmd({ cmd: "create", name: name });
   location.search = `?agent=${name}`;
 };
+
+// model selector: pick a model or reasoning effort, server rebuilds the agent's model server live
+document.querySelectorAll(".model-opt").forEach(btn => {
+  btn.onclick = () => {
+    if (!agent) return;
+    sendCmd({ cmd: "set_model", name: agent, model_server_name: btn.dataset.server, model_name: btn.dataset.model });
+  };
+});
+
+document.querySelectorAll(".effort-opt").forEach(btn => {
+  btn.onclick = () => {
+    if (!agent) return;
+    sendCmd({ cmd: "set_reasoning_effort", name: agent, reasoning_effort: btn.dataset.effort });
+  };
+});
+
+// context limit in k words, committed on enter
+const ctxInput = document.getElementById("ctx-input");
+ctxInput.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" || !agent) return;
+  const k = parseInt(ctxInput.value, 10);
+  if (!k || k <= 0) return;
+  sendCmd({ cmd: "set_context_limit", name: agent, context_limit: k * 1000 });
+  ctxInput.blur();
+});
 
 connect();

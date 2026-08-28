@@ -43,6 +43,7 @@ from fastapi.staticfiles import StaticFiles
 
 from fab.corechat.back.api import app as corechat_app
 from fab.corechat.back.websocket import start_broadcaster
+from fab.thoughtgraph.back.api import app as thoughtgraph_app
 
 HOST = "0.0.0.0"
 PORT = 2121
@@ -66,9 +67,9 @@ async def no_cache(request, call_next):
 
 # sub-app mounts land here as they're built:
 # app.mount("/dockeruse", dockeruse_app)
-# app.mount("/thoughtgraph", thoughtgraph_app)
 # more specific mounts must come before the catch-all root mount since it matches in order of registration
 app.mount("/corechat", corechat_app)
+app.mount("/thoughtgraph", thoughtgraph_app)
 app.mount("/", StaticFiles(directory=hub_front, html=True))
 
 
