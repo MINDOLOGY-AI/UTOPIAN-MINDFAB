@@ -1,1 +1,0 @@
-read mindology theory in the thoughtgraph tool mindology folder. read everything.  

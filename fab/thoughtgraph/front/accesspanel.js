@@ -9,6 +9,7 @@ class AccessPanel {
     this.access = {};          // whole access.json dict, keyed by agent
     this.presets = {};         // preset name -> access entry
     this.graphs = {};          // board id -> meta (titles for chips from other boards)
+    this.armed = null;         // which list is armed ("read" | "write" | null) — board clicks grant to it
     this.el = document.getElementById("acc-panel");
     this._wire();
   }
@@ -46,13 +47,25 @@ class AccessPanel {
     this.loadGraphsThenRender();
   }
 
-  close() { this.el.classList.remove("open"); }
+  close() {
+    // closing the panel always disarms
+    this.armed = null;
+    for (const z of this.el.querySelectorAll(".acc-list")) z.classList.remove("armed");
+    this.el.classList.remove("open");
+  }
 
   // ---- events ----
 
   // bind every control on the static skeleton (index.html)
   _wire() {
     this.el.querySelector("#acc-close").addEventListener("click", () => this.close());
+    // clicking a list's empty area arms it: board clicks now grant docs to it
+    for (const list of this.el.querySelectorAll(".acc-list")) {
+      list.addEventListener("click", (e) => {
+        if (e.target.closest(".acc-chip")) return;  // chips manage themselves
+        this.toggleArm(list.dataset.key);
+      });
+    }
     this.el.querySelector("#acc-agent").addEventListener("change", (e) => {
       this.agent = e.target.value || null;
       this.renderPresets();
@@ -183,9 +196,17 @@ class AccessPanel {
     this.el.querySelector("#acc-preset-load").disabled = noAgent;
   }
 
-  // ---- drop handling ----
+  // ---- grants ----
 
-  // a board node dropped on a list: validate, append, save
+  // arm/disarm a grant list: while armed, clicking board docs adds them to it
+  toggleArm(key) {
+    this.armed = this.armed === key ? null : key;
+    for (const z of this.el.querySelectorAll(".acc-list")) {
+      z.classList.toggle("armed", z.dataset.key === this.armed);
+    }
+  }
+
+  // a board node clicked while armed: validate, append, save
   addEntry(key, boardId, nodeId) {
     const err = this.el.querySelector(".acc-error");
     if (!this.agent) {
@@ -200,15 +221,8 @@ class AccessPanel {
     const entries = this.entry()[key];
     if (entries.some(e => e.board === boardId && e.id === nodeId)) return;  // duplicates ignored
     entries.push({board: boardId, id: nodeId});
-    err.textContent = "";
+    err.textContent = "";  // the new chip is the confirmation
     this.save();
     this.loadGraphsThenRender();
-  }
-
-  // highlight the lists while a node is dragged (called by board.js)
-  setDropActive(active) {
-    for (const z of this.el.querySelectorAll(".acc-drop")) {
-      z.classList.toggle("drag-active", active);
-    }
   }
 }

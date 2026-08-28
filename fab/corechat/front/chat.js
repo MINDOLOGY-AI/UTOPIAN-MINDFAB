@@ -178,9 +178,12 @@ function handleMessage(msg) {
     return;
   }
   if (msg.type === "agents") {
+    lastAgentInfos = msg.agents;
     renderAgentList(msg.agents);
     // keep the model bar in sync with the current agent's settings
     const cur = msg.agents.find(a => a.name === agent);
+    // the agent this page is on got deleted (here or in another tab) — leave the dead page
+    if (agent && !cur) { location.href = location.pathname; return; }
     document.getElementById("model-label").textContent = cur ? `${cur.model_name} · ${cur.reasoning_effort}` : "no agent";
     // don't clobber the box while the user is typing in it
     if (cur && document.activeElement !== ctxInput) ctxInput.value = cur.context_limit / 1000;
@@ -191,11 +194,17 @@ function handleMessage(msg) {
     return;
   }
   if (msg.type === "status") {
+    // the sidebar dots read every agent's status, not just the open one
+    const st = statusByAgent[msg.name] || (statusByAgent[msg.name] = { generating: false, waiting: false });
+    if (msg.generating !== undefined) st.generating = msg.generating;
+    if (msg.waiting !== undefined) st.waiting = !!msg.waiting;
+    // a finished (or cancelled) turn kills any wait display with it
+    if (!st.generating) st.waiting = false;
+    renderAgentList(lastAgentInfos);
     // one status line above the input: "waiting Ns..." while a WAIT runs, else "generating..." while a turn runs
     if (msg.name !== agent) return;
     if (msg.generating !== undefined) generating = msg.generating;
     if (msg.waiting !== undefined) waiting = msg.waiting || 0;
-    // a finished (or cancelled) turn kills any wait display with it
     if (!generating) waiting = 0;
     const statusEl = document.getElementById("generating");
     statusEl.textContent = waiting ? `waiting ${waiting}s...` : "generating...";
@@ -253,10 +262,13 @@ document.addEventListener("click", (e) => {
 });
 
 // sidebar: pinned section on top, then the rest — name navigates, ⋮ opens pin/rename/delete
+// the dot before ⋮ is pure broadcast state: green = turning, yellow = in a WAIT, off = idle
 const agentMenu = document.getElementById("agent-menu");
 const menuPinBtn = document.getElementById("menu-pin");
 let menuAgent = null;
 let pinnedAgents = new Set();
+let lastAgentInfos = [];
+const statusByAgent = {};
 
 function renderAgentList(agentInfos) {
   pinnedAgents = new Set(agentInfos.filter(a => a.pinned).map(a => a.name));
@@ -267,6 +279,8 @@ function renderAgentList(agentInfos) {
       const row = el("div", a.name === agent ? "agent-row active" : "agent-row");
       const link = el("a", null, a.name);
       link.href = `?agent=${a.name}`;
+      const st = statusByAgent[a.name];
+      const dot = el("span", "state-dot" + (st && st.waiting ? " waiting" : st && st.generating ? " generating" : ""));
       const menuBtn = el("button", "menu-btn", "⋮");
       menuBtn.onclick = (e) => {
         menuAgent = a.name;
@@ -277,6 +291,7 @@ function renderAgentList(agentInfos) {
         agentMenu.style.top = rect.bottom + 4 + "px";
       };
       row.appendChild(link);
+      row.appendChild(dot);
       row.appendChild(menuBtn);
       list.appendChild(row);
     }

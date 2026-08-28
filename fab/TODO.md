@@ -1,14 +1,13 @@
 # to do  
 
-- tool call center  
+- make docs concise and not say "not do something" just say what it does  
 
-- wait tool  
-- stop tool  
+- Tool Call config: which tools allowed. besides model selector in core chat.  
 
-- generating tag.  
+- make tool call schemas much more concise. these burn tokens.  
 
-- docker use  
-- thoughtgraph  
+- context save load. besides tool call.  
+
 - local computer use. read write edit?? mouse click keyboard screenshot? treat local as just another computer the agent can be assigned to like docker?
 
 - settings page. max tokens. summary tokens.  

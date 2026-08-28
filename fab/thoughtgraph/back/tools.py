@@ -3,57 +3,57 @@ corechat must import this module for registration to happen (the plumbing line).
 access: doc-level grants only (access.json read/write entries, write implies read).
 agents can never create docs — the human owns structure. edges: write on one
 endpoint + at least read on the other. violations raise; commands.dispatch turns
-them into [ERROR] tool results.'''
+them into [ERROR] tool results. everything is per-user: agent.user picks the world.'''
 
 from fab.corechat.back.commands import register
 from fab.thoughtgraph.back import actions, storage
 
 
-def _grants(agent_name: str) -> dict:
-    return storage.load_access().get(agent_name, {})
+def _grants(user: str, agent_name: str) -> dict:
+    return storage.load_access(user).get(agent_name, {})
 
 
-def _can_read(agent_name: str, board: str, nid: str) -> bool:
-    g = _grants(agent_name)
+def _can_read(user: str, agent_name: str, board: str, nid: str) -> bool:
+    g = _grants(user, agent_name)
     return any(e["board"] == board and e["id"] == nid
                for key in ("read", "write") for e in g.get(key, []))
 
 
-def _can_write(agent_name: str, board: str, nid: str) -> bool:
-    g = _grants(agent_name)
+def _can_write(user: str, agent_name: str, board: str, nid: str) -> bool:
+    g = _grants(user, agent_name)
     return any(e["board"] == board and e["id"] == nid for e in g.get("write", []))
 
 
-def _require(agent_name: str, board: str, nid: str, write: bool = False):
-    ok = _can_write(agent_name, board, nid) if write else _can_read(agent_name, board, nid)
+def _require(user: str, agent_name: str, board: str, nid: str, write: bool = False):
+    ok = _can_write(user, agent_name, board, nid) if write else _can_read(user, agent_name, board, nid)
     if not ok:
         raise ValueError(f"no {'write' if write else 'read'} access to {nid!r} on board {board!r}")
 
 
 # the docs an agent may see: its read + write entries on this board
-def _visible_set(agent_name: str, board: str) -> set:
-    g = _grants(agent_name)
+def _visible_set(user: str, agent_name: str, board: str) -> set:
+    g = _grants(user, agent_name)
     return {e["id"] for key in ("read", "write") for e in g.get(key, []) if e["board"] == board}
 
 
 # edges: you must own (write) one side and at least see (read) the other
-def _require_edge(agent_name: str, board: str, src: str, tgt: str):
+def _require_edge(user: str, agent_name: str, board: str, src: str, tgt: str):
     for owned, other in ((src, tgt), (tgt, src)):
-        if _can_write(agent_name, board, owned) and _can_read(agent_name, board, other):
+        if _can_write(user, agent_name, board, owned) and _can_read(user, agent_name, board, other):
             return
     raise ValueError("edge needs your write on one endpoint and at least read on the other")
 
 
 async def _gmap(args: dict, agent) -> str:
-    return actions.gmap(args["board"], ref=args.get("ref"), visible=_visible_set(agent.name, args["board"]))
+    return actions.gmap(agent.user, args["board"], ref=args.get("ref"), visible=_visible_set(agent.user, agent.name, args["board"]))
 
 
 async def _gread(args: dict, agent) -> str:
     board = args["board"]
-    meta = storage.load_meta(board)
+    meta = storage.load_meta(agent.user, board)
     nid = actions.resolve_node(meta, args["ref"])
-    _require(agent.name, board, nid)
-    r = actions.read_node(board, nid)
+    _require(agent.user, agent.name, board, nid)
+    r = actions.read_node(agent.user, board, nid)
     n = r["node"]
     lines = [f"{actions.node_path(meta, nid)} ({n['node_type']}) id={nid}"]
     if n["ref"]:
@@ -71,49 +71,49 @@ async def _gread(args: dict, agent) -> str:
 
 async def _gedit(args: dict, agent) -> str:
     board = args["board"]
-    meta = storage.load_meta(board)
+    meta = storage.load_meta(agent.user, board)
     nid = actions.resolve_node(meta, args["ref"])
-    _require(agent.name, board, nid, write=True)
-    node = actions.edit_node(board, nid, args["old"], args["new"])
+    _require(agent.user, agent.name, board, nid, write=True)
+    node = actions.edit_node(agent.user, board, nid, args["old"], args["new"])
     return f"[GEDIT] '{node['title']}' updated"
 
 
 async def _gmeta(args: dict, agent) -> str:
     board = args["board"]
-    meta = storage.load_meta(board)
+    meta = storage.load_meta(agent.user, board)
     nid = actions.resolve_node(meta, args["ref"])
-    _require(agent.name, board, nid, write=True)
+    _require(agent.user, agent.name, board, nid, write=True)
     fields = {k: args[k] for k in ("title", "node_type", "x", "y", "parent", "expanded", "color") if k in args}
-    node = actions.set_meta(board, nid, **fields)
+    node = actions.set_meta(agent.user, board, nid, **fields)
     return f"[GMETA] '{node['title']}' updated: {sorted(fields)}"
 
 
 async def _gdestroy(args: dict, agent) -> str:
     board = args["board"]
-    meta = storage.load_meta(board)
+    meta = storage.load_meta(agent.user, board)
     nid = actions.resolve_node(meta, args["ref"])
-    _require(agent.name, board, nid, write=True)
-    r = actions.destroy_node(board, nid)
+    _require(agent.user, agent.name, board, nid, write=True)
+    r = actions.destroy_node(agent.user, board, nid)
     return f"[GDESTROY] deleted {len(r['deleted'])} nodes"
 
 
 async def _glink(args: dict, agent) -> str:
     board = args["board"]
-    meta = storage.load_meta(board)
+    meta = storage.load_meta(agent.user, board)
     src = actions.resolve_node(meta, args["source"])
     tgt = actions.resolve_node(meta, args["target"])
-    _require_edge(agent.name, board, src, tgt)
-    e = actions.link(board, src, tgt, args["edge_type"])
+    _require_edge(agent.user, agent.name, board, src, tgt)
+    e = actions.link(agent.user, board, src, tgt, args["edge_type"])
     return f"[GLINK] linked -({e['edge_type']})->"
 
 
 async def _gdlink(args: dict, agent) -> str:
     board = args["board"]
-    meta = storage.load_meta(board)
+    meta = storage.load_meta(agent.user, board)
     src = actions.resolve_node(meta, args["source"])
     tgt = actions.resolve_node(meta, args["target"])
-    _require_edge(agent.name, board, src, tgt)
-    actions.unlink(board, src, tgt)
+    _require_edge(agent.user, agent.name, board, src, tgt)
+    actions.unlink(agent.user, board, src, tgt)
     return "[GDLINK] edge removed"
 
 

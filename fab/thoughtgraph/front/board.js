@@ -19,6 +19,9 @@ class FabBoard extends HTMLElement {
   // boot: build the dom, reopen the last-used board, wire events, start polling
   async connectedCallback() {
     this.build();
+    // events before the first render — initStore's expanded docs fire doc-expand,
+    // and a listener attached afterwards means empty editors on page load
+    this.attachEvents();
     const listRes = await fetch("boards");
     const available = (await listRes.json()).boards || [];
     // restore the last board you were on, not always main
@@ -26,8 +29,7 @@ class FabBoard extends HTMLElement {
     const boardId = available.includes(requested) ? requested
       : (available.includes("main") ? "main" : (available[0] || "main"));
     await this.initStore(boardId);
-    this.attachEvents();
-    this.pollTimer = setInterval(() => this.pollGraph(), 60000);
+    this.pollTimer = setInterval(() => this.pollGraph(), 5000);
   }
 
   disconnectedCallback() { clearInterval(this.pollTimer); }
@@ -48,9 +50,10 @@ class FabBoard extends HTMLElement {
     await this.store.loadGraph();
   }
 
-  // 60s poll for changes made outside this tab (agents, other windows)
+  // 5s poll: picks up every write made outside this tab (agents, neovim, other
+  // windows) — the server's load_meta reconciles the disk tree on each call, so
+  // hand-edited files land here too. never disturb an in-progress interaction
   async pollGraph() {
-    // pick up agent-made board changes; never disturb an in-progress interaction
     if (!this.store || this.store.dragging || this.store.edgeMode) return;
     const before = this.store.graphSignature();
     const data = await this.store.api("GET", "/graph");
@@ -59,6 +62,17 @@ class FabBoard extends HTMLElement {
       this.store.edges = data.edges;
       this.store.emit();
     }
+    // refresh the text of every expanded doc
+    for (const n of Object.values(this.store.nodes)) {
+      if (n.kind !== "doc" || !n.expanded) continue;
+      const ed = this.nodeEls[n.id]?.querySelector(".md-editor");
+      if (!ed) continue;
+      // an open textarea means someone is typing — swapping now would roll the
+      // editor back to the last save (the debounced PUT hasn't landed yet)
+      if (ed.textarea && ed.textarea.style.display !== "none") continue;
+      const c = await this.store.getContent(n.id);
+      if (ed.content !== c.content) ed.content = c.content;
+    }
   }
 
   // stamp the whole dom skeleton: toolbar, sidebar, viewport, popups
@@ -66,7 +80,6 @@ class FabBoard extends HTMLElement {
     this.innerHTML = `
       <div id="toolbar">
         <a href="/" class="home-link" title="back to hub">hub</a>
-        <span class="brand">thoughtgraph</span>
         <span class="sep"></span>
         <button id="add-doc">add doc</button>
         <button id="add-folder">add folder</button>
@@ -121,10 +134,6 @@ class FabBoard extends HTMLElement {
                 <button id="edge-type-add">+</button>
               </div>
             </div>
-          </div>
-          <div class="side-section" id="edge-panel" hidden>
-            <div class="side-title">edge type</div>
-            <div id="edge-sel-type-list"></div>
           </div>
         </div>
       </div>
@@ -254,11 +263,11 @@ class FabBoard extends HTMLElement {
     this.renderDeleteButton();
   }
 
-  // delete/meta buttons only make sense with a selection
+  // delete/meta buttons only make sense with a selection; meta covers nodes AND edges
   renderDeleteButton() {
     const hasSelection = !!this.store.selectedEdgeId || this.store.selectedNodeIds.size > 0;
     this.querySelector("#delete-btn").classList.toggle("hidden", !hasSelection);
-    this.querySelector("#meta-btn").classList.toggle("hidden", !this.primarySelection());
+    this.querySelector("#meta-btn").classList.toggle("hidden", !this.primarySelection() && !this.store.selectedEdgeId);
   }
 
   // push the camera into the world's css transform
@@ -305,7 +314,10 @@ class FabBoard extends HTMLElement {
       const s = store.nodes[edge.source], t = store.nodes[edge.target];
       if (!s || !t || !store.isVisible(s) || !store.isVisible(t)) continue;
       seen.add(edge.id);
+      // refresh the element's edge object — store swaps in fresh objects on every
+      // poll/mutation, and a stale one would render the old edge_type color forever
       if (!this.edgeEls[edge.id]) this.edgeEls[edge.id] = new FabEdge(this, edge);
+      else this.edgeEls[edge.id].edge = edge;
       this.edgeEls[edge.id].update();
     }
     for (const id in this.edgeEls) {
@@ -448,19 +460,45 @@ class FabBoard extends HTMLElement {
     }
   }
 
-  // ---- meta popup: rename + retype the selected node ----
+  // ---- meta popup: rename + retype the selected node, retype the selected edge ----
 
   openMeta() {
+    const popup = this.querySelector("#meta-popup");
+    const titleInput = this.querySelector("#meta-title");
+    const typesDiv = this.querySelector("#meta-types");
+    const saveBtn = this.querySelector("#meta-save");
+    for (const p of this.querySelectorAll(".popup")) p.classList.add("hidden");
+    // an edge's only meta is its type — no title, no save button, chips apply instantly
+    const edge = this.store.edges[this.store.selectedEdgeId];
+    if (edge) {
+      this.metaId = null;
+      titleInput.classList.add("hidden");
+      saveBtn.classList.add("hidden");
+      typesDiv.classList.remove("hidden");
+      typesDiv.innerHTML = "";
+      for (const [name, spec] of Object.entries(this.store.types.edge_types)) {
+        const chip = document.createElement("button");
+        chip.className = "type-chip" + (name === edge.edge_type ? " active" : "");
+        chip.textContent = name;
+        chip.style.setProperty("--nc", spec.color || "#fff");
+        chip.addEventListener("click", () => {
+          this.store.updateEdge(edge.id, name);
+          this.hidePanel("meta-popup");
+        });
+        typesDiv.appendChild(chip);
+      }
+      popup.classList.remove("hidden");
+      return;
+    }
+    titleInput.classList.remove("hidden");
+    saveBtn.classList.remove("hidden");
     const id = this.primarySelection();
     const node = id && this.store.nodes[id];
     if (!node) return;
     this.metaId = id;
     this.metaType = node.node_type;
-    const popup = this.querySelector("#meta-popup");
-    const titleInput = this.querySelector("#meta-title");
     // folders have a title but no type; docs have both
     titleInput.value = node.title;
-    const typesDiv = this.querySelector("#meta-types");
     typesDiv.innerHTML = "";
     typesDiv.classList.toggle("hidden", node.kind === "folder");
     if (node.kind === "doc") {
@@ -476,7 +514,6 @@ class FabBoard extends HTMLElement {
         typesDiv.appendChild(chip);
       }
     }
-    for (const p of this.querySelectorAll(".popup")) p.classList.add("hidden");
     popup.classList.remove("hidden");
     titleInput.focus();
     titleInput.select();
@@ -484,7 +521,7 @@ class FabBoard extends HTMLElement {
 
   async saveMeta() {
     const node = this.store.nodes[this.metaId];
-    if (!node) return;
+    if (!node) { this.hidePanel("meta-popup"); return; }  // edge meta applies on chip click, nothing to save
     const updates = {};
     const title = this.querySelector("#meta-title").value.trim();
     if (title && title !== node.title) updates.title = title;
@@ -559,6 +596,11 @@ class FabBoard extends HTMLElement {
 
   // mousedown on a node: select it and arm a potential drag (or feed edge mode)
   onNodeMouseDown(e, id, customEvent) {
+    // an armed access list turns node clicks into grants — no selection, no drag
+    if (this.accessPanel?.armed) {
+      this.accessPanel.addEntry(this.accessPanel.armed, this.store.boardId, id);
+      return;
+    }
     if (this.store.edgeMode) {
       this.edgeModePick(id);
       return;
@@ -721,7 +763,6 @@ class FabBoard extends HTMLElement {
       return;
     }
     if (!drag.moved) return;
-    if (this.accessPanel) this.accessPanel.setDropActive(true);
     const wdx = dx / this.store.camera.zoom, wdy = dy / this.store.camera.zoom;
     const node = this.store.nodes[drag.nodeId];
     node.x = drag.origX + wdx;
@@ -731,12 +772,11 @@ class FabBoard extends HTMLElement {
     this.syncEdges();
   }
 
-  // drop: snap to grid, resolve the target (access panel / folder / escape), persist
+  // drop: snap to grid, resolve the target (folder / escape), persist
   async onMouseUp(e) {
     const drag = this.store?.dragging;
     if (!drag) return;
     this.viewport.classList.remove("panning");
-    if (this.accessPanel) this.accessPanel.setDropActive(false);
     if (drag.pan) {
       this.store.dragging = null;
       return;
@@ -744,7 +784,7 @@ class FabBoard extends HTMLElement {
     if (drag.resize) {
       // snap the result to whole grid cells (footprint = integer multiple of
       // GRID) so the board lands back in alignment, then persist — otherwise the
-      // 60s poll sees local≠server forever and clobbers the custom size
+      // poll sees local≠server forever and clobbers the custom size
       const node = this.store.nodes[drag.nodeId];
       const M = FabStore.MARGIN;
       const snapCells = (v, min) => Math.max(min, FabStore.snap(v + 2 * M) - 2 * M);
@@ -769,17 +809,6 @@ class FabBoard extends HTMLElement {
     // snap to the grid before deciding parent / saving
     node.x = FabStore.snap(node.x);
     node.y = FabStore.snap(node.y);
-
-    // dropped onto an access panel list? -> grant the doc, restore position
-    const zone = document.elementFromPoint(e.clientX, e.clientY)?.closest(".acc-drop");
-    if (zone && this.accessPanel && this.accessPanel.isOpen) {
-      node.x = drag.origX;
-      node.y = drag.origY;
-      this.store.dragging = null;
-      this.render();
-      this.accessPanel.addEntry(zone.dataset.key, this.store.boardId, node.id);
-      return;
-    }
 
     // world position as displayed at drop time (content offsets are still
     // computed from the pre-drag layout, so this is where the user sees it)
@@ -853,11 +882,13 @@ class FabBoard extends HTMLElement {
     this.render();
   }
 
-  // plain scroll pans; ctrl/alt+wheel zooms (trackpad pinch arrives as ctrl+wheel)
+  // plain scroll pans; ctrl/alt+wheel zooms (trackpad pinch arrives as ctrl+wheel).
+  // an expanded doc's editor scrolls natively ONLY if it can still scroll that way —
+  // otherwise the scroll falls through and pans the board (no dead zones)
   onWheel(e) {
-    if (e.target.closest(".md-editor, .popup, #sidebar")) return;
-    e.preventDefault();
+    if (e.target.closest(".popup, #sidebar")) return;
     if (e.ctrlKey || e.altKey) {
+      e.preventDefault();
       // zoom: trackpad pinch arrives as ctrl+wheel; alt+scroll zooms too.
       // small deltas accumulate and only step once |sum| hits 60; resets after 150ms silence
       this.wheelAccum += e.deltaY;
@@ -869,12 +900,24 @@ class FabBoard extends HTMLElement {
       if (this.wheelAccum < 0) this.zoomIn(v);
       else this.zoomOut(v);
       this.wheelAccum = 0;
-    } else {
-      // plain scroll pans the board (two-finger trackpad scroll gives deltaX + deltaY)
-      this.store.camera.x -= e.deltaX;
-      this.store.camera.y -= e.deltaY;
-      this.applyCamera();
+      return;
     }
+    // scrollable element: the textarea in edit mode, the editor itself in preview
+    const ed = e.target.closest(".md-editor");
+    if (ed) {
+      const ta = ed.querySelector("textarea");
+      const sc = ta && ta.style.display !== "none" ? ta : ed;
+      const canVert = (e.deltaY > 0 && sc.scrollTop + sc.clientHeight < sc.scrollHeight - 1) ||
+                      (e.deltaY < 0 && sc.scrollTop > 0);
+      const canHoriz = e.deltaX !== 0 && sc.scrollWidth > sc.clientWidth + 1;
+      // no preventDefault — the editor takes this scroll natively
+      if (canVert || canHoriz) return;
+    }
+    e.preventDefault();
+    // plain scroll pans the board (two-finger trackpad scroll gives deltaX + deltaY)
+    this.store.camera.x -= e.deltaX;
+    this.store.camera.y -= e.deltaY;
+    this.applyCamera();
   }
 
   // clamp the zoom and keep the world point under the cursor stationary
@@ -945,7 +988,6 @@ class FabBoard extends HTMLElement {
     this.renderFileView();
     this.renderTypeList("doc");
     this.renderTypeList("edge");
-    this.renderEdgePanel();
   }
 
   renderFileView() {
@@ -978,24 +1020,6 @@ class FabBoard extends HTMLElement {
       }
     };
     walk(null, 0);
-  }
-
-  renderEdgePanel() {
-    // selected edge -> retype chips in the sidebar
-    const panel = this.querySelector("#edge-panel");
-    const edge = this.store.edges[this.store.selectedEdgeId];
-    panel.hidden = !edge;
-    if (!edge) return;
-    const list = this.querySelector("#edge-sel-type-list");
-    list.innerHTML = "";
-    for (const [name, spec] of Object.entries(this.store.types.edge_types)) {
-      const chip = document.createElement("button");
-      chip.className = "type-chip" + (name === edge.edge_type ? " active" : "");
-      chip.textContent = name;
-      chip.style.setProperty("--nc", spec.color || "#fff");
-      chip.addEventListener("click", () => this.store.updateEdge(edge.id, name));
-      list.appendChild(chip);
-    }
   }
 
   // ---- boards: dropdown + create / rename / upload / download / delete ----

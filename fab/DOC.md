@@ -74,11 +74,11 @@ example, a mouse click tool (args arrive as {"x": 120, "y": 340}):
 - new input during a turn cancels it (task.cancel, the api call dies mid-flight) — the re-turn sees both messages
 - every agent runs a permanent run() loop: sleeps on one wake event, one turn per wake. anything that wants a turn (inbox, agent-mode continuation, delayed tool results) sets it
 - chat mode (toggle off): one reply then stop. agent mode (toggle on): tools + auto-continue, bare replies get WORK_MSG and it turns again
-- toggle_run flips agent_mode: on -> wake (a turn starts immediately), off -> cancel the live turn and park it. the composer button shows ▶ off, ⏹ on; new agents default off
+- toggle_run flips agent_mode: on -> armed, the next message you send starts the working loop (no api call on its own); off -> cancel the live turn and park it. the composer button shows ▶ off, ⏹ on; new agents default off
 
 ## api
 
-one websocket at `/corechat/ws`. client sends {cmd}, server pushes {type}. server broadcasts everything to every open page; each page filters by agent name.
+one websocket at `/corechat/ws`, gated by the hub session cookie (checked at upgrade — ws skips the http middleware). everything is per-user: data lives under `~/.fab/users/{user}/`, broadcasts are scoped to the user's own tabs. client sends {cmd}, server pushes {type}.
 
 client -> server:
 
@@ -110,11 +110,11 @@ server -> client:
 - messages is always the FULL context, system first; frontend renders incrementally and wipes when it shrinks (compression)
 - words: raw context word count (images = 1000), frontend formats the context meter from it
 - chat to a nonexistent agent fails hard (assert); create only happens via the create cmd
-- broadcast(msg, client) — client=None means every open page, a client means just them
+- broadcast(msg, user, client) — user=X means all of X's open tabs, client=ws means just that socket (request/response)
 
 ## agents.json
 
-`~/.fab/agents.json`, per-agent metadata keyed by name:
+`~/.fab/users/{user}/agents.json`, per-agent metadata keyed by name:
 
 ```json
 {"agentname": {"created": 1700000000.0, "pinned": false,

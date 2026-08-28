@@ -76,14 +76,14 @@ register("TEST_SLOW", {
 # WAIT: the turn itself sleeps on the wake event — ends on timeout, early on new input, dead on cancel
 async def _wait(args: dict, agent) -> str:
     seconds = args["seconds"]
-    broadcast({"type": "status", "name": agent.name, "waiting": seconds})
+    broadcast({"type": "status", "name": agent.name, "waiting": seconds}, user=agent.user)
     try:
         await asyncio.wait_for(agent.wake.wait(), timeout=seconds)
     except asyncio.TimeoutError:
         result = f"waited {seconds}s"
     else:
         result = "wait interrupted — new input arrived"
-    broadcast({"type": "status", "name": agent.name, "waiting": False})
+    broadcast({"type": "status", "name": agent.name, "waiting": False}, user=agent.user)
     return result
 
 register("WAIT", {
@@ -103,7 +103,7 @@ register("WAIT", {
 # STOP: the model's own exit from agent mode — parks itself, only the user can resume it
 async def _stop(args: dict, agent) -> str:
     agent.agent_mode = False
-    broadcast({"type": "agents_changed"})
+    broadcast({"type": "agents_changed"}, user=agent.user)
     return "you stopped yourself. only the user can resume you, with the run button."
 
 register("STOP", {
@@ -118,3 +118,5 @@ register("STOP", {
 
 # plugin tools self-register on import (kept last: they import register from this module)
 from fab.thoughtgraph.back import tools as _thoughtgraph_tools
+from fab.dockeruse.back import tools as _dockeruse_tools
+from fab.wiresend.back import tools as _wiresend_tools

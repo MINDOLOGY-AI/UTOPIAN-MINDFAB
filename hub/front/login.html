@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>login — UTOPIAN-MINDFAB</title>
+  <link rel="stylesheet" href="/TechnoParadisal.css">
+  <style>
+    body { background: var(--background); }
+    /* the auth box hugs the top-left corner */
+    #authbox {
+      position: fixed;
+      top: 0.75rem;
+      left: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      width: 13rem;
+      font-size: 0.8rem;
+    }
+    #authbox input, #authbox button {
+      padding: 0.4rem 0.6rem;
+      background: var(--component);
+      color: var(--text);
+      border: none;
+      border-radius: 8px;
+      font: inherit;
+    }
+    #authbox button { font-weight: 600; cursor: pointer; }
+    #auth-err { color: #FF0055; font-size: 0.7rem; min-height: 1em; margin: 0; }
+    #mode { background: none; color: var(--lavender); text-align: left; padding-left: 0.2rem; }
+  </style>
+</head>
+<body>
+  <div id="authbox">
+    <input id="user" placeholder="username" autocomplete="username">
+    <input id="pass" type="password" placeholder="password" autocomplete="current-password">
+    <button id="go">login</button>
+    <button id="mode">need an account? register</button>
+    <p id="auth-err"></p>
+  </div>
+
+  <script>
+    const go = document.getElementById("go");
+    const mode = document.getElementById("mode");
+    const err = document.getElementById("auth-err");
+    let registering = false;
+
+    mode.onclick = () => {
+      registering = !registering;
+      go.textContent = registering ? "register" : "login";
+      mode.textContent = registering ? "have an account? login" : "need an account? register";
+      err.textContent = "";
+    };
+
+    go.onclick = async () => {
+      const res = await fetch(registering ? "/auth/register" : "/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: document.getElementById("user").value,
+                               password: document.getElementById("pass").value }),
+      });
+      if (res.ok) { location.href = "/"; return; }
+      err.textContent = (await res.json()).error || "failed";
+    };
+    document.addEventListener("keydown", (e) => { if (e.key === "Enter") go.click(); });
+  </script>
+</body>
+</html>

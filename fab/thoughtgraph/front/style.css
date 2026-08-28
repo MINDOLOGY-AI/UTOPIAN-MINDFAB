@@ -15,7 +15,7 @@ fab-board {
   width: 100vw;
   height: 100vh;
   position: relative;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 /* ---- toolbar ---- */
@@ -23,13 +23,13 @@ fab-board {
 #toolbar {
   position: absolute;
   top: 0; left: 0; right: 0;
-  height: 40px;
+  height: 48px;
   display: flex;
   align-items: center;
   flex-wrap: nowrap;
   gap: 6px;
   padding: 0 12px;
-  background: #050505;
+  background: var(--background);
   border-bottom: 1px solid var(--component);
   z-index: 30;
   overflow: hidden;
@@ -40,39 +40,32 @@ fab-board {
 #toolbar > * { flex-shrink: 0; }
 #toolbar button, #doc-font-label { white-space: nowrap; }
 
-#toolbar .brand {
-  color: var(--pink);
-  font-weight: bold;
-  letter-spacing: 2px;
-  margin-right: 6px;
-}
+#toolbar .sep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
 
-#toolbar .sep { width: 1px; height: 20px; background: var(--component); margin: 0 4px; }
-
+/* corechat language: borderless lighter-gray rounded chips on the gray background */
 #toolbar button, .popup button, .board-controls button, .type-add button {
   background: var(--component);
   color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 3px;
+  border: none;
+  border-radius: 8px;
   font-family: inherit;
-  font-size: 11px;
-  padding: 4px 10px;
+  font-size: 12px;
+  padding: 6px 12px;
   cursor: pointer;
 }
 
-#toolbar button:hover, .popup button:hover { border-color: var(--text); }
-#toolbar button.active { border-color: var(--pink); color: var(--pink); }
+#toolbar button.active { color: var(--pink); }
 
 /* ---- sidebar ---- */
 
 #sidebar {
   position: absolute;
-  top: 40px; left: 0; bottom: 0;
+  top: 48px; left: 0; bottom: 0;
   width: 220px;
-  background: #050505;
+  background: var(--background);
   border-right: 1px solid var(--component);
   z-index: 20;
-  font-size: 11px;
+  font-size: 12px;
   display: flex;
   flex-direction: column;
 }
@@ -83,14 +76,15 @@ fab-board {
   padding: 10px;
 }
 
-.home-link {
-  color: var(--green);
+/* the one orange way home, same as corechat — :visited must be named or the
+   theme's a:visited paints it blue */
+.home-link, .home-link:visited {
+  color: var(--orange);
+  font-weight: 600;
   text-decoration: none;
   font-size: 14px;
-  padding: 2px 6px;
-  border-radius: 3px;
 }
-.home-link:hover { color: var(--pink); }
+.home-link:hover { color: var(--lavender); }
 
 .side-title.collapsible {
   cursor: pointer;
@@ -106,16 +100,17 @@ fab-board {
 .type-body.collapsed { display: none; }
 
 .side-section { margin-bottom: 16px; }
-.side-title { color: var(--border); text-transform: uppercase; letter-spacing: 1px; font-size: 10px; margin: 10px 0 6px; }
+.side-title { color: var(--border); text-transform: uppercase; letter-spacing: 1px; font-size: 12px; margin: 10px 0 6px; }
 
 .board-controls { display: flex; gap: 4px; align-items: center; }
 .board-controls select {
   flex: 1;
   background: var(--component);
   color: var(--text);
-  border: 1px solid var(--border);
+  border: none;
+  border-radius: 8px;
   font-family: inherit;
-  font-size: 11px;
+  font-size: 12px;
   padding: 3px;
 }
 
@@ -163,10 +158,11 @@ fab-board {
   flex: 1;
   min-width: 0;
   background: var(--component);
-  border: 1px solid var(--border);
+  border: none;
+  border-radius: 8px;
   color: var(--text);
   font-family: inherit;
-  font-size: 11px;
+  font-size: 12px;
   padding: 3px 6px;
 }
 .type-add input[type="color"] { width: 22px; height: 22px; border: none; padding: 0; background: none; }
@@ -175,7 +171,7 @@ fab-board {
 
 #viewport {
   position: absolute;
-  top: 40px; left: 220px; right: 0; bottom: 0;
+  top: 48px; left: 220px; right: 0; bottom: 0;
   overflow: hidden;
   cursor: grab;
   background: var(--background);
@@ -190,8 +186,8 @@ fab-board {
   top: -5000px; left: -5000px;
   width: 12000px; height: 12000px;
   background-image:
-    linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+    linear-gradient(rgba(255,255,255,0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.09) 1px, transparent 1px);
   background-size: 200px 200px;
   pointer-events: none;
 }
@@ -220,9 +216,9 @@ fab-board {
   fill: none;
   opacity: 0.6;
 }
-.edge.selected { opacity: 1; stroke: var(--pink); stroke-width: 2; }
+.edge.selected { opacity: 1; stroke: var(--blue); stroke-width: 2; }
 .edge-arrow { fill: var(--text); opacity: 0.6; }
-.edge-arrow.selected { fill: var(--pink); opacity: 1; }
+.edge-arrow.selected { fill: var(--blue); opacity: 1; }
 
 /* ---- nodes ---- */
 
@@ -233,14 +229,14 @@ fab-board {
   border-radius: 4px;
   user-select: none;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 12px;
   z-index: 1;
   transition: box-shadow 0.15s;
 }
 .fab-node:hover { box-shadow: 0 0 6px rgba(255,255,255,0.12); }
 .fab-node.selected {
-  border-color: var(--pink) !important;
-  box-shadow: 0 0 8px var(--pink);
+  border-color: var(--blue) !important;
+  box-shadow: 0 0 8px var(--blue);
   z-index: 2;
 }
 
@@ -272,7 +268,7 @@ fab-board {
 .fab-node .type-label {
   position: absolute;
   bottom: 6px; left: 8px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--border);
   pointer-events: none;
 }
@@ -390,19 +386,31 @@ fab-board {
 
 #doc-font-label {
   color: var(--border);
-  font-size: 10px;
+  font-size: 12px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
 }
 #doc-font-size {
-  width: 44px;
+  width: 56px;
   background: var(--component);
-  border: 1px solid var(--border);
+  border: none;
+  border-radius: 8px;
   color: var(--text);
-  border-radius: 3px;
-  font-size: 11px;
-  padding: 2px 4px;
+  font-size: 12px;
+  padding: 3px 5px;
+}
+
+/* kill the number input's spinner arrows, we type only */
+#doc-font-size::-webkit-outer-spin-button,
+#doc-font-size::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+#doc-font-size {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 /* folder */
@@ -447,7 +455,7 @@ fab-board {
   box-shadow: 0 0 8px var(--green);
 }
 
-/* folders use the green indicator for selection too — the pink full border is
+/* folders use the green indicator for selection too — the blue full border is
    for regular nodes only */
 .fab-node.kind-folder.selected {
   border-color: transparent !important;
@@ -461,18 +469,18 @@ fab-board {
 
 .popup {
   position: absolute;
-  top: 60px;
+  top: 70px;
   left: 240px;
   min-width: 300px;
   max-width: 420px;
   max-height: 70vh;
   overflow-y: auto;
-  background: #0a0a0a;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  background: var(--component);
+  border: none;
+  border-radius: 8px;
   padding: 12px;
   z-index: 40;
-  font-size: 11px;
+  font-size: 12px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.7);
 }
 .popup.hidden { display: none; }
@@ -487,11 +495,12 @@ fab-board {
 
 .popup input:not([type="color"]), .popup select {
   width: 100%;
-  background: var(--component);
-  border: 1px solid var(--border);
+  background: var(--background);
+  border: none;
+  border-radius: 8px;
   color: var(--text);
   font-family: inherit;
-  font-size: 11px;
+  font-size: 12px;
   padding: 5px 8px;
   margin-bottom: 8px;
 }
@@ -500,6 +509,9 @@ fab-board {
 
 #create-types, #meta-types { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
 #meta-types.hidden { display: none; }
+
+/* edge meta hides the title input + save button (chips apply instantly) */
+#meta-popup .hidden { display: none; }
 
 .type-chip {
   background: #111 !important;
@@ -518,7 +530,7 @@ fab-board {
   border-left: 2px solid transparent;
 }
 .search-row:hover, .fv-row:hover { background: var(--component); }
-.search-row.active, .fv-row.active { background: var(--component); border-left-color: var(--pink); }
+.search-row.active, .fv-row.active { background: var(--component); border-left-color: var(--blue); }
 .fv-folder { color: var(--border); }
 
 #toolbar .hidden, #delete-btn.hidden, #meta-btn.hidden { display: none; }
@@ -527,14 +539,13 @@ fab-board {
 
 #acc-panel {
   position: fixed;  /* body-level element in index.html — fixed, not absolute in the board */
-  top: 40px; right: 0; bottom: 0;
+  top: 48px; right: 0; bottom: 0;
   width: 300px;
-  background: #050505;
-  border-left: 1px solid var(--component);
+  background: var(--background);
   padding: 14px;
   overflow-y: auto;
   z-index: 25;
-  font-size: 11px;
+  font-size: 12px;
   transform: translateX(100%);
   transition: transform 0.18s ease;
   display: flex;
@@ -553,10 +564,11 @@ fab-board {
 #acc-agent {
   width: 100%;
   background: var(--component);
-  border: 1px solid var(--border);
+  border: none;
+  border-radius: 8px;
   color: var(--text);
   font-family: inherit;
-  font-size: 11px;
+  font-size: 12px;
   padding: 4px;
 }
 
@@ -564,25 +576,28 @@ fab-board {
   color: var(--border);
   text-transform: uppercase;
   letter-spacing: 1px;
-  font-size: 10px;
+  font-size: 11px;
   margin: 12px 0 6px;
 }
 
 .acc-list {
   min-height: 40px;
   flex-shrink: 0;  /* panel is a flex column — don't let lists shrink below their chips */
-  border: 1px dashed var(--border);
-  border-radius: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
   padding: 6px;
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
   align-content: flex-start;
+  cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
-.acc-list.drag-active {
-  border-color: var(--pink);
-  background: rgba(255, 255, 255, 0.04);
+
+/* armed: board clicks grant docs to this list */
+.acc-list.armed {
+  border-color: var(--green);
+  background: rgba(134, 206, 134, 0.06);
 }
 
 .acc-chip {
@@ -590,17 +605,17 @@ fab-board {
   align-items: center;
   gap: 4px;
   background: var(--component);
-  border: 1px solid var(--border);
-  border-radius: 3px;
+  border: none;
+  border-radius: 8px;
   padding: 2px 4px 2px 8px;
-  font-size: 10px;
+  font-size: 11px;
 }
 .acc-chip button {
   background: none;
   border: none;
   color: var(--border);
   cursor: pointer;
-  font-size: 10px;
+  font-size: 11px;
   padding: 0 2px;
 }
 .acc-chip button:hover { color: var(--red); }
@@ -609,35 +624,35 @@ fab-board {
 
 .acc-error {
   color: var(--red);
-  font-size: 10px;
+  font-size: 11px;
   min-height: 14px;
   padding: 4px;
 }
 
-.acc-hint { color: var(--border); font-size: 10px; padding: 4px; }
+.acc-hint { color: var(--border); font-size: 11px; padding: 4px; }
 
 .acc-preset-row { display: flex; gap: 4px; margin-bottom: 4px; }
 .acc-preset-row input, .acc-preset-row select {
   flex: 1;
   min-width: 0;
   background: var(--component);
-  border: 1px solid var(--border);
+  border: none;
+  border-radius: 8px;
   color: var(--text);
   font-family: inherit;
-  font-size: 11px;
+  font-size: 12px;
   padding: 4px 6px;
 }
 .acc-preset-row button {
   background: var(--component);
   color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 3px;
+  border: none;
+  border-radius: 8px;
   font-family: inherit;
-  font-size: 11px;
+  font-size: 12px;
   padding: 4px 10px;
   cursor: pointer;
 }
-.acc-preset-row button:hover { border-color: var(--text); }
 .acc-preset-row button:disabled,
 .acc-preset-row input:disabled,
 .acc-preset-row select:disabled { opacity: 0.4; cursor: default; }

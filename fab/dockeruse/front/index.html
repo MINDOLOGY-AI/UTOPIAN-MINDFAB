@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>dockeruse</title>
+  <link rel="stylesheet" href="/TechnoParadisal.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav id="sidebar">
+    <a id="home" href="/">hub</a>
+    <div id="controls">
+      <input id="new-name" placeholder="container name" autocomplete="off">
+      <button id="create">add</button>
+    </div>
+    <div id="containers"></div>
+  </nav>
+  <main id="screen">
+    <div id="vnc-placeholder">select a container</div>
+    <iframe id="vnc-frame" style="display:none;"></iframe>
+    <div id="bottombar">
+      <button id="start-btn" disabled>▶ start</button>
+      <button id="stop-btn" disabled>⏸ pause</button>
+      <button id="delete-btn" disabled>delete</button>
+      <button id="assign-btn" disabled>assign</button>
+      <span id="status-line"></span>
+    </div>
+  </main>
+
+  <aside id="assign-panel">
+    <div class="panel-head">
+      <span id="assign-title">assign</span>
+      <button id="assign-close">×</button>
+    </div>
+    <div class="panel-body">
+      <div class="acc-sub">one agent per computer. the agent gets DOCKER_STATUS / DOCKER_START / DOCKER_STOP + the computer tools.</div>
+      <div id="assign-current"></div>
+      <select id="agent-select"></select>
+      <div class="panel-row">
+        <button id="assign-do">assign</button>
+        <button id="unassign-do">unassign</button>
+      </div>
+    </div>
+  </aside>
+
+  <script src="app.js"></script>
+</body>
+</html>

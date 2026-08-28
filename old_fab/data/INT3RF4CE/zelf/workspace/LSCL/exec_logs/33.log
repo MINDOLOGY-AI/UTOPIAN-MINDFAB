@@ -1,3 +1,0 @@
-$ curl -s -m 10 -o /dev/null -w "%{http_code}" https://github.com/princeton-nlp/continual-factoid-memorization && echo " github ok"; curl -s -m 10 -o /dev/null -w "%{http_code}" https://arxiv.org && echo " arxiv ok"
-200 github ok
-200 arxiv ok

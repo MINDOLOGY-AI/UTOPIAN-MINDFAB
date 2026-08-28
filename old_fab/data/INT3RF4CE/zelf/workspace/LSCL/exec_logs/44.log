@@ -1,9 +1,0 @@
-$ sshpass -p 'iVoAUdVqGtxD' ssh -o StrictHostKeyChecking=no -p 20068 root@connect.weste.seetacloud.com 'python3 -c "import torch, transformers, datasets, safetensors, numpy; print(\"torch\", torch.__version__); print(\"transformers\", transformers.__version__); print(\"datasets\", datasets.__version__); print(\"safetensors\", safetensors.__version__); print(\"numpy\", numpy.__version__)" 2>&1; echo ---; curl -s -m 10 -o /dev/null -w "%{http_code}\n" https://hf-mirror.com; python3 -m pip --version 2>&1 | head -1; which tmux'
-/usr/local/lib/python3.10/dist-packages/torch/_subclasses/functional_tensor.py:307: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:84.)
-  cpu = _conversion_method_template(device=torch.device("cpu"))
-Traceback (most recent call last):
-  File "<string>", line 1, in <module>
-ModuleNotFoundError: No module named 'transformers'
----
-200
-pip 22.0.2 from /usr/lib/python3/dist-packages/pip (python 3.10)

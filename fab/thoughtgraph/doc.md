@@ -13,7 +13,7 @@ a 2D board of typed doc rectangles and folders connected by typed, colored edges
 
 # disk layout
 
-everything lives under `FAB_DIR/thoughtgraph/` (`~/.fab/thoughtgraph/`, per fab/config.py), single user:
+everything lives under `FAB_DIR/users/{user}/thoughtgraph/` (per user — hub auth gates every route; the doc says `~/.fab/thoughtgraph/` for short):
 
 ```
 ~/.fab/thoughtgraph/
@@ -81,16 +81,14 @@ structural disk edits (new/moved/deleted files) desync meta.json, so on board lo
 
 defaults can be recolored but never permanently deleted (backend merges defaults under disk on load); user-added types are kept as-is.
 
-default doc_types (color families: purple = knowledge, blue = repo artifacts, orange = world):
+default doc_types (color families: purple = knowledge, blue = science loop, red = directives, orange = world/self):
 
 ```python
-_PURPLE, _BLUE, _ORANGE = "#B8A0FF", "#6BC4FF", "#FF8C00"
-{"axiom": _PURPLE, "definition": _PURPLE, "theory": _PURPLE, "evidence": _PURPLE,
- "hypothesis": _PURPLE, "doc": _PURPLE,
- "algorithm": _BLUE, "weights": _BLUE, "dataset": _BLUE, "benchmark": _BLUE,
- "code": _BLUE, "model": _BLUE,
- "actuator": _ORANGE, "world_state": _ORANGE, "aesthetics": _ORANGE,
- "prompt": "#FF0055"}
+_PURPLE, _BLUE, _ORANGE, _RED = "#B8A0FF", "#6BC4FF", "#FF8C00", "#FF0055"
+{"axiom": _PURPLE, "definition": _PURPLE, "theory": _PURPLE, "doc": _PURPLE,
+ "hypothesis": _BLUE, "experiment": _BLUE, "evidence": _BLUE,
+ "task": _RED, "guideline": _RED,
+ "actuator": _ORANGE, "world_state": _ORANGE, "aesthetics": _ORANGE, "personal": _ORANGE}
 ```
 
 default edge_types: `{"support": "#00FF41", "reject": "#FF0055", "causes": "#6BC4FF", "training": "#FF8C00"}`
@@ -112,7 +110,7 @@ MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 ## agent access settings (`~/.fab/thoughtgraph/access.json`)
 
-thoughtgraph owns its own access file — NOT part of corechat's agents.json. the G* tools live here and enforce it, so the store lives here. keyed by agent name. the agent list is corechat's `~/.fab/agents.json`, read at FILE level (read-only); every read of it also garbage-collects access.json — entries whose agent no longer exists get deleted. no preconfiguring agents that don't exist.
+thoughtgraph owns its own access file — NOT part of corechat's agents.json. the G* tools live here and enforce it, so the store lives here. keyed by agent name, per user (agent.user picks the world). the agent list is that user's `users/{user}/agents.json`, read at FILE level (read-only); every read of it also garbage-collects access.json — entries whose agent no longer exists get deleted. no preconfiguring agents that don't exist.
 
 ```json
 {"agentname": {
@@ -138,7 +136,7 @@ strip; non-empty; ≤120 chars; no leading `.`; no `/` or `\`; no control chars 
 
 # backend operations (actions.py — one implementation, two front doors: REST for the UI, G* tools for agents)
 
-every op takes (board, ...) — single user, no user param. no error handling: bad input raises and the caller (dispatch / fastapi) turns it into an error result. `resolve_node(ref)` accepts an id or a title (titles are unique). ops that rename/reparent sync the on-disk tree via old-meta vs new-meta path comparison, then remove emptied ancestor dirs.
+every op takes (user, board, ...) — per user, the user threads in from the cookie (REST) or agent.user (G* tools). no error handling: bad input raises and the caller (dispatch / fastapi) turns it into an error result. `resolve_node(ref)` accepts an id or a title (titles are unique). ops that rename/reparent sync the on-disk tree via old-meta vs new-meta path comparison, then remove emptied ancestor dirs.
 
 - **create_node**(title, kind, node_type, parent?, ref?, near?, x?, y?) — autoplaces via storage.next_position when x/y absent; root coords snap to grid, child coords round to ints. every doc gets its (empty) .md file at creation — reconcile drops fileless docs.
 - **read_node**(ref) — `{node, content, connected: [{edge_id, direction: "in"|"out", id, title, kind, node_type}]}` (directly connected docs only).
@@ -156,7 +154,7 @@ per-parent occupied grid cells; `near` → one column right of that node, first 
 
 # REST api (as built in back/api.py, minus old /versions)
 
-single user, no auth. no validation — bad input raises, fastapi returns 500.
+per user (session cookie via hub auth). no validation — bad input raises, fastapi returns 500.
 
 ```
 GET    /boards                                -> {boards: [id]}
@@ -204,13 +202,13 @@ plain html/css/js, no frameworks. hub components: TechnoParadisal css, `<markdow
 ## layout
 
 - toolbar (top): hub link, brand, add doc / add folder / add edge, delete + meta (appear only with a selection), then right side: search, zoom −/+, doc text size input (scales only markdown inside doc nodes, 8–32px, persisted in localStorage), board download ↓ / upload ↑ (zip).
-- sidebar (left): board select + new/rename/delete; "file view" (collapsible): indented tree projection of the graph (folders get `/`), click = expand ancestors + select + center camera; doc types + edge types editors (collapsible): color swatch per type (change saves), × delete, name+color+ add row; edge retype panel (appears when an edge is selected).
+- sidebar (left): board select + new/rename/delete; "file view" (collapsible): indented tree projection of the graph (folders get `/`), click = expand ancestors + select + center camera; doc types + edge types editors (collapsible): color swatch per type (change saves), × delete, name+color+ add row.
 - viewport: infinite pannable/zoomable world, dot grid, svg edge layer under the node layer.
 - popups: create (title + type chips), meta (rename + retype chips; folders: title only), edge type picker, search panel.
 
 ## interactions
 
-- pan: drag empty ground (the interior of an expanded folder IS empty ground — folders grabbable only by frame + floating title: top MARGIN strip + 14px bands). plain wheel scroll pans (dx+dy).
+- pan: drag empty ground (the interior of an expanded folder IS empty ground — folders grabbable only by frame + floating title: top MARGIN strip + 14px bands). plain wheel scroll pans (dx+dy) — an expanded doc's editor keeps the scroll ONLY if it can still scroll that way (textarea in edit mode, preview div otherwise); at its scroll end the board pans. zoom works over editors too.
 - zoom: ctrl/pinch or alt+wheel, anchored at cursor; deltas accumulate to |60| per step, reset after 150ms silence. zoom survives board switches.
 - click node = select (shift = additive toggle). click folder = also makes it the ACTIVE folder (creation and drops target it). click empty = clear selection + deactivate. Escape = same + close popups + exit edge mode.
 - double-click doc = expand/collapse (expand auto-expands ancestors; expand state persisted). expanded doc = live markdown editor + bottom-right resize grip (raw pixels mid-drag, snaps to whole grid cells on release, min sizes enforced, size persists on node.width/height but collapsing forgets it... old note: no reset on re-expand, custom size survives collapse→expand). double-click folder = expand/collapse; collapsing a folder collapses all expanded descendants. double-click inside the editor or on the grip never collapses.
@@ -218,15 +216,24 @@ plain html/css/js, no frameworks. hub components: TechnoParadisal css, `<markdow
 - selection only on mousedown; folder ACTIVATION on click (mouseup without drag) — that's what makes folder-into-folder drags possible.
 - arrow keys: move primary selection one grid cell (overlap rejected). Delete/Backspace: delete selection (edge or nodes). ctrl/cmd+F: search.
 - edge mode: "add edge" toggles; click source doc, click target doc → type picker popup → create. clicking empty ground or the same node exits.
-- select an edge (fat invisible hit strip) → sidebar retype chips; delete key removes it.
+- select an edge (fat invisible hit strip) → the meta button appears; meta popup for an edge is just the edge-type chips (no title, no save), click retypes instantly. delete key removes it.
 - create doc: popup with title + type chips (default = first type); position = free spot near viewport center, or first free child spot inside the active folder; overlap-resolved; creating inside a collapsed folder expands it.
 - `[[wikilinks]]` in doc content resolve by title → click = expand ancestors + select + center camera.
-- meta popup: rename + retype the primary selection.
+- meta popup: rename + retype the primary selection; for an edge: retype only.
 - search: title substring, top 50 sorted, arrow keys + enter navigate, jump = expand ancestors + select + center.
-- polling: full graph refetch every 60s to pick up agent-made changes; skipped during drag/edge mode; replaced only if the signature differs.
+- polling: every 5s, refetch the graph meta (server reconciles the disk tree on each call, so neovim/agent/other-tab edits all land here) + refetch the content of every expanded doc; skipped during drag/edge mode; meta replaced only if the signature differs, editor content swapped only if changed — an editor with its textarea open (mid-typing) is skipped so the poll can't roll back unsaved keystrokes.
 - last board persisted in localStorage; falls back to "main" (seeded on first use).
 - download: plain navigation to the zip route. upload: file picker → raw zip POST → 409 confirm overwrite → replaces and switches to it.
-- login gate: auth overlay covers the board until authed; reload on login.
+
+## doc save lifecycle (mdeditor.js — why no wipe is possible)
+
+a doc node's editor has two faces: preview (rendered markdown, textarea hidden — the poll MAY refresh it) and edit mode (textarea visible — the poll SKIPS it). saves go browser → PUT → disk; disk is the single source of truth, last write wins.
+
+- typing: every keystroke updates `_content` in memory, marks the editor dirty, and resets a 400ms debounce timer. nothing hits disk per keystroke.
+- save path 1: 400ms after the last keystroke, the timer flushes — whole-doc PUT.
+- save path 2: blur (click out) flushes INSTANTLY, then returns to preview mode. without this, a poll landing between blur and the pending debounce would briefly roll the doc back to the last save.
+- `flush()` is guarded by the dirty flag: whichever path fires first saves, the other no-ops. no double PUTs.
+- after any stop, disk and editor agree within 400ms, so the 5s poll always compares equal and does nothing. the only remaining overwrite is the accepted one: agent edits the doc while you're in it — if you keep typing, your next save wins (last-write-wins both directions).
 
 ## edge rendering (edges.js — ported from INT3RPV1Z routing, preserve the look)
 
@@ -254,10 +261,10 @@ access rules: see "agent access settings" — doc-level grants only, no doc crea
 
 ## the access panel (frontend)
 
-right slide-in sidebar on the board page, toolbar button `access`. everything stays in thoughtgraph — it reads corechat's `~/.fab/agents.json` at FILE level (read-only, no import) to list which agents exist.
+right slide-in sidebar on the board page, toolbar button `access`. everything stays in thoughtgraph — it reads the current user's `users/{user}/agents.json` at FILE level (read-only, no import) to list which agents exist.
 
 - top: agent picker — dropdown of agents.json names, pure (GET /agents; reading it also garbage-collects stale access.json entries). no preconfiguration.
-- two drop lists: `read`, `write`. drag a board node onto a list → chip (title + board tag + ×). folders are rejected with a hint — doc-level grants only.
+- two grant lists: `read`, `write`. click a list's empty area to ARM it (green border) → clicking board docs grants them to it; click the list again to disarm. chips show title + board tag + ×. folders are rejected with a hint — doc-level grants only.
 - CROSS-BOARD: chips from every board show together (the board tag says where); switch boards mid-session and keep dragging — the entry is `{board, id}`, it's just a path. chips for other boards resolve their titles by fetching that board's graph once.
 - presets: name input + save (POST /presets/save: copy the agent's entry into presets.json), select + load (POST /presets/load: replace the agent's entry from a preset).
 - saves on every change via PUT /access. no websocket, no secrets/compute/todo sections — deleted.
@@ -269,4 +276,5 @@ right slide-in sidebar on the board page, toolbar button `access`. everything st
 - `content/` vestigial dir, `board.json` back-compat in upload, legacy block-format context migration.
 - ascii_map (deleted by decision — GMAP + GREAD carry the information), upload meta validation.
 - folder total control, the folders grant list, secrets/compute/todo sections of the old ctxpanel (the new access panel is docs only, three lists + presets).
-- per-user dirs (until hub auth returns): new fab is single-user under ~/.fab.
+
+(hub auth landed since this spec: everything above is per user under `~/.fab/users/{user}/`.)

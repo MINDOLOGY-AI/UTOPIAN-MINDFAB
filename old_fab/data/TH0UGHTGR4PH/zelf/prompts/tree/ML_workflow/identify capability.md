@@ -1,1 +1,0 @@
-1: identify a capability we want. this should step towards primy (aligned agi).  

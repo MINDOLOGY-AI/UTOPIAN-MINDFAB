@@ -85,10 +85,17 @@ class MarkdownEditor extends HTMLElement {
   // debounce 400ms, then bubble content-change up to the board
   onInput() {
     this._content = this.textarea.value;
+    this._dirty = true;
     clearTimeout(this._saveTimer);
-    this._saveTimer = setTimeout(() => {
-      this.dispatchEvent(new CustomEvent("content-change", { detail: this._content, bubbles: true }));
-    }, 400);
+    this._saveTimer = setTimeout(() => this.flush(), 400);
+  }
+
+  // the actual save event; guards the timer and the blur flush from double-firing
+  flush() {
+    if (!this._dirty) return;
+    this._dirty = false;
+    clearTimeout(this._saveTimer);
+    this.dispatchEvent(new CustomEvent("content-change", { detail: this._content, bubbles: true }));
   }
 
   // wikilink click bubbles up to the board; any other click enters edit mode
@@ -110,6 +117,9 @@ class MarkdownEditor extends HTMLElement {
 
   showPreview() {
     this._content = this.textarea.value;
+    // flush any pending debounced save NOW — a poll landing between blur and the
+    // 400ms timer would briefly roll the doc back to the last save
+    this.flush();
     this.textarea.style.display = "none";
     this.preview.style.display = "";
     this.render();

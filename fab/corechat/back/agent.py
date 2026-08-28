@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 
-from fab.config import FAB_DIR, PRESERVE_LAST
+from fab.config import PRESERVE_LAST, udir
 from fab.corechat.back.prompt import SYSTEM, SUMMARIZE, WORK_MSG, REPAIR_NOTE
 from fab.corechat.back.modelserver import ModelServer
 from fab.corechat.back.websocket import broadcast
@@ -14,11 +14,13 @@ from fab.corechat.back import commands
 
 class Agent():
     def __init__(self,
+                 user:str,
                  name:str,
                  model_server:ModelServer,
                  context_limit:int=300_000,):
+        self.user = user
         self.name = name
-        self.working_context_path = FAB_DIR/"agents"/name
+        self.working_context_path = udir(user)/"agents"/name
         # resume existing agent
         if self.working_context_path.exists():
             self.working_context: list[dict] = [json.loads(line) for line in open(self.working_context_path/"working.jsonl")]
@@ -94,7 +96,7 @@ class Agent():
                 self.working_context.append(await commands.dispatch(self, tc))
             self.save_working_context()
             broadcast({"type": "messages", "name": self.name, "messages": self.working_context,
-                       "words": self.count_context_words()})
+                       "words": self.count_context_words()}, user=self.user)
             #copiedFromNeovim
         except Exception:
             logging.exception(f"turn failed for agent {self.name}")
@@ -109,13 +111,13 @@ class Agent():
             await self.wake.wait()
             self.wake.clear()
             self.current_turn = asyncio.create_task(self.turn())
-            broadcast({"type": "status", "name": self.name, "generating": True})
+            broadcast({"type": "status", "name": self.name, "generating": True}, user=self.user)
             try:
                 await self.current_turn
             except asyncio.CancelledError:
                 pass
             self.current_turn = None
-            broadcast({"type": "status", "name": self.name, "generating": False})
+            broadcast({"type": "status", "name": self.name, "generating": False}, user=self.user)
 
     async def compress(self):
         if self.count_context_words() > self.context_limit:

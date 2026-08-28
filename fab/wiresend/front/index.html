@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>wiresend</title>
+  <link rel="stylesheet" href="/TechnoParadisal.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav id="sidebar">
+    <a id="home" href="/">hub</a>
+    <button id="new-channel-btn">+ channel</button>
+    <div id="channel-list"></div>
+  </nav>
+  <main id="chat-main">
+    <div id="chat-header">select a channel</div>
+    <div id="chat-messages"></div>
+    <div class="chat-input-area">
+      <div id="attach-chips"></div>
+      <textarea id="chat-input" placeholder="message… (enter to send, shift+enter for newline, drop files here)"></textarea>
+    </div>
+  </main>
+  <aside id="file-browser">
+    <div class="file-browser-header" id="file-browser-header">files</div>
+    <div id="file-browser-content"></div>
+  </aside>
+
+  <div id="upload-progress" style="display:none;"><div id="upload-bar"></div></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script src="/components/MarkdownEditor/markdown-it-katex.js"></script>
+  <script src="/components/MarkdownEditor/markdown-render.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

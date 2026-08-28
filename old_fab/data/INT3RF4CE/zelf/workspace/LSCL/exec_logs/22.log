@@ -1,2 +1,0 @@
-$ which sshpass || (apt list --installed 2>/dev/null | grep sshpass) || echo "no sshpass"
-/usr/bin/sshpass

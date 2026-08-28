@@ -1,5 +1,0 @@
-$ mv /tmp/cfmb /home/agent/cfmb_princeton && ls /home/agent/
-UTOPIAN-MINDFAB
-cfmb_princeton
-exec_logs
-term.log

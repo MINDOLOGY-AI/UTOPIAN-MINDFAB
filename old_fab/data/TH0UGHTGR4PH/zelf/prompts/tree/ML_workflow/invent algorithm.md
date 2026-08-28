@@ -1,2 +1,0 @@
-5: THINK of a better algorithm than the frontier. do NOT just come up with a random theory. you should have some bases in either: Machine Learning theory, Mindology theory, Mathmatical theory, Neuroscience theory whatever.  
-just have SOME justification because compute taken to validate costs me time an money. if you genuinely cant think of a new one do NOT hallucinate a random one just use chat tool to tell me why you give up then call tool to stop yourself. no shame at all, it's normal to not being able to advance the frontier of ML. but do NOT give up easily either.   
