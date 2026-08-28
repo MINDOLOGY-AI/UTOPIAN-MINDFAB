@@ -235,7 +235,7 @@ a doc node's editor has two faces: preview (rendered markdown, textarea hidden �
 - `flush()` is guarded by the dirty flag: whichever path fires first saves, the other no-ops. no double PUTs.
 - after any stop, disk and editor agree within 400ms, so the 5s poll always compares equal and does nothing. the only remaining overwrite is the accepted one: agent edits the doc while you're in it — if you keep typing, your next save wins (last-write-wins both directions).
 
-## edge rendering (edges.js — ported from INT3RPV1Z routing, preserve the look)
+## edge rendering (edges.js — ported from interpviz routing, preserve the look)
 
 orthogonal routing, left-to-right flow. edges exit/enter through ports spread evenly along the border facing the other node (right/left for horizontal pairs, bottom/top for x-overlapping vertical pairs), sorted so closer counterparts get extreme ports. same row/column: straight line for border (extreme-port) edges, small jog near the target for inner ones. otherwise a Z route with one vertical turn, turn lanes staggered by 12px per incoming edge so parallels don't merge. arrowhead polygon at the target port. edges colored by type; selected edges highlight (pink). hit strip is a fat invisible polyline under the visible one.
 

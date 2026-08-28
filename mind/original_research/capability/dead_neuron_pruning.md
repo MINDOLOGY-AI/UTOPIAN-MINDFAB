@@ -2,6 +2,6 @@ over parameterization helps model escape local minima (more coordinates to not g
 
 therefore we can prune them by counting firing frequencies and straight up deleting them, making the model smaller, changing the connections accordingly of connected neurons.  
 
-this reduces size of the model while quantization reduces the size of each SYN4P5E.  
+this reduces size of the model while quantization reduces the size of each synapse.  
 
 this is also very useful for SAEs.  

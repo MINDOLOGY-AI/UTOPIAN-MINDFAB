@@ -1,9 +1,9 @@
 # mind   
 All our research code will be here!  
 
-SYN4P5E for algorithms, training, probes, interp, and peripherals.  
-D4T4STEPS for downloading datasets, splitting into train,test,val, tokenizing, remixing  
-EV0K3 is where you tie them together and write the experiment glue code  
+synapse for algorithms, training, probes, interp, and peripherals.  
+datasteps for downloading datasets, splitting into train,test,val, tokenizing, remixing  
+evoke is where you tie them together and write the experiment glue code  
 
 data is for storing datasets  
 weight is for storing weights. make sure both follow the data strcuture as the scripts they are made from.  

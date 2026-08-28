@@ -1,4 +1,4 @@
 everything invented by us  
 
-ONLY README AND PAPERS IN THIS FOLDER. actual code still in SYN4P5E.  
+ONLY README AND PAPERS IN THIS FOLDER. actual code still in synapse.  
 

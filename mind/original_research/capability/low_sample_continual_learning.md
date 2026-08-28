@@ -15,7 +15,7 @@ i will try to solve this, why? first obviously main line quest primy will need i
 
 here are some steps:  
 
-1: get llama 3 4b working in SYN4P5E  
+1: get llama 3 4b working in synapse  
 2: bvnch. normal benchmarks (for catatrophic forgetting measurement)  
 3: make my own structured continual learning benchmarks  
 4: implement frontier research in this area, understand and bench all of them  

@@ -19,7 +19,7 @@ UTOPIAN-MINDFAB/
   pvvr/
 
   MINDOLOGY/  
-  SYN4P5E/  
+  synapse/  
     curriculum-train/  
   D4TA5TEPS/  
   bvnch/  
@@ -42,7 +42,7 @@ UTOPIAN-MINDFAB/
     TH0UGHTGR4PH/
     codeflow/
 
-  EV0K3/  
+  evoke/  
     interp/  
     capability/  
     fun/  
@@ -67,7 +67,7 @@ UTOPIAN-MINDFAB/
 
 # original research 
 
-our original research and algorithms will be placed in SYN4P5E along existing research for convineance of use. therefore we will keep track of our list of original research here, in chronological order.  
+our original research and algorithms will be placed in synapse along existing research for convineance of use. therefore we will keep track of our list of original research here, in chronological order.  
 
 ## algorithms and probes  
 - SlabConeSAEs  
@@ -75,24 +75,24 @@ our original research and algorithms will be placed in SYN4P5E along existing re
 
 ## theory
 
-original research should build off of interp journey for mech interp and SYN4P5E/algorithms for capability
+original research should build off of interp journey for mech interp and synapse/algorithms for capability
 
 # original models  
 
-our original models and probes will be placed in EV0K3 along foreign models for convineance of use. therefore we will keep track of our original models here.
+our original models and probes will be placed in evoke along foreign models for convineance of use. therefore we will keep track of our original models here.
 
 - PRIMY  
 - PVVR  
 
 # repo division  
 
-SYN4P5E contains all the algorithm, training, peripherals, probes, code. from original and from established research.  
+synapse contains all the algorithm, training, peripherals, probes, code. from original and from established research.  
 
 D4TA5TEPS downloads all the data and benchmarks, stored in data/D4TA5TEPS. this will form a step by step progression guide where if we train on the data and ace the benchmarks the model is good.  
 
-this training will be done in EV0K3. and weights and analysis from probes stored in weights/EV0K3/model_name. both capability and probe will be trained in EV0K3/model_name.    
+this training will be done in evoke. and weights and analysis from probes stored in weights/evoke/model_name. both capability and probe will be trained in evoke/model_name.    
 
-overall this creates a cycle of data(D4TA5TEPS) -> algo (SYN4P5E) -> training and interp (weights)   
+overall this creates a cycle of data(D4TA5TEPS) -> algo (synapse) -> training and interp (weights)   
 
 foreign_models stores weights from other models we can use for a starting point.  
 

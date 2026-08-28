@@ -15,7 +15,7 @@
 
 - code is sacred: quality > dev speed, zero tech debt, as simple as possible.
 - within ~10% of theoretical optimal speed. no major performance mistakes (e.g. converting native data formats to python objects).
-- DRY: import from this monorepo instead of rewriting (ML code imports SYN4P5E algorithms/utils/probes; physicsim imports symbolcore).
+- DRY: import from this monorepo instead of rewriting (ML code imports synapse algorithms/utils/probes; physicsim imports symbolcore).
 - break code into separate files and functions.
 - the only complexity in this codebase should be the models themselves. frontend and backend stay as simple as possible.
 
