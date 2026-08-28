@@ -169,12 +169,6 @@ body {
   font-size: 0.8rem;
 }
 
-#home {
-  color: var(--orange);
-  font-weight: 600;
-  text-decoration: none;
-}
-
 #controls {
   display: flex;
   flex-direction: column;
@@ -224,6 +218,15 @@ body {
   align-items: center;
   background: var(--component);
   border-radius: 8px;
+}
+
+.agent-row:hover {
+  background: var(--lightgray);
+}
+
+/* the ⋮ stays quiet — the row highlight is the feedback */
+.menu-btn:hover {
+  background: none;
 }
 
 .agent-row.active {

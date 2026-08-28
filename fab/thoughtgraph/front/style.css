@@ -20,9 +20,10 @@ fab-board {
 
 /* ---- toolbar ---- */
 
+/* the toolbar starts AFTER the sidebar — the sidebar's border runs the full height and they intersect */
 #toolbar {
   position: absolute;
-  top: 0; left: 0; right: 0;
+  top: 0; left: 220px; right: 0;
   height: 48px;
   display: flex;
   align-items: center;
@@ -58,9 +59,10 @@ fab-board {
 
 /* ---- sidebar ---- */
 
+/* sidebar runs the FULL height now — the hub chip lives at its top */
 #sidebar {
   position: absolute;
-  top: 48px; left: 0; bottom: 0;
+  top: 0; left: 0; bottom: 0;
   width: 220px;
   background: var(--background);
   border-right: 1px solid var(--component);
@@ -76,15 +78,10 @@ fab-board {
   padding: 10px;
 }
 
-/* the one orange way home, same as corechat — :visited must be named or the
-   theme's a:visited paints it blue */
-.home-link, .home-link:visited {
-  color: var(--orange);
-  font-weight: 600;
-  text-decoration: none;
-  font-size: 14px;
+/* the hub chip style lives in TechnoParadisal.css — this is just the sidebar spacing under it */
+.home-link {
+  margin-bottom: 10px;
 }
-.home-link:hover { color: var(--lavender); }
 
 .side-title.collapsible {
   cursor: pointer;

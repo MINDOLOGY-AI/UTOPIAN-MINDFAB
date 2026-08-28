@@ -5,6 +5,7 @@
 :root {
   --background: #1a1a1a;
   --component: #323232;
+  --lightgray: #737373;
   --border: #808080;
   --text: #eff1f5;
 
@@ -54,4 +55,27 @@ a:visited {
 
 a:hover {
   color: var(--lavender);
+}
+
+/* every button everywhere gets the same light-gray hover — you can always tell it's clickable */
+button:hover {
+  background: var(--lightgray);
+}
+
+/* the hub chip: the same small button in the top-left of every page — orange text marks the way home */
+#home, .home-link, #home:visited, .home-link:visited {
+  display: block;
+  width: 4rem;
+  padding: 0.4rem 0;
+  background: var(--component);
+  color: var(--orange);
+  text-align: center;
+  font-weight: 600;
+  border-radius: 8px;
+  text-decoration: none;
+}
+
+#home:hover, .home-link:hover {
+  background: var(--lightgray);
+  color: var(--orange);
 }

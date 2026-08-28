@@ -21,12 +21,6 @@ body {
   flex-shrink: 0;
 }
 
-#home {
-  color: var(--orange);
-  font-weight: 600;
-  text-decoration: none;
-}
-
 #controls {
   display: flex;
   flex-direction: column;

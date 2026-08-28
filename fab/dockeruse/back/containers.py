@@ -194,12 +194,11 @@ def assign(user: str, name: str, agent: str):
         raise ValueError(f"no container named {name!r}")
     if agent not in agent_names(user):
         raise ValueError(f"no agent named {agent!r}")
-    # one agent per computer, one computer per agent
-    if containers[name].get("agent") and containers[name]["agent"] != agent:
-        raise ValueError(f"{name!r} is assigned to {containers[name]['agent']} — unassign it first")
-    holder = container_for_agent(user, agent)
-    if holder and holder != name:
-        raise ValueError(f"{agent!r} already has {holder!r} — unassign that first")
+    # one agent per computer, one computer per agent — reassignment auto-resolves:
+    # the agent's old container loses it, then the target takes the agent
+    for c, e in containers.items():
+        if e.get("agent") == agent:
+            e["agent"] = None
     containers[name]["agent"] = agent
     save(user, containers)
 

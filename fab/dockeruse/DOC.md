@@ -137,7 +137,7 @@ dockeruse's own page, mounted at /dockeruse by hub (`app.mount("/dockeruse", doc
 - **left: container list.** create (name input + add — this does the first boot) and delete (destroy container, workspace untouched — deleting the workspace is a separate explicit confirm) containers here. each row: name, running dot, assigned agent tag. click = select.
 - **middle: the noVNC screen** of the selected container, scaled to fit; placeholder text when paused or unselected.
 - **bottom bar: start / pause** for the selected container (both just reflect `docker ps` state).
-- **right sidebar: assignment** (thoughtgraph-access-panel style slide-in). a dropdown of your agents (from `users/{user}/agents.json`, file level) + assign/unassign for the selected container. assigning a container already held by another agent requires unassigning there first — one agent per computer.
+- **right sidebar: assignment** (thoughtgraph-access-panel style slide-in). one dropdown of your agents (from `users/{user}/agents.json`, file level) with "none" on top — picking assigns instantly, picking none unassigns. reassignment auto-resolves: the agent's old container loses it. one agent per computer, one computer per agent.
 - that's the whole page. no chat (corechat's page), no graph settings (thoughtgraph's panel), no secrets/compute.
 
 REST (plain JSON, no auth, no websocket — the page polls GET /containers on its own tick):
@@ -148,7 +148,7 @@ POST   /containers                   {name}                # create entry (port 
 DELETE /containers/{name}                                    # destroy container; ?workspace=1 also deletes it
 POST   /containers/{name}/start
 POST   /containers/{name}/stop
-POST   /containers/{name}/assign     {agent}               # agent must be free of other containers
+POST   /containers/{name}/assign     {agent}               # reassigning auto-unassigns the agent's old container
 POST   /containers/{name}/unassign
 GET    /agents                                             # corechat agents.json names (+ assignment GC)
 ```

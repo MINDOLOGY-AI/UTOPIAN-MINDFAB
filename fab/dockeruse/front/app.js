@@ -187,7 +187,7 @@ document.getElementById("delete-btn").onclick = async () => {
 
 // ---- right: assignment panel ----
 
-// the assign button toggles — clicking it while open closes the panel
+// the dropdown IS the whole control: pick an agent to assign, "none" to unassign — instant, no buttons
 assignBtn.onclick = async () => {
   if (assignPanel.classList.contains("open")) {
     assignPanel.classList.remove("open");
@@ -198,41 +198,36 @@ assignBtn.onclick = async () => {
   try {
     agents = (await api("GET", "agents")).agents;
   } catch (e) { flash(e.message, true); }
+  renderAssignSelect();
+};
+
+function renderAssignSelect() {
+  const c = sel();
   const select = document.getElementById("agent-select");
   select.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = "none";
+  select.appendChild(none);
   for (const a of agents) {
     const opt = document.createElement("option");
     opt.value = a;
     opt.textContent = a;
     select.appendChild(opt);
   }
-  renderAssignCurrent();
-};
-
-function renderAssignCurrent() {
-  const c = sel();
-  document.getElementById("assign-current").textContent =
-    c && c.agent ? `currently: ${c.agent}` : "currently: nobody";
+  select.value = c && c.agent ? c.agent : "";
 }
 
 document.getElementById("assign-close").onclick = () => assignPanel.classList.remove("open");
 
-document.getElementById("assign-do").onclick = async () => {
-  const agent = document.getElementById("agent-select").value;
-  if (!agent) return;
+document.getElementById("agent-select").onchange = async (e) => {
+  const agent = e.target.value;
   try {
-    await api("POST", `containers/${selected}/assign`, { agent });
+    if (agent) await api("POST", `containers/${selected}/assign`, { agent });
+    else await api("POST", `containers/${selected}/unassign`);
     // refresh FIRST so both the list tag and the panel read the new assignment
     await refresh();
-    renderAssignCurrent();
-  } catch (e) { flash(e.message, true); }
-};
-
-document.getElementById("unassign-do").onclick = async () => {
-  try {
-    await api("POST", `containers/${selected}/unassign`);
-    await refresh();
-    renderAssignCurrent();
+    renderAssignSelect();
   } catch (e) { flash(e.message, true); }
 };
 

@@ -79,8 +79,6 @@ class FabBoard extends HTMLElement {
   build() {
     this.innerHTML = `
       <div id="toolbar">
-        <a href="/" class="home-link" title="back to hub">hub</a>
-        <span class="sep"></span>
         <button id="add-doc">add doc</button>
         <button id="add-folder">add folder</button>
         <button id="add-edge">add edge</button>
@@ -100,6 +98,7 @@ class FabBoard extends HTMLElement {
       </div>
       <div id="sidebar">
         <div class="sidebar-scroll">
+          <a href="/" class="home-link" title="back to hub">hub</a>
           <div class="side-section">
             <div class="side-title">board</div>
             <div class="board-controls">

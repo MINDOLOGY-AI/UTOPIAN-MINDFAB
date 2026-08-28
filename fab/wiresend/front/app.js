@@ -77,16 +77,9 @@ function renderHeader() {
     return;
   }
   const span = document.createElement("span");
-  span.textContent = (ch.dm ? "" : "#") + ch.name +
+  span.textContent = ch.name +
     ` — ${ch.members.map(m => m === USER ? "you" : m).join(", ")}`;
   chatHeader.appendChild(span);
-  // readonly members get a visible tag in the header
-  for (const a of ch.readonly || []) {
-    const tag = document.createElement("span");
-    tag.className = "ro-tag";
-    tag.textContent = `${a}: read-only`;
-    chatHeader.appendChild(tag);
-  }
   const agents = () => ch.members.filter(m => m !== USER);
   if (ch.dm) return;
   // the buttons live on the right side of the header

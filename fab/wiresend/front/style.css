@@ -21,12 +21,6 @@ body {
   flex-shrink: 0;
 }
 
-#home {
-  color: var(--orange);
-  font-weight: 600;
-  text-decoration: none;
-}
-
 button {
   background: var(--component);
   border: none;
@@ -129,11 +123,6 @@ button:disabled {
   cursor: pointer;
   text-align: left;
   font: inherit;
-}
-
-.ro-tag {
-  font-size: 0.65rem;
-  color: var(--orange);
 }
 
 #chat-messages {
