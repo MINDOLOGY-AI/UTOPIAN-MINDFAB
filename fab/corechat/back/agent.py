@@ -97,7 +97,6 @@ class Agent():
             self.save_working_context()
             broadcast({"type": "messages", "name": self.name, "messages": self.working_context,
                        "words": self.count_context_words()}, user=self.user)
-            #copiedFromNeovim
         except Exception:
             logging.exception(f"turn failed for agent {self.name}")
             return

@@ -53,3 +53,19 @@ body {
   background: var(--lightgray);
   color: var(--text);
 }
+
+
+/* phones: orbital covers the whole screen (crop whatever doesn't fit), nav buttons wrap 2-wide */
+@media (max-width: 700px) {
+  body {
+    background: var(--background) url('/orbital.png') center / cover no-repeat fixed;
+  }
+
+  .link-row {
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    flex: 1 1 40%;
+  }
+}

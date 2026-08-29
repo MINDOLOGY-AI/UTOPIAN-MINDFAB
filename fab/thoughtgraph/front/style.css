@@ -5,6 +5,8 @@ html, body {
   padding: 0;
   display: block;
   height: 100%;
+  /* sidebar width: 220px up to ~1450px windows, then grows gently with the screen */
+  --sbw: clamp(220px, 15vw, 320px);
   background: var(--background);
   color: var(--text);
   overflow: hidden;
@@ -23,7 +25,7 @@ fab-board {
 /* the toolbar starts AFTER the sidebar — the sidebar's border runs the full height and they intersect */
 #toolbar {
   position: absolute;
-  top: 0; left: 220px; right: 0;
+  top: 0; left: var(--sbw); right: 0;
   height: 48px;
   display: flex;
   align-items: center;
@@ -34,6 +36,7 @@ fab-board {
   border-bottom: 1px solid var(--component);
   z-index: 30;
   overflow: hidden;
+  transition: left 0.15s;
 }
 
 /* buttons never wrap or squish — selection buttons appearing must not
@@ -63,13 +66,14 @@ fab-board {
 #sidebar {
   position: absolute;
   top: 0; left: 0; bottom: 0;
-  width: 220px;
+  width: var(--sbw);
   background: var(--background);
-  border-right: 1px solid var(--component);
+  border-right: 1px solid var(--lightgray);
   z-index: 20;
   font-size: 12px;
   display: flex;
   flex-direction: column;
+  transition: left 0.15s;
 }
 
 .sidebar-scroll {
@@ -168,10 +172,11 @@ fab-board {
 
 #viewport {
   position: absolute;
-  top: 48px; left: 220px; right: 0; bottom: 0;
+  top: 48px; left: var(--sbw); right: 0; bottom: 0;
   overflow: hidden;
   cursor: grab;
   background: var(--background);
+  transition: left 0.15s;
 }
 #viewport.panning { cursor: grabbing; }
 #viewport.edge-mode { cursor: crosshair; }
@@ -653,3 +658,28 @@ fab-board {
 .acc-preset-row button:disabled,
 .acc-preset-row input:disabled,
 .acc-preset-row select:disabled { opacity: 0.4; cursor: default; }
+
+
+/* sidebar collapse: sidebar slides left, toolbar + viewport reclaim the space */
+body.sidebar-collapsed #sidebar {
+  left: calc(-1 * var(--sbw));
+}
+
+body.sidebar-collapsed #toolbar,
+body.sidebar-collapsed #viewport {
+  left: 0;
+}
+
+/* phones: toolbar + viewport always full width, sidebar overlays above them */
+@media (max-width: 700px) {
+  body {
+    --sbw: min(70vw, 320px);
+  }
+  #toolbar,
+  #viewport {
+    left: 0;
+  }
+  #sidebar {
+    z-index: 40;
+  }
+}

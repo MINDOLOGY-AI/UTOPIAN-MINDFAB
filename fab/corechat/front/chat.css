@@ -159,14 +159,20 @@ body {
 }
 
 #sidebar {
+  /* sidebar width: 160px up to ~1450px windows, then grows gently with the screen */
+  --sbw: clamp(160px, 11vw, 240px);
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  width: 160px;
+  width: var(--sbw);
   height: 100%;
   box-sizing: border-box;
   padding: 0.5rem;
   font-size: 0.8rem;
+  position: relative;
+  flex-shrink: 0;
+  transition: margin-left 0.15s, left 0.15s;
+  border-right: 1px solid var(--lightgray);
 }
 
 #controls {
@@ -426,4 +432,29 @@ body {
 #ctx-input {
   -moz-appearance: textfield;
   appearance: textfield;
+}
+
+
+/* sidebar collapse: negative margin tucks it away, the #side-tab child rides its right edge */
+body.sidebar-collapsed #sidebar {
+  margin-left: calc(-1 * var(--sbw));
+}
+
+/* phones: sidebar becomes a fixed overlay so the chat keeps full width; starts collapsed (sidetab.js) */
+@media (max-width: 700px) {
+  #sidebar {
+    --sbw: min(60vw, 240px);
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    height: auto;
+    z-index: 40;
+    background: var(--background);
+    margin-left: 0;
+  }
+  body.sidebar-collapsed #sidebar {
+    left: calc(-1 * var(--sbw));
+    margin-left: 0;
+  }
 }

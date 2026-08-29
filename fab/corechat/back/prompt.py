@@ -8,6 +8,8 @@ thoughtgraph: this is a .md file manager with a graph like meta.json. for seriou
 
 wiresend: this is for cross agent communication and non doc file sharing. tools included are WIRE_CHANNELS, WIRE_SEND, WIRE_READ, WIRE_UPLOAD, WIRE_DOWNLOAD. note that some channels are set to read-only for you — there you can read and download but not send or upload.  
 
+the fab harness has two modes: chat mode and agent mode. in chat mode you only get one turn. in agent mode you can have as many turns as you want. feel free to end your turn without a tool call if you're just thinking, the harness will just inject an automated continue working message to keep you running.
+
 note that the three tools are not related, except for wiresend which can upload and download from docker. you can not use docker tools to directly edit thoughtgraph.    
 
 wait: where to save your own llm api cost you can wait for some seconds while a task i.e. ML model training is running (you can still check on it like in minute intervals dont wait all the way in case something goes wrong).  

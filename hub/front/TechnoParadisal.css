@@ -15,6 +15,9 @@
   --blue: #81c0e9;
   --orange:#e8bc7e;
   --red: #e77e79;
+
+  /* sidebar collapse tab width */
+  --tabw: clamp(14px, 1.2vw, 20px);
 }
 
 * {
@@ -78,4 +81,44 @@ button:hover {
 #home:hover, .home-link:hover {
   background: var(--lightgray);
   color: var(--orange);
+}
+
+/* sidebar collapse tab: a handle riding the sidebar's right edge (see sidetab.js);
+   pages style the collapsed state themselves */
+#side-tab {
+  position: absolute;
+  right: 0;
+  top: 45%;
+  width: var(--tabw);
+  padding: clamp(10px, 1vw, 16px) 0;
+  background: var(--component);
+  color: var(--border);
+  border-radius: 8px;
+  font-size: clamp(9px, 0.8vw, 12px);
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  z-index: 40;
+  transition: right 0.15s;
+}
+
+/* collapsed: the sidebar is fully gone, the pill stays behind on the screen edge */
+body.sidebar-collapsed #side-tab {
+  right: calc(-1 * var(--tabw));
+}
+
+#side-tab:hover {
+  background: var(--lightgray);
+  color: var(--text);
+}
+
+@media (max-width: 700px) {
+  /* fatter tab for thumbs */
+  :root {
+    --tabw: 8vw;
+  }
+  #side-tab {
+    padding: 4vw 0;
+    font-size: 3.5vw;
+  }
 }
