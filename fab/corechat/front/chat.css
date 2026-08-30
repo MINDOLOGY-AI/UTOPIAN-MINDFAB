@@ -156,11 +156,11 @@ body {
   box-sizing: border-box;
   height: 100vh;
   overflow: hidden;
+  /* sidebar width: 160px up to ~1450px windows, then grows gently with the screen */
+  --sbw: clamp(160px, 11vw, 240px);
 }
 
 #sidebar {
-  /* sidebar width: 160px up to ~1450px windows, then grows gently with the screen */
-  --sbw: clamp(160px, 11vw, 240px);
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -438,12 +438,15 @@ body {
 /* sidebar collapse: negative margin tucks it away, the #side-tab child rides its right edge */
 body.sidebar-collapsed #sidebar {
   margin-left: calc(-1 * var(--sbw));
+  border-right-color: transparent;
 }
 
-/* phones: sidebar becomes a fixed overlay so the chat keeps full width; starts collapsed (sidetab.js) */
+/* phones: sidebar becomes a fixed overlay so the chat keeps full width; starts collapsed (FabSidebar component) */
 @media (max-width: 700px) {
-  #sidebar {
+  body {
     --sbw: min(60vw, 240px);
+  }
+  #sidebar {
     position: fixed;
     top: 0;
     left: 0;
@@ -456,5 +459,6 @@ body.sidebar-collapsed #sidebar {
   body.sidebar-collapsed #sidebar {
     left: calc(-1 * var(--sbw));
     margin-left: 0;
+    border-right-color: transparent;
   }
 }

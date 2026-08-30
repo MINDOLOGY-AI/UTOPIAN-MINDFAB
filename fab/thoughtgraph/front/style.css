@@ -82,9 +82,9 @@ fab-board {
   padding: 10px;
 }
 
-/* the hub chip style lives in TechnoParadisal.css — this is just the sidebar spacing under it */
-.home-link {
-  margin-bottom: 10px;
+/* the hub chip style lives in TechnoParadisal.css — this is just the sidebar inset around it */
+#sidebar > #home {
+  margin: 10px 10px 0;
 }
 
 .side-title.collapsible {
@@ -663,6 +663,7 @@ fab-board {
 /* sidebar collapse: sidebar slides left, toolbar + viewport reclaim the space */
 body.sidebar-collapsed #sidebar {
   left: calc(-1 * var(--sbw));
+  border-right-color: transparent;
 }
 
 body.sidebar-collapsed #toolbar,
@@ -682,4 +683,10 @@ body.sidebar-collapsed #viewport {
   #sidebar {
     z-index: 40;
   }
+}
+
+/* sidebar font is 12px here and the hub chip starts 10px down — keep the tab level with it */
+#side-tab {
+  top: 10px;
+  font-size: 12px;
 }

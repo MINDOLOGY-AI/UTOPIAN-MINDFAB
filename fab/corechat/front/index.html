@@ -9,8 +9,7 @@
   <link rel="stylesheet" href="chat.css">
 </head>
 <body>
-  <nav id="sidebar">
-    <a id="home" href="/">hub</a>
+  <fab-sidebar id="sidebar">
     <div id="controls">
       <input id="new-name" placeholder="agent name" autocomplete="off">
       <button id="create">add</button>
@@ -22,7 +21,7 @@
       <button id="menu-rename">rename</button>
       <button id="menu-delete">delete</button>
     </div>
-  </nav>
+  </fab-sidebar>
   <main id="chat">
     <div id="msgs"></div>
     <div id="attachments"></div>
@@ -62,6 +61,6 @@
   <script src="/components/MarkdownEditor/markdown-it-katex.js"></script>
   <script src="/components/MarkdownEditor/markdown-render.js"></script>
   <script src="chat.js"></script>
-  <script src="/sidetab.js"></script>
+  <script src="/components/FabSidebar/fab-sidebar.js"></script>
 </body>
 </html>

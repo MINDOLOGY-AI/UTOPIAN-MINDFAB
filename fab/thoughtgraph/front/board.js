@@ -96,9 +96,8 @@ class FabBoard extends HTMLElement {
         <button id="access-btn" title="agent access panel">access</button>
         <input type="file" id="upload-input" accept=".zip,application/zip" hidden>
       </div>
-      <div id="sidebar">
+      <fab-sidebar id="sidebar">
         <div class="sidebar-scroll">
-          <a href="/" class="home-link" title="back to hub">hub</a>
           <div class="side-section">
             <div class="side-title">board</div>
             <div class="board-controls">
@@ -135,7 +134,7 @@ class FabBoard extends HTMLElement {
             </div>
           </div>
         </div>
-      </div>
+      </fab-sidebar>
       <div id="viewport">
         <div id="world">
           <div id="grid"></div>

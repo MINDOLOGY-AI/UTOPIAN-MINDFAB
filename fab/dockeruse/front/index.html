@@ -8,14 +8,13 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <nav id="sidebar">
-    <a id="home" href="/">hub</a>
+  <fab-sidebar id="sidebar">
     <div id="controls">
       <input id="new-name" placeholder="container name" autocomplete="off">
       <button id="create">add</button>
     </div>
     <div id="containers"></div>
-  </nav>
+  </fab-sidebar>
   <main id="screen">
     <div id="vnc-placeholder">select a container</div>
     <iframe id="vnc-frame" style="display:none;"></iframe>
@@ -40,6 +39,6 @@
   </aside>
 
   <script src="app.js"></script>
-  <script src="/sidetab.js"></script>
+  <script src="/components/FabSidebar/fab-sidebar.js"></script>
 </body>
 </html>
