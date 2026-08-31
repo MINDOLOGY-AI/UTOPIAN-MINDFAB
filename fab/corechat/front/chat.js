@@ -23,16 +23,16 @@ function mdDiv(text) {
 }
 
 // expanded block for real conversation text (you / assistant)
-function addTextBlock(cssClass, label, text) {
+function addTextBlock(parent, cssClass, label, text) {
   const div = el("div", `msg ${cssClass}`);
   div.appendChild(el("div", "role", label));
   div.appendChild(mdDiv(text));
-  msgs.appendChild(div);
+  parent.appendChild(div);
 }
 
 // thin block for extras (reasoning, tool calls, tool results) — collapsed by default, click anywhere to expand
 // content renders lazily on first expand: md+katex on hundreds of hidden blocks was the slow first load
-function addThinBlock(cssClass, label, text, useMd) {
+function addThinBlock(parent, cssClass, label, text, useMd) {
   const div = el("div", `msg thin ${cssClass}`);
   const roleDiv = el("div", "role", label);
   const contentDiv = el("div", "content collapsed");
@@ -46,18 +46,18 @@ function addThinBlock(cssClass, label, text, useMd) {
   };
   div.appendChild(roleDiv);
   div.appendChild(contentDiv);
-  msgs.appendChild(div);
+  parent.appendChild(div);
 }
 
 let lastDrawn = null; // last message we rendered, optimistic or not
 
-function render(m) {
-  lastDrawn = m;
+function render(m, parent = msgs) {
+  if (parent === msgs) lastDrawn = m; // backfilled prepends are not the tail
   if (m.role === "user") {
     // tool deposits arrive as user messages — render as a thin gray block, not a "you" bubble
     const firstText = m.content.find(b => b.type === "text")?.text || "";
     if (firstText.startsWith("[tool result]")) {
-      addThinBlock("tool", "slow tool return", firstText);
+      addThinBlock(parent, "tool", "slow tool return", firstText);
       return;
     }
     // user content is always content blocks
@@ -73,16 +73,16 @@ function render(m) {
         div.appendChild(img);
       }
     }
-    msgs.appendChild(div);
+    parent.appendChild(div);
   } else if (m.role === "assistant") {
-    if (m.reasoning_content) addThinBlock("reasoning", "reasoning", m.reasoning_content, true);
-    if (m.content) addTextBlock("assistant", "assistant", m.content);
+    if (m.reasoning_content) addThinBlock(parent, "reasoning", "reasoning", m.reasoning_content, true);
+    if (m.content) addTextBlock(parent, "assistant", "assistant", m.content);
     for (const tc of m.tool_calls || []) {
       const fn = tc.function || {};
-      addThinBlock("command", fn.name || "tool", `${fn.name} ${fn.arguments || "{}"}`);
+      addThinBlock(parent, "command", fn.name || "tool", `${fn.name} ${fn.arguments || "{}"}`);
     }
   } else if (m.role === "tool") {
-    addThinBlock("tool", m.name || "tool", typeof m.content === "string" ? m.content : "");
+    addThinBlock(parent, "tool", m.name || "tool", typeof m.content === "string" ? m.content : "");
   }
 }
 
@@ -127,6 +127,7 @@ function renderMeter() {
 
 let rendered = 0;
 let renderGen = 0; // bumped on every messages payload so stale chunk loops stop
+let head = 0; // first drawn index — older history backfills downward from here
 let pendingAttachments = []; // data url strings waiting to be sent
 
 // frontend converts to content blocks: text block plus one image block per pending attachment
@@ -223,7 +224,7 @@ function handleMessage(msg) {
   }
   if (msg.type === "error") {
     // turn died server-side (api error, rate limit, ...) — show it where the reply would be
-    if (msg.name === agent) addThinBlock("tool", "error", msg.msg);
+    if (msg.name === agent) addThinBlock(msgs, "tool", "error", msg.msg);
     return;
   }
   if (msg.type === "messages" && msg.name === agent) {
@@ -233,18 +234,34 @@ function handleMessage(msg) {
       msgs.innerHTML = "";
       rendered = 0;
     }
-    // render in chunks per frame so a long history doesn't freeze the page on load;
-    // a newer payload bumps the generation and the stale chunk loop stops itself
+    // fresh load: only the last 20 render now; older history backfills behind them
+    if (rendered === 0) {
+      head = Math.max(0, msg.messages.length - 20);
+      rendered = head;
+    }
+    // a newer payload bumps the generation and the stale loops stop themselves
     const gen = ++renderGen;
+    // forward loop: append tail messages in chunks of 20 per frame
     const renderChunk = () => {
       if (gen !== renderGen) return;
-      for (let n = 0; n < 10 && rendered < msg.messages.length; n++, rendered++) render(msg.messages[rendered]);
+      for (let n = 0; n < 20 && rendered < msg.messages.length; n++, rendered++) render(msg.messages[rendered]);
       scrollDown();
       if (rendered < msg.messages.length) requestAnimationFrame(renderChunk);
       else {
         contextWords = msg.words;
         renderMeter();
+        requestAnimationFrame(backfill);
       }
+    };
+    // backward loop: prepend older messages in chunks of 20 per frame — content grows above, no scroll jank
+    const backfill = () => {
+      if (gen !== renderGen || head <= 0) return;
+      const holder = document.createElement("div");
+      const stop = Math.max(0, head - 20);
+      for (let i = stop; i < head; i++) render(msg.messages[i], holder);
+      msgs.prepend(...holder.childNodes);
+      head = stop;
+      if (head > 0) requestAnimationFrame(backfill);
     };
     renderChunk();
   }
