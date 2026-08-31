@@ -152,10 +152,14 @@ def agents_payload(user: str) -> dict:
               "agent_mode": mine[n].agent_mode if n in mine else False} for n in names]
     return {"type": "agents", "agents": infos}
 
-#send full context every time — the frontend owns incremental rendering and compression detection
-def messages_payload(user: str, name: str) -> dict:
+# turns broadcast the full context (the frontend owns incremental rendering and compression detection);
+# opening a chat sends only the tail — older history is pulled via the history cmd as it backfills
+def messages_payload(user: str, name: str, tail: bool = False) -> dict:
     agent = get_agent(user, name)
-    return {"type": "messages", "name": name, "messages": agent.working_context, "words": agent.count_context_words()}
+    ctx = agent.working_context
+    start = max(0, len(ctx) - 20) if tail else 0
+    return {"type": "messages", "name": name, "messages": ctx[start:], "words": agent.count_context_words(),
+            "start": start, "total": len(ctx)}
 
 # cmd dispatch, mirrors the frontend's handleMessage
 def handle_message(msg: dict, ws: WebSocket, user: str):
@@ -203,7 +207,15 @@ def handle_message(msg: dict, ws: WebSocket, user: str):
         # a stale tab asking about a deleted agent is a normal race (deleted in another tab), not a bug —
         # don't answer; the agents payload already tells the page it's gone and it redirects itself
         if (agents_dir(user)/msg["name"]).exists():
-            broadcast(messages_payload(user, msg["name"]), client=ws)
+            broadcast(messages_payload(user, msg["name"], tail=True), client=ws)
+
+    elif cmd == "history":
+        # backfill pull: the 20 messages before the index the page has drawn so far
+        agent = get_agent(user, msg["name"])
+        before = min(msg["before"], len(agent.working_context))
+        start = max(0, before - 20)
+        broadcast({"type": "history", "name": msg["name"], "start": start,
+                   "messages": agent.working_context[start:before]}, client=ws)
 
     elif cmd == "chat":
         agent = get_agent(user, msg["name"])

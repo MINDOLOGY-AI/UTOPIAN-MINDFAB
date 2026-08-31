@@ -128,6 +128,7 @@ function renderMeter() {
 let rendered = 0;
 let renderGen = 0; // bumped on every messages payload so stale chunk loops stop
 let head = 0; // first drawn index — older history backfills downward from here
+let pendingHistory = -1; // the generation our in-flight history request was made in
 let pendingAttachments = []; // data url strings waiting to be sent
 
 // frontend converts to content blocks: text block plus one image block per pending attachment
@@ -228,43 +229,49 @@ function handleMessage(msg) {
     return;
   }
   if (msg.type === "messages" && msg.name === agent) {
-    // the drawn tail must match the server's tail — compression, repairs, or mid-context inserts
-    // (optimistic draws make our count unreliable, so compare content, not length)
-    if (rendered > 0 && JSON.stringify(msg.messages[rendered - 1]) !== JSON.stringify(lastDrawn)) {
+    const gen = ++renderGen;
+    const total = msg.start + msg.messages.length; // absolute end index of this payload
+    // incremental append only on full payloads (start 0) when our drawn tail matches the server's tail —
+    // optimistic draws make our count unreliable, so compare content, not length
+    const incremental = msg.start === 0 && rendered > 0 &&
+      JSON.stringify(msg.messages[rendered - 1]) === JSON.stringify(lastDrawn);
+    if (!incremental) {
+      // fresh open or compression reset: draw only the last 20, the rest backfills by pull
       msgs.innerHTML = "";
-      rendered = 0;
-    }
-    // fresh load: only the last 20 render now; older history backfills behind them
-    if (rendered === 0) {
-      head = Math.max(0, msg.messages.length - 20);
+      head = Math.max(0, total - 20);
       rendered = head;
     }
-    // a newer payload bumps the generation and the stale loops stop themselves
-    const gen = ++renderGen;
-    // forward loop: append tail messages in chunks of 20 per frame
+    // forward loop: append in chunks of 20 per frame (rendered/head/total are absolute context indices)
     const renderChunk = () => {
       if (gen !== renderGen) return;
-      for (let n = 0; n < 20 && rendered < msg.messages.length; n++, rendered++) render(msg.messages[rendered]);
+      for (let n = 0; n < 20 && rendered < total; n++, rendered++) render(msg.messages[rendered - msg.start]);
       scrollDown();
-      if (rendered < msg.messages.length) requestAnimationFrame(renderChunk);
+      if (rendered < total) requestAnimationFrame(renderChunk);
       else {
         contextWords = msg.words;
         renderMeter();
-        requestAnimationFrame(backfill);
+        if (head > 0) requestAnimationFrame(backfillStep);
       }
     };
-    // backward loop: prepend older messages in chunks of 20 per frame — content grows above, no scroll jank
-    const backfill = () => {
-      if (gen !== renderGen || head <= 0) return;
-      const holder = document.createElement("div");
-      const stop = Math.max(0, head - 20);
-      for (let i = stop; i < head; i++) render(msg.messages[i], holder);
-      msgs.prepend(...holder.childNodes);
-      head = stop;
-      if (head > 0) requestAnimationFrame(backfill);
-    };
     renderChunk();
+    return;
   }
+  if (msg.type === "history" && msg.name === agent) {
+    // a backfill slice we asked for — stale if a newer messages payload bumped the generation meanwhile
+    if (pendingHistory !== renderGen || msg.start >= head) return;
+    const holder = document.createElement("div");
+    for (const m of msg.messages) render(m, holder);
+    msgs.prepend(...holder.childNodes);
+    head = msg.start;
+    if (head > 0) requestAnimationFrame(backfillStep);
+  }
+}
+
+// pull the 20 messages before the drawn head; the response lands in the history branch above
+function backfillStep() {
+  if (head <= 0) return;
+  pendingHistory = renderGen;
+  sendCmd({ cmd: "history", name: agent, before: head });
 }
 
 function send() {
