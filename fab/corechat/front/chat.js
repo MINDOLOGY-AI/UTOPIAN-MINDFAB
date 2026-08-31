@@ -230,10 +230,12 @@ function handleMessage(msg) {
   }
   if (msg.type === "messages" && msg.name === agent) {
     const gen = ++renderGen;
-    const total = msg.start + msg.messages.length; // absolute end index of this payload
+    // turn broadcasts carry no start — treat them as full payloads from 0
+    const start = msg.start || 0;
+    const total = start + msg.messages.length; // absolute end index of this payload
     // incremental append only on full payloads (start 0) when our drawn tail matches the server's tail —
     // optimistic draws make our count unreliable, so compare content, not length
-    const incremental = msg.start === 0 && rendered > 0 &&
+    const incremental = start === 0 && rendered > 0 &&
       JSON.stringify(msg.messages[rendered - 1]) === JSON.stringify(lastDrawn);
     if (!incremental) {
       // fresh open or compression reset: draw only the last 20, the rest backfills by pull
@@ -244,7 +246,7 @@ function handleMessage(msg) {
     // forward loop: append in chunks of 20 per frame (rendered/head/total are absolute context indices)
     const renderChunk = () => {
       if (gen !== renderGen) return;
-      for (let n = 0; n < 20 && rendered < total; n++, rendered++) render(msg.messages[rendered - msg.start]);
+      for (let n = 0; n < 20 && rendered < total; n++, rendered++) render(msg.messages[rendered - start]);
       scrollDown();
       if (rendered < total) requestAnimationFrame(renderChunk);
       else {

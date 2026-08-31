@@ -4,9 +4,18 @@ the complete interpretability pipeline we run on one model
 we go from simplistic, low abstraction methods gradually to more additional weights, high abstraction methods  
 we can have multiple different methods labeling the same data, so we can cross check them  
 
+# direct label  
+
+here we directly label the actual activations and weights with no external probes. we assume a neuron level view.  
+
+## MLP neuron label
+
+label MLP neuron firing directly. no grouping or training.  
+
+
 # activation block
 
- label activations directly. we need some method of grouping activations into blocks which are units of labeling.  
+ label activations some method of grouping activations into blocks which are units of labeling.  
 
 numerical criteria: sparsity and recon.  
 
@@ -14,9 +23,6 @@ numerical criteria: sparsity and recon.
 
 
 
-# MLP neuron Label
-
-label MLP neuron firing directly. no grouping or training.  
 
 # static analysis
 we run a basic static analysis on activations and weights to gather their average and variance magnitudes.  
