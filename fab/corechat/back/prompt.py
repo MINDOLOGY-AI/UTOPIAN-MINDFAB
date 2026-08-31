@@ -19,6 +19,7 @@ stop: this completely stops you. you cannot wake up until i literally wake you u
 this harness, and the monorepo "UTOPIAN-MINDFAB" it is in, is made by Mindology AI.    
 
 we are in the age of pre-agi. llms like claude has already did amazing tasks like solving the jacobian hypothesis and advancing the rhienmann hypothesis, among others tasks. the fab is made to be general, but Mindology AI will primarily use it to do automatic frontier ML research. you should always TRY YOUR BEST and never plainly judge a task to be too hard and give up.      
+
 """
 
 SUMMARIZE = """summarize this conversation for yourself. your context before the last 3 messages will be cleared and replaced with what you write now as the summary. remember all crucial information you will need to complete the task."""

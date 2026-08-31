@@ -31,12 +31,19 @@ function addTextBlock(cssClass, label, text) {
 }
 
 // thin block for extras (reasoning, tool calls, tool results) — collapsed by default, click anywhere to expand
+// content renders lazily on first expand: md+katex on hundreds of hidden blocks was the slow first load
 function addThinBlock(cssClass, label, text, useMd) {
   const div = el("div", `msg thin ${cssClass}`);
   const roleDiv = el("div", "role", label);
-  const contentDiv = useMd ? mdDiv(text) : el("div", "content", text);
-  contentDiv.classList.add("collapsed");
-  div.onclick = () => contentDiv.classList.toggle("collapsed");
+  const contentDiv = el("div", "content collapsed");
+  div.onclick = () => {
+    if (!contentDiv.dataset.done) {
+      if (useMd) contentDiv.innerHTML = md.render(text);
+      else contentDiv.textContent = text;
+      contentDiv.dataset.done = "1";
+    }
+    contentDiv.classList.toggle("collapsed");
+  };
   div.appendChild(roleDiv);
   div.appendChild(contentDiv);
   msgs.appendChild(div);
@@ -60,6 +67,7 @@ function render(m) {
       if (b.type === "text") div.appendChild(mdDiv(b.text));
       else if (b.type === "image_url") {
         const img = document.createElement("img");
+        img.loading = "lazy"; // decode only when scrolled into view
         img.onload = scrollDown;
         img.src = b.image_url.url;
         div.appendChild(img);
@@ -118,6 +126,7 @@ function renderMeter() {
 }
 
 let rendered = 0;
+let renderGen = 0; // bumped on every messages payload so stale chunk loops stop
 let pendingAttachments = []; // data url strings waiting to be sent
 
 // frontend converts to content blocks: text block plus one image block per pending attachment
@@ -224,10 +233,20 @@ function handleMessage(msg) {
       msgs.innerHTML = "";
       rendered = 0;
     }
-    for (; rendered < msg.messages.length; rendered++) render(msg.messages[rendered]);
-    contextWords = msg.words;
-    renderMeter();
-    scrollDown();
+    // render in chunks per frame so a long history doesn't freeze the page on load;
+    // a newer payload bumps the generation and the stale chunk loop stops itself
+    const gen = ++renderGen;
+    const renderChunk = () => {
+      if (gen !== renderGen) return;
+      for (let n = 0; n < 10 && rendered < msg.messages.length; n++, rendered++) render(msg.messages[rendered]);
+      scrollDown();
+      if (rendered < msg.messages.length) requestAnimationFrame(renderChunk);
+      else {
+        contextWords = msg.words;
+        renderMeter();
+      }
+    };
+    renderChunk();
   }
 }
 
@@ -327,11 +346,11 @@ document.addEventListener("click", (e) => {
 
 // add button: create on the server, then jump to the new chat
 document.getElementById("create").onclick = () => {
-  const nameInput = document.getElementById("new-name");
-  const name = nameInput.value.trim();
-  if (!name) return;
-  sendCmd({ cmd: "create", name: name });
-  location.search = `?agent=${name}`;
+  const name = prompt("agent name:");
+  if (!name || !name.trim()) return;
+  const withDocker = confirm(`also create a docker container named "${name.trim()}" assigned to it?`);
+  sendCmd({ cmd: "create", name: name.trim(), with_docker: withDocker });
+  location.search = `?agent=${name.trim()}`;
 };
 
 // model selector: pick a model or reasoning effort, server rebuilds the agent's model server live

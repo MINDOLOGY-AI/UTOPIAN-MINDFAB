@@ -9,7 +9,7 @@ TRAIN_SPLIT = 0.7
 SHUFFLE_SEED = 42
 WRITE_BATCH = 10_000
 
-TXT_DIR = OUTPUT_DIR  # mind/data/datasteps/txt/interp_dataset
+TXT_DIR = OUTPUT_DIR  # mind/data/datasteps/txt/olmo2_1b_interp_dataset
 OUT_DIR = Path.cwd() / "mind" / "data" / "datasteps" / "tokenized" / "olmo2_1b_interp_dataset"
 
 

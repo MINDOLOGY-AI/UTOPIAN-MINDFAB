@@ -18,6 +18,8 @@
 
   /* sidebar collapse tab width: square, matches the hub chip's height */
   --tabw: clamp(1.76rem, 2.5vw, 2.2rem);
+  /* sidebar width, shared by every app: 180px up to ~1400px windows, then grows gently */
+  --sbw: clamp(180px, 13vw, 260px);
 }
 
 * {
@@ -89,7 +91,7 @@ button:hover {
   position: fixed;
   /* 1rem = body padding + sidebar padding: sits exactly level with the hub chip */
   top: 1rem;
-  left: calc(var(--sbw, 160px) - var(--tabw) - 0.6rem);
+  left: calc(var(--sbw) - var(--tabw) - 0.6rem);
   width: var(--tabw);
   padding: 0.4rem 0;
   background: var(--component);
@@ -107,7 +109,28 @@ body.sidebar-collapsed #side-tab {
   left: 0.6rem;
 }
 
+/* css triangle — phone fonts render the arrow glyphs as emojis, borders don't */
+#side-tab .tri {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-right: 7px solid var(--border);
+}
+
+body.sidebar-collapsed #side-tab .tri {
+  transform: scaleX(-1);
+}
+
 #side-tab:hover {
   background: var(--lightgray);
   color: var(--text);
+}
+
+/* phones: wider sidebar share, since it overlays the page anyway */
+@media (max-width: 700px) {
+  :root {
+    --sbw: min(60vw, 260px);
+  }
 }

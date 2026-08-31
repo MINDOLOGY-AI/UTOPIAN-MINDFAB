@@ -4,10 +4,8 @@ body {
   display: flex;
   margin: 0;
   box-sizing: border-box;
-  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
-  /* sidebar width: 160px up to ~1450px windows, then grows gently with the screen */
-  --sbw: clamp(160px, 11vw, 240px);
 }
 
 /* left: container list */
@@ -26,30 +24,13 @@ body {
   border-right: 1px solid var(--lightgray);
 }
 
-#controls {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-#new-name, #create {
+#create {
   padding: 0.4rem 0.6rem;
   background: var(--component);
   color: var(--text);
   border: none;
   border-radius: 8px;
   font: inherit;
-}
-
-#new-name {
-  min-width: 0;
-}
-
-#new-name:focus {
-  outline: 1px solid var(--text);
-}
-
-#create {
   font-weight: 600;
   cursor: pointer;
 }
@@ -235,9 +216,6 @@ body.sidebar-collapsed #sidebar {
 
 /* phones: sidebar becomes a fixed overlay so the main view keeps full width; starts collapsed (FabSidebar component) */
 @media (max-width: 700px) {
-  body {
-    --sbw: min(60vw, 240px);
-  }
   #sidebar {
     position: fixed;
     top: 0;

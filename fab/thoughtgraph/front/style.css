@@ -5,8 +5,6 @@ html, body {
   padding: 0;
   display: block;
   height: 100%;
-  /* sidebar width: 220px up to ~1450px windows, then grows gently with the screen */
-  --sbw: clamp(220px, 15vw, 320px);
   background: var(--background);
   color: var(--text);
   overflow: hidden;
@@ -15,7 +13,7 @@ html, body {
 fab-board {
   display: block;
   width: 100vw;
-  height: 100vh;
+  height: 100dvh;
   position: relative;
   font-size: 12px;
 }
@@ -47,7 +45,7 @@ fab-board {
 #toolbar .sep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
 
 /* corechat language: borderless lighter-gray rounded chips on the gray background */
-#toolbar button, .popup button, .board-controls button, .type-add button {
+#toolbar button, .popup button, .type-add button {
   background: var(--component);
   color: var(--text);
   border: none;
@@ -70,7 +68,7 @@ fab-board {
   background: var(--background);
   border-right: 1px solid var(--lightgray);
   z-index: 20;
-  font-size: 12px;
+  font-size: 0.8rem;
   display: flex;
   flex-direction: column;
   transition: left 0.15s;
@@ -101,31 +99,65 @@ fab-board {
 .type-body.collapsed { display: none; }
 
 .side-section { margin-bottom: 16px; }
-.side-title { color: var(--border); text-transform: uppercase; letter-spacing: 1px; font-size: 12px; margin: 10px 0 6px; }
+.side-title { color: var(--border); text-transform: uppercase; letter-spacing: 1px; font-size: 0.65rem; margin: 10px 0 6px; }
 
-.board-controls { display: flex; gap: 4px; align-items: center; }
-.board-controls select {
-  flex: 1;
+/* board list: add button + clickable rows with a ⋮ menu, same language as corechat's agent list */
+#new-board {
+  width: 100%;
+  margin-bottom: 4px;
   background: var(--component);
   color: var(--text);
   border: none;
   border-radius: 8px;
   font-family: inherit;
-  font-size: 12px;
-  padding: 3px;
+  font-weight: 600;
+  padding: 0.4rem 0.6rem;
+  cursor: pointer;
+  text-align: center;
 }
-
-/* uniform square buttons — emoji glyphs (🗑) render bigger than text otherwise */
-.board-controls button {
-  width: 26px !important;
-  height: 26px !important;
-  padding: 0 !important;
-  font-size: 12px !important;
-  line-height: 1 !important;
-  display: inline-flex !important;
+.board-row {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
+  background: var(--component);
+  border-radius: 8px;
+  margin-top: 4px;
+}
+.board-row:hover { background: var(--lightgray); }
+.board-row.active { border: 1px solid var(--green); }
+.board-row span {
+  flex: 1;
+  padding: 0.4rem 0.6rem;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board-row .board-menu-btn {
+  background: none;
+  border: none;
+  color: var(--border);
+  cursor: pointer;
+  font-family: inherit;
+  padding-right: 0.6rem;
+}
+/* the ⋮ stays quiet — the row highlight is the feedback */
+.board-row .board-menu-btn:hover { background: none; }
+
+#board-menu {
+  position: fixed;
+  flex-direction: column;
+  background: var(--component);
+  border-radius: 8px;
+  z-index: 50;
+}
+#board-menu button {
+  background: none;
+  border: none;
+  color: var(--text);
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
 }
 
 .type-row {
@@ -163,7 +195,6 @@ fab-board {
   border-radius: 8px;
   color: var(--text);
   font-family: inherit;
-  font-size: 12px;
   padding: 3px 6px;
 }
 .type-add input[type="color"] { width: 22px; height: 22px; border: none; padding: 0; background: none; }
@@ -673,9 +704,6 @@ body.sidebar-collapsed #viewport {
 
 /* phones: toolbar + viewport always full width, sidebar overlays above them */
 @media (max-width: 700px) {
-  body {
-    --sbw: min(70vw, 320px);
-  }
   #toolbar,
   #viewport {
     left: 0;
@@ -685,8 +713,7 @@ body.sidebar-collapsed #viewport {
   }
 }
 
-/* sidebar font is 12px here and the hub chip starts 10px down — keep the tab level with it */
+/* the hub chip starts 10px down in this sidebar — keep the tab level with it */
 #side-tab {
   top: 10px;
-  font-size: 12px;
 }

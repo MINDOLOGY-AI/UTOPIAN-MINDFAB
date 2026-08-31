@@ -65,7 +65,11 @@ body {
     flex-wrap: wrap;
   }
 
+  /* min-width 0 lets buttons shrink so two fit per row; smaller font keeps the text inside */
   .btn {
     flex: 1 1 40%;
+    min-width: 0;
+    font-size: 0.8rem;
+    padding: 0.8rem 0.2rem;
   }
 }

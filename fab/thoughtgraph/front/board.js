@@ -99,13 +99,8 @@ class FabBoard extends HTMLElement {
       <fab-sidebar id="sidebar">
         <div class="sidebar-scroll">
           <div class="side-section">
-            <div class="side-title">board</div>
-            <div class="board-controls">
-              <select id="board-select"></select>
-              <button id="new-board" title="new board">+</button>
-              <button id="rename-board" title="rename board">✎</button>
-              <button id="delete-board" title="delete board">🗑</button>
-            </div>
+            <button id="new-board">+ board</button>
+            <div id="board-list"></div>
           </div>
           <div class="side-section" id="file-view-section">
             <div class="side-title collapsible" data-collapse="file-view-body">file view <span class="caret">▸</span></div>
@@ -133,6 +128,10 @@ class FabBoard extends HTMLElement {
               </div>
             </div>
           </div>
+        </div>
+        <div id="board-menu" style="display:none;">
+          <button id="menu-board-rename">rename</button>
+          <button id="menu-board-delete">delete</button>
         </div>
       </fab-sidebar>
       <div id="viewport">
@@ -197,15 +196,19 @@ class FabBoard extends HTMLElement {
     $("#search-btn").addEventListener("click", () => this.openSearch());
     $("#access-btn").addEventListener("click", () => this.toggleAccess());
     $("#new-board").addEventListener("click", () => this.createBoard());
-    $("#rename-board").addEventListener("click", () => this.renameBoard());
-    $("#delete-board").addEventListener("click", () => this.deleteBoard());
+    $("#menu-board-rename").addEventListener("click", () => this.renameBoard());
+    $("#menu-board-delete").addEventListener("click", () => this.deleteBoard());
+    // click anywhere else closes the board menu
+    document.addEventListener("click", (e) => {
+      const menu = this.querySelector("#board-menu");
+      if (!menu.contains(e.target) && !e.target.classList.contains("board-menu-btn")) menu.style.display = "none";
+    });
     $("#download-board").addEventListener("click", () => this.downloadBoard());
     $("#upload-board").addEventListener("click", () => this.querySelector("#upload-input").click());
     $("#upload-input").addEventListener("change", (e) => {
       if (e.target.files[0]) this.uploadBoard(e.target.files[0]);
       e.target.value = "";
     });
-    $("#board-select").addEventListener("change", (e) => this.initStore(e.target.value));
     $("#create-ok").addEventListener("click", () => this.confirmCreate());
     $("#create-cancel").addEventListener("click", () => this.hidePanel("create-popup"));
     $("#create-title").addEventListener("keydown", (e) => { if (e.key === "Enter") this.confirmCreate(); });
@@ -982,7 +985,7 @@ class FabBoard extends HTMLElement {
   // ---- sidebar ----
 
   renderSidebar() {
-    this.renderBoardSelect();
+    this.renderBoardList();
     this.renderFileView();
     this.renderTypeList("doc");
     this.renderTypeList("edge");
@@ -1020,31 +1023,39 @@ class FabBoard extends HTMLElement {
     walk(null, 0);
   }
 
-  // ---- boards: dropdown + create / rename / upload / download / delete ----
+  // ---- boards: sidebar list + create / rename / upload / download / delete ----
 
-  // refill the dropdown only when it drifted from the current board
-  async renderBoardSelect() {
-    const select = this.querySelector("#board-select");
-    if (select.options.length && select.value === this.store.boardId) return;
-    await this.loadBoards();
-  }
-
-  async loadBoards() {
+  // one row per board; click switches, ⋮ opens the rename/delete menu for that row
+  async renderBoardList() {
     const r = await fetch("boards");
     const data = await r.json();
-    const select = this.querySelector("#board-select");
-    select.innerHTML = "";
+    const list = this.querySelector("#board-list");
+    list.innerHTML = "";
     for (const id of data.boards) {
-      const opt = document.createElement("option");
-      opt.value = id;
-      opt.textContent = id;
-      if (id === this.store.boardId) opt.selected = true;
-      select.appendChild(opt);
+      const row = document.createElement("div");
+      row.className = "board-row" + (id === this.store.boardId ? " active" : "");
+      const label = document.createElement("span");
+      label.textContent = id;
+      label.onclick = () => this.initStore(id);
+      const menuBtn = document.createElement("button");
+      menuBtn.className = "board-menu-btn";
+      menuBtn.textContent = "⋮";
+      menuBtn.onclick = (e) => {
+        e.stopPropagation();
+        const menu = this.querySelector("#board-menu");
+        const reopen = menu.style.display !== "flex" || this.menuBoard !== id;
+        this.menuBoard = id;
+        menu.style.display = reopen ? "flex" : "none";
+        menu.style.left = e.clientX + "px";
+        menu.style.top = e.clientY + "px";
+      };
+      row.append(label, menuBtn);
+      list.appendChild(row);
     }
   }
 
   async createBoard() {
-    const id = prompt("new board name:");
+    const id = (prompt("new board name:") || "").trim();
     if (!id) return;
     const r = await fetch("boards", {
       method: "POST", headers: {"Content-Type": "application/json"},
@@ -1055,7 +1066,7 @@ class FabBoard extends HTMLElement {
   }
 
   async renameBoard() {
-    const oldId = this.store.boardId;
+    const oldId = this.menuBoard;
     const newId = prompt(`rename "${oldId}" to:`, oldId);
     if (!newId || newId === oldId) return;
     const r = await fetch(`boards/${oldId}`, {
@@ -1063,7 +1074,8 @@ class FabBoard extends HTMLElement {
       body: JSON.stringify({board_id: newId}),
     });
     if (!r.ok) return alert("could not rename board");
-    await this.initStore(newId);
+    if (oldId === this.store.boardId) await this.initStore(newId);
+    else await this.renderBoardList();
   }
 
   downloadBoard() {
@@ -1093,12 +1105,13 @@ class FabBoard extends HTMLElement {
     await this.initStore(id);
   }
 
-  // delete the current board, then fall back to main (recreating it if it was the last)
+  // delete the menu-target board; if it was the current one, fall back to main (recreating it if it was the last)
   async deleteBoard() {
-    const id = this.store.boardId;
+    const id = this.menuBoard;
     if (!confirm(`delete board "${id}" and all its nodes permanently?`)) return;
     const r = await fetch(`boards/${id}`, {method: "DELETE"});
     if (!r.ok) return alert("could not delete board");
+    if (id !== this.store.boardId) return this.renderBoardList();
     const listRes = await fetch("boards");
     const remaining = (await listRes.json()).boards || [];
     if (remaining.length) await this.initStore(remaining.includes("main") ? "main" : remaining[0]);

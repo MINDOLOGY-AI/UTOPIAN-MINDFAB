@@ -4,10 +4,8 @@ body {
   display: flex;
   margin: 0;
   box-sizing: border-box;
-  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
-  /* sidebar width: 180px up to ~1500px windows, then grows gently with the screen */
-  --sbw: clamp(180px, 12vw, 260px);
 }
 
 /* left: channels */
@@ -349,9 +347,6 @@ body.sidebar-collapsed #sidebar {
 
 /* phones: sidebar becomes a fixed overlay so the chat keeps full width; header may wrap */
 @media (max-width: 700px) {
-  body {
-    --sbw: min(60vw, 260px);
-  }
   #sidebar {
     position: fixed;
     top: 0;

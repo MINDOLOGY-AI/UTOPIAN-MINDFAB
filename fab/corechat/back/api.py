@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from fab.config import udir
 from fab.corechat.back.agent import Agent
+from fab.dockeruse.back import containers
 from fab.corechat.back.modelserver import ModelServer, KimiModelServer, DeepSeekModelServer
 from fab.corechat.back.websocket import broadcast, clients, start_broadcaster
 from hub.back.auth import COOKIE_NAME, user_for_token
@@ -69,6 +70,14 @@ def create_agent(user: str, name: str) -> Agent:
     mine[name] = Agent(user, name, new_modelserver(meta[name]), meta[name]["context_limit"])
     asyncio.create_task(mine[name].run())
     return mine[name]
+
+# the create cmd's docker add-on: same-named container, assigned to the new agent. the agent stands either way
+def _create_assigned_docker(user: str, name: str):
+    try:
+        containers.create(user, name)
+        containers.assign(user, name, name)
+    except Exception as e:
+        broadcast({"type": "error", "name": name, "msg": f"docker setup failed: {e}"}, user=user)
 
 def rename_agent(user: str, name: str, new_name: str):
     (agents_dir(user)/name).rename(agents_dir(user)/new_name)
@@ -158,6 +167,9 @@ def handle_message(msg: dict, ws: WebSocket, user: str):
     elif cmd == "create":
         create_agent(user, msg["name"])
         broadcast(agents_payload(user), user=user)
+        # optional: a same-named docker, assigned to the new agent — first boot is slow, so thread it
+        if msg.get("with_docker"):
+            asyncio.create_task(asyncio.to_thread(_create_assigned_docker, user, msg["name"]))
 
     elif cmd == "rename":
         rename_agent(user, msg["name"], msg["new_name"])

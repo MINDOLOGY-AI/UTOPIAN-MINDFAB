@@ -6,11 +6,9 @@ class FabSidebar extends HTMLElement {
     // collapse tab: fixed button right of the hub chip, slides to the screen corner on collapse
     const tab = document.createElement("div");
     tab.id = "side-tab";
-    const set = (collapsed) => {
-      document.body.classList.toggle("sidebar-collapsed", collapsed);
-      tab.textContent = collapsed ? "▶" : "◀";
-    };
-    tab.onclick = () => set(!document.body.classList.contains("sidebar-collapsed"));
+    // css triangle: phone fonts render the arrow glyphs as emojis, borders don't
+    tab.innerHTML = '<span class="tri"></span>';
+    tab.onclick = () => document.body.classList.toggle("sidebar-collapsed");
     document.body.appendChild(tab);
     const home = document.createElement("a");
     home.id = "home";
@@ -18,7 +16,7 @@ class FabSidebar extends HTMLElement {
     home.textContent = "hub";
     this.prepend(home);
     // phones start collapsed, bigger screens start expanded
-    set(window.matchMedia("(max-width: 700px)").matches);
+    document.body.classList.toggle("sidebar-collapsed", window.matchMedia("(max-width: 700px)").matches);
   }
 }
 customElements.define("fab-sidebar", FabSidebar);

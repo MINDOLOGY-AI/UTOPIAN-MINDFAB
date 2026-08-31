@@ -1,5 +1,7 @@
 # to do  
 
+- include where workspace is in prompt / start agent in workspace  
+
 - does deposit work for images?
 
 - fix comment style. universally #comment before functions. add to agents.md  

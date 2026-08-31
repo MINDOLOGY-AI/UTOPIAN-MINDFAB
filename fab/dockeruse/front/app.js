@@ -71,10 +71,8 @@ function renderList() {
 }
 
 document.getElementById("create").onclick = async () => {
-  const input = document.getElementById("new-name");
-  const name = input.value.trim();
+  const name = (prompt("container name:") || "").trim();
   if (!name) return;
-  input.value = "";
   // create = entry + first boot: can take a long time if the image needs a build
   flash(`creating ${name}... (first boot can take minutes)`, false);
   try {
