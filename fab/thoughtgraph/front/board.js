@@ -45,7 +45,7 @@ class FabBoard extends HTMLElement {
     this.edgeEls = {};
     this.nodesContainer.innerHTML = "";
     this.svg.querySelectorAll(".edge, .edge-hit, .edge-arrow").forEach(el => el.remove());
-    await this.loadBoards();
+    await this.renderBoardList();
     await this.store.loadTypes();
     await this.store.loadGraph();
   }
