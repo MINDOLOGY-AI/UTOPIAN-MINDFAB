@@ -61,10 +61,32 @@ def handle(user: str, name: str) -> Container:
 
 # ---- docker state (docker ps is the truth, not memory) ----
 
-def running_names() -> set:
-    result = subprocess.run(["docker", "ps", "--format", "{{.Names}}"],
+def daemon_state() -> tuple[set, dict]:
+    # one docker ps for both facts: who's running, and which host port each container really bound to 6080
+    result = subprocess.run(["docker", "ps", "-a", "--format", "{{.Names}} {{.State}} {{.Ports}}"],
                             capture_output=True, text=True)
-    return set(result.stdout.split())
+    running, ports = set(), {}
+    for line in result.stdout.strip().split("\n"):
+        if not line.strip():
+            continue
+        name, _, rest = line.partition(" ")
+        state, _, spec = rest.partition(" ")
+        if state == "running":
+            running.add(name)
+        # spec looks like "127.0.0.1:6081->6080/tcp"
+        for part in spec.split(", "):
+            if "->6080" in part:
+                ports[name] = int(part.rsplit(":", 1)[1].split("->")[0])
+    return running, ports
+
+
+def running_names() -> set:
+    return daemon_state()[0]
+
+
+def daemon_ports() -> dict:
+    # name -> host port actually bound, per the live daemon — the truth when containers.json drifts
+    return daemon_state()[1]
 
 
 def is_running(name: str) -> bool:
@@ -105,8 +127,9 @@ def container_for_agent(user: str, agent_name: str) -> str | None:
 # ---- lifecycle ----
 
 def _next_port() -> int:
-    # ports are host-wide: scan every user's containers.json so two users never collide
-    used = set()
+    # ports are host-wide: scan every user's containers.json so two users never collide,
+    # plus the live daemon so zombie containers from failed creates don't hand out a taken port
+    used = set(daemon_ports().values())
     users_dir = FAB_DIR / "users"
     if users_dir.exists():
         for u in users_dir.iterdir():
@@ -212,7 +235,16 @@ def unassign(user: str, name: str):
 
 
 def list_containers(user: str) -> list:
-    running = running_names()
+    running, live = daemon_state()
+    containers = load(user)
+    # json port drifted from the real binding (failed creates, manual docker runs, old data) — the daemon is the truth
+    changed = False
+    for name, e in containers.items():
+        if name in live and live[name] != e["novnc_port"]:
+            e["novnc_port"] = live[name]
+            changed = True
+    if changed:
+        save(user, containers)
     return [{"name": name, "novnc_port": e["novnc_port"], "agent": e.get("agent"),
              "running": name in running}
-            for name, e in sorted(load(user).items())]
+            for name, e in sorted(containers.items())]
