@@ -34,6 +34,8 @@ would another docker count as local host?
 
 - local computer use. read write edit?? mouse click keyboard screenshot? treat local as just another computer the agent can be assigned to like docker?
 
+- web search for agents: ddgs in the docker image (no account) or tavily api key (1k/month free, no card). GUI chrome clicking is too slow. add a line to prompt.py when done.
+
 - settings page. max tokens. summary tokens.  
 
 - multi user  

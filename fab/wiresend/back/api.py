@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from fab.config import udir
 from fab.wiresend.back import chat, notify
+from fab.wiresend.back.config import MAX_FILE_BYTES
 from hub.back.auth import COOKIE_NAME, user_for_token
 
 FRONT_DIR = Path.cwd() / "fab" / "wiresend" / "front"
@@ -130,12 +131,14 @@ def get_agents(user: str = User):
 @app.post("/chat/{channel_id}/files")
 async def upload_chat_file(channel_id: str, request: Request, user: str = User):
     _ensure_dm_if_touched(user, channel_id)
-    data = await request.body()
-    if not data:
-        raise ValueError("empty file")
     # relative path from query param — supports subdirectories (e.g. ?name=weights/model.pt)
     rel_path = request.query_params.get("name", "file")
-    ref = chat.store_file(user, channel_id, rel_path, data)
+    # the declared length refuses an oversize upload before a single byte is read. it is only
+    # a hint (a client can lie or omit it), so store_stream counts what actually arrives
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_FILE_BYTES:
+        raise ValueError(f"file too large: {declared} bytes (max {MAX_FILE_BYTES})")
+    ref = await chat.store_stream(user, channel_id, rel_path, request.stream())
     msg = chat.append_message(user, channel_id, chat.USER_SENDER, "file", file=ref)
     notify.message_posted(user, channel_id, msg)
     return msg

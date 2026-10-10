@@ -1,14 +1,5 @@
-torch
-
-torchvision
-
-transformers
-
-matplotlib
-
-textual
-
 fastapi
 uvicorn
 httpx
 websockets
+python-dotenv

@@ -12,7 +12,7 @@ import subprocess
 from pathlib import Path
 
 from fab.config import FAB_DIR, udir
-from fab.dockeruse.back.config import du_dir, BASE_PORT, NAME_RE
+from fab.dockeruse.back.config import du_dir, workspace_dir, BASE_PORT, NAME_RE
 from fab.dockeruse.back.container import Container
 
 
@@ -54,7 +54,7 @@ _handles: dict[tuple[str, str], Container] = {}
 def handle(user: str, name: str) -> Container:
     if (user, name) not in _handles:
         entry = load(user)[name]
-        _handles[(user, name)] = Container(name, workspace=du_dir(user) / "workspace" / name,
+        _handles[(user, name)] = Container(name, workspace=workspace_dir(user, name),
                                            novnc_port=entry["novnc_port"])
     return _handles[(user, name)]
 
@@ -117,6 +117,17 @@ def gc_assignments(user: str):
         save(user, containers)
 
 
+# containers store their agent by name — a rename has to follow, or gc_assignments
+# sees a name that no longer exists and silently unassigns the computer
+def rename_agent(user: str, old: str, new: str):
+    containers = load(user)
+    renamed = [e for e in containers.values() if e.get("agent") == old]
+    for e in renamed:
+        e["agent"] = new
+    if renamed:
+        save(user, containers)
+
+
 def container_for_agent(user: str, agent_name: str) -> str | None:
     for name, entry in load(user).items():
         if entry.get("agent") == agent_name:
@@ -170,11 +181,11 @@ def destroy(user: str, name: str, workspace: bool = False):
         raise ValueError(f"no container named {name!r}")
     entry = containers.pop(name)
     save(user, containers)
-    h = _handles.pop((user, name), Container(name, workspace=du_dir(user) / "workspace" / name,
+    h = _handles.pop((user, name), Container(name, workspace=workspace_dir(user, name),
                                              novnc_port=entry["novnc_port"]))
     h.destroy()
     if workspace:
-        ws = du_dir(user) / "workspace" / name
+        ws = workspace_dir(user, name)
         if ws.exists():
             _rmtree_even_root_owned(ws, h.image)
 

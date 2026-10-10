@@ -5,7 +5,7 @@ agents can never create docs — the human owns structure. edges: write on one
 endpoint + at least read on the other. violations raise; commands.dispatch turns
 them into [ERROR] tool results. everything is per-user: agent.user picks the world.'''
 
-from fab.corechat.back.commands import register
+from fab.corechat.back.commands import register, schema
 from fab.thoughtgraph.back import actions, storage
 
 
@@ -124,28 +124,22 @@ _BOARD = {"type": "string", "description": "board name (GMAP lists them)"}
 _REF = {"type": "string", "description": "node title or id"}
 
 
-def _schema(name, description, properties, required):
-    return {"type": "function", "function": {
-        "name": name, "description": description,
-        "parameters": {"type": "object", "properties": properties, "required": required}}}
-
-
-register("GMAP", _schema(
+register("GMAP", schema(
     "GMAP", "list every board and all the docs you can see on each: one line per node as 'path (type)', then all edges between them. call this first to see your world",
     {}, []), _gmap)
 
-register("GREAD", _schema(
+register("GREAD", schema(
     "GREAD", "read one node you have access to: its meta, full markdown content, and connected nodes",
     {"board": _BOARD, "ref": _REF}, ["board", "ref"]), _gread)
 
-register("GEDIT", _schema(
+register("GEDIT", schema(
     "GEDIT", "edit a doc you have write access to: replace one occurrence of old with new (old must occur exactly once — include enough context). on an empty doc, old=\"\" writes new as the full content",
     {"board": _BOARD, "ref": _REF,
      "old": {"type": "string", "description": "exact string to replace, must occur exactly once (\"\" to fill an empty doc)"},
      "new": {"type": "string", "description": "replacement string"}},
     ["board", "ref", "old", "new"]), _gedit)
 
-register("GMETA", _schema(
+register("GMETA", schema(
     "GMETA", "change a node's metadata: rename, retype, move/reparent, expand, color. never touches content. you cannot create nodes",
     {"board": _BOARD, "ref": _REF,
      "title": {"type": "string", "description": "new title (renames the file)"},
@@ -157,11 +151,11 @@ register("GMETA", _schema(
      "color": {"type": "string", "description": "hex color override"}},
     ["board", "ref"]), _gmeta)
 
-register("GDESTROY", _schema(
+register("GDESTROY", schema(
     "GDESTROY", "delete a node you have write access to and its whole subtree — files, nodes, and connected edges. irreversible",
     {"board": _BOARD, "ref": _REF}, ["board", "ref"]), _gdestroy)
 
-register("GLINK", _schema(
+register("GLINK", schema(
     "GLINK", "create a typed edge between two docs (or retype it if it already exists). needs your write access on one endpoint and at least read on the other. edge types live in the board's type registry, e.g. support/reject/causes/training",
     {"board": _BOARD,
      "source": {"type": "string", "description": "source doc title"},
@@ -169,7 +163,7 @@ register("GLINK", _schema(
      "edge_type": {"type": "string", "description": "edge type"}},
     ["board", "source", "target", "edge_type"]), _glink)
 
-register("GDLINK", _schema(
+register("GDLINK", schema(
     "GDLINK", "remove the edge from source to target. same access rule as GLINK",
     {"board": _BOARD,
      "source": {"type": "string", "description": "source doc title"},

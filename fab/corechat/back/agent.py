@@ -47,7 +47,10 @@ class Agent():
     def count_context_words(self) -> int:
         words = 0
         for msg in self.working_context:
-            content = msg["content"]
+            # an assistant message that only makes tool calls carries content: null
+            content = msg.get("content")
+            if not content:
+                continue
             if isinstance(content, str):
                 words += len(content.split())
             else:
@@ -63,12 +66,25 @@ class Agent():
         self.inbox.append({"role": "user", "content": [{"type": "text", "text": f"[tool result] {tool_name}: {result}"}]})
         self.wake.set()
 
-    # fix context before any api call: dangling tool calls get placeholder results (killed mid-dispatch),
-    # and in agent mode a bare assistant ending gets the WORK_MSG nudge
+    # the sole guarantor of a context the api will accept — run after EVERY mutation (inbox drain,
+    # compression). tool calls and tool results must pair up in both directions or the api rejects
+    # the whole request, and in agent mode a bare assistant ending gets the WORK_MSG nudge
     def repair_context(self):
-        answered = {m["tool_call_id"] for m in self.working_context if m["role"] == "tool"}
-        repaired = []
+        # a tool result whose call was never announced above it (compression cut the assistant
+        # message it belonged to) — unpaired, so it goes
+        announced = set()  # {str} — tool_call ids seen so far, in order
+        kept = []          # [dict] — messages whose tool results all have a call above them
         for msg in self.working_context:
+            if msg["role"] == "assistant":
+                announced |= {tc["id"] for tc in msg.get("tool_calls") or []}
+            elif msg["role"] == "tool" and msg["tool_call_id"] not in announced:
+                continue
+            kept.append(msg)
+        # the mirror: an announced call with no result (killed mid-dispatch, interrupted WAIT)
+        # gets a placeholder result
+        answered = {m["tool_call_id"] for m in kept if m["role"] == "tool"}
+        repaired = []
+        for msg in kept:
             repaired.append(msg)
             if msg["role"] == "assistant":
                 for tc in msg.get("tool_calls") or []:
@@ -97,8 +113,11 @@ class Agent():
             self.save_working_context()
             broadcast({"type": "messages", "name": self.name, "messages": self.working_context,
                        "words": self.count_context_words()}, user=self.user)
-        except Exception:
+        except Exception as e:
+            # the frontend renders this where the reply would have been — a dead turn
+            # (api error, rate limit, bad key) must never look like the agent said nothing
             logging.exception(f"turn failed for agent {self.name}")
+            broadcast({"type": "error", "name": self.name, "msg": f"{type(e).__name__}: {e}"}, user=self.user)
             return
         if self.inbox or self.agent_mode:
             self.wake.set()
@@ -125,6 +144,8 @@ class Agent():
             summary_context = [{"role": "system", "content": SUMMARIZE}] + self.working_context[1:]
             # no tools for the summarize call — it must answer in plain text
             summary: dict = await self.model_server.call(summary_context, [])
-            # rebuild from scratch: real system, summary, last 3 real messages
+            # rebuild from scratch: real system, summary, last 3 real messages. the cut can orphan a
+            # tool result from its call — repair_context pairs the seam back up before the api sees it
             self.working_context = [self.working_context[0], summary] + self.working_context[-PRESERVE_LAST:]
+            self.repair_context()
             self.save_working_context()

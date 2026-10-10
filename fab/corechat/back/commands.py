@@ -13,6 +13,13 @@ def register(name: str, schema: dict, handler):
     COMMANDS[name] = {"schema": schema, "handler": handler}
 
 
+# the wire-ready envelope every tool registers with — the one place its shape is written
+def schema(name: str, description: str, properties: dict, required: list | None = None) -> dict:
+    return {"type": "function", "function": {
+        "name": name, "description": description,
+        "parameters": {"type": "object", "properties": properties, "required": required or []}}}
+
+
 # takes the agent and a raw tool_call, returns the finished tool message
 # a bad call becomes an error tool result, never a crashed turn — the model reads it and retries
 async def dispatch(agent, tc: dict) -> dict:
@@ -33,22 +40,15 @@ async def dispatch(agent, tc: dict) -> dict:
     return {"role": "tool", "tool_call_id": tc["id"], "name": name, "content": result}
 
 
+_TEXT = {"type": "string", "description": "any string"}
+
+
 # TEST: echo tool to prove the registry works end to end
 async def _test(args: dict, agent) -> str:
     return f"str received: {args['text']}"
 
-register("TEST", {
-    "type": "function",
-    "function": {
-        "name": "TEST",
-        "description": "echo test tool — returns the string it received",
-        "parameters": {
-            "type": "object",
-            "properties": {"text": {"type": "string", "description": "any string"}},
-            "required": ["text"],
-        },
-    },
-}, _test)
+register("TEST", schema("TEST", "echo test tool — returns the string it received",
+    {"text": _TEXT}, ["text"]), _test)
 
 
 # TEST_SLOW: same echo, but the real result deposits 3s later as a user message
@@ -59,18 +59,9 @@ async def _test_slow(args: dict, agent) -> str:
     asyncio.create_task(work())
     return "[TEST_SLOW running] the real result will arrive as a message"
 
-register("TEST_SLOW", {
-    "type": "function",
-    "function": {
-        "name": "TEST_SLOW",
-        "description": "slow echo test tool — returns a placeholder now, deposits the real echo as a message a few seconds later",
-        "parameters": {
-            "type": "object",
-            "properties": {"text": {"type": "string", "description": "any string"}},
-            "required": ["text"],
-        },
-    },
-}, _test_slow)
+register("TEST_SLOW", schema("TEST_SLOW",
+    "slow echo test tool — returns a placeholder now, deposits the real echo as a message a few seconds later",
+    {"text": _TEXT}, ["text"]), _test_slow)
 
 
 # WAIT: the turn itself sleeps on the wake event — ends on timeout, early on new input, dead on cancel
@@ -86,18 +77,8 @@ async def _wait(args: dict, agent) -> str:
     broadcast({"type": "status", "name": agent.name, "waiting": False}, user=agent.user)
     return result
 
-register("WAIT", {
-    "type": "function",
-    "function": {
-        "name": "WAIT",
-        "description": "wait for N seconds before continuing; ends early if new input arrives",
-        "parameters": {
-            "type": "object",
-            "properties": {"seconds": {"type": "integer", "description": "seconds to wait"}},
-            "required": ["seconds"],
-        },
-    },
-}, _wait)
+register("WAIT", schema("WAIT", "wait for N seconds before continuing; ends early if new input arrives",
+    {"seconds": {"type": "integer", "description": "seconds to wait"}}, ["seconds"]), _wait)
 
 
 # STOP: the model's own exit from agent mode — parks itself, only the user can resume it
@@ -106,14 +87,9 @@ async def _stop(args: dict, agent) -> str:
     broadcast({"type": "agents_changed"}, user=agent.user)
     return "you stopped yourself. only the user can resume you, with the run button."
 
-register("STOP", {
-    "type": "function",
-    "function": {
-        "name": "STOP",
-        "description": "stop working and park yourself. ONLY call this when the task AND its verification are completely done — you cannot restart yourself, only the user can resume you",
-        "parameters": {"type": "object", "properties": {}},
-    },
-}, _stop)
+register("STOP", schema("STOP",
+    "stop working and park yourself. ONLY call this when the task AND its verification are completely done — you cannot restart yourself, only the user can resume you",
+    {}), _stop)
 
 
 # plugin tools self-register on import (kept last: they import register from this module)

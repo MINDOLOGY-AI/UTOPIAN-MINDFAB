@@ -14,6 +14,8 @@ all code, weights, docs here should be sacred. meaningly correct, compressed, un
 
 # file structure  
 
+note: the mind side of the old tree (synapse, datasteps, evoke, interpviz, primy, MINDOLOGY) moved out to the mindology repo. this repo is the fab harness, the hub website, and writing.
+
 UTOPIAN-MINDFAB/  
   PRIMY/  
   pvvr/
@@ -85,6 +87,8 @@ our original models and probes will be placed in evoke along foreign models for 
 - PVVR  
 
 # repo division  
+
+(the mind-side repos described below — synapse, D4TA5TEPS, evoke, intvrpviz, PRIMY — now live in the mindology repo, kept here as the map of what does what.)
 
 synapse contains all the algorithm, training, peripherals, probes, code. from original and from established research.  
 

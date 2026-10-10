@@ -272,6 +272,23 @@ def save_access(user: str, access: dict):
     write_json(tg_dir(user) / "access.json", access)
 
 
+# access is keyed by agent name — a rename has to follow or the agent silently
+# loses every doc grant it had (and the stale entry gets gc'd on the next read)
+def rename_agent(user: str, old: str, new: str):
+    access = load_access(user)
+    if old in access:
+        access[new] = access.pop(old)
+        save_access(user, access)
+
+
+# a deleted agent's grants go with it, rather than lingering until someone opens the page
+def delete_agent(user: str, name: str):
+    access = load_access(user)
+    if name in access:
+        del access[name]
+        save_access(user, access)
+
+
 # ---- presets: {preset_name: access entry} — stamp a standard access pattern onto agents ----
 
 def load_presets(user: str) -> dict:

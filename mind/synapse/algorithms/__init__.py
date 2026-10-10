@@ -1,1 +1,0 @@
-# synapse algorithms package

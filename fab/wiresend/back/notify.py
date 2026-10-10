@@ -8,43 +8,14 @@
 lazy-imports its corechat target inside the function so import order can never
 bite (corechat's commands.py imports wiresend.tools at the bottom of its module).'''
 
-import asyncio
-import json
-
-from fastapi import WebSocket
-
+from fab.websocket import Broadcaster
 from fab.wiresend.back import chat
 
-# one websocket per open page, keyed by user — a user's tabs get their own events, never anyone else's
-clients: dict[str, set[WebSocket]] = {}
+_bus = Broadcaster()
 
-# (json text, target user, target client or None) — one queue, one ordering
-_queue: asyncio.Queue = asyncio.Queue()
-_broadcaster_started = False
-
-
-def broadcast(msg: dict, user: str, client: WebSocket | None = None):
-    _queue.put_nowait((json.dumps(msg), user, client))
-
-
-# called on the first ws connect, when an event loop is guaranteed to exist
-def start_broadcaster():
-    global _broadcaster_started
-    if not _broadcaster_started:
-        _broadcaster_started = True
-        asyncio.create_task(_broadcaster())
-
-
-async def _broadcaster():
-    while True:
-        text, user, target = await _queue.get()
-        for client in list(clients.get(user, ())):
-            if target is not None and client is not target:
-                continue
-            try:
-                await client.send_text(text)
-            except Exception:
-                clients[user].discard(client)  # dead connection
+clients = _bus.clients            # user -> that user's open wiresend sockets
+broadcast = _bus.send
+start_broadcaster = _bus.start
 
 
 # a fresh message in a channel: the user's pages get the full message, loaded member

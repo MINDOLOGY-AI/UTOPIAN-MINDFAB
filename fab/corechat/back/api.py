@@ -13,6 +13,8 @@ from fab.corechat.back.agent import Agent
 from fab.dockeruse.back import containers
 from fab.corechat.back.modelserver import ModelServer, KimiModelServer, DeepSeekModelServer
 from fab.corechat.back.websocket import broadcast, clients, start_broadcaster
+from fab.thoughtgraph.back import storage as thoughtgraph_storage
+from fab.wiresend.back import chat as wiresend_chat
 from hub.back.auth import COOKIE_NAME, user_for_token
 
 # start background tasks once the event loop exists
@@ -90,6 +92,11 @@ def rename_agent(user: str, name: str, new_name: str):
     meta = load_meta(user)
     meta[new_name] = meta.pop(name)
     save_meta(user, meta)
+    # the agent's name is its id in every other module: carry the rename across or it
+    # loses its computer (gc'd as a dead assignment), its channels, and its doc grants
+    containers.rename_agent(user, name, new_name)
+    wiresend_chat.rename_agent(user, name, new_name)
+    thoughtgraph_storage.rename_agent(user, name, new_name)
 
 def delete_agent(user: str, name: str):
     agents.setdefault(user, {}).pop(name, None)
@@ -97,6 +104,12 @@ def delete_agent(user: str, name: str):
     meta = load_meta(user)
     meta.pop(name, None)
     save_meta(user, meta)
+    # every module keys by agent name, so the delete has to reach all three. dockeruse and
+    # thoughtgraph also gc lazily on read, but that leaves the name on disk until someone
+    # happens to open the page — the agent is gone now, so clean up now
+    wiresend_chat.delete_agent(user, name)
+    containers.gc_assignments(user)
+    thoughtgraph_storage.delete_agent(user, name)
 
 def pin_agent(user: str, name: str, pinned: bool):
     meta = load_meta(user)

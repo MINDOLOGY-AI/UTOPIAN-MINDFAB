@@ -131,6 +131,53 @@ def rename_channel(user: str, channel_id: str, name: str):
     save_channels(user, channels)
 
 
+# an agent's name is its identity here: membership, readonly, the DM channel's id and
+# directory, and the read cursors are all keyed by it. a rename has to move all four
+def rename_agent(user: str, old: str, new: str):
+    channels = load_channels(user)
+    for ch in channels.values():
+        ch["members"] = [new if m == old else m for m in ch["members"]]
+        ch["readonly"] = [new if a == old else a for a in ch.get("readonly", [])]
+    old_dm, new_dm = f"dm-{old}", f"dm-{new}"
+    if old_dm in channels:
+        ch = channels.pop(old_dm)
+        ch["id"], ch["name"] = new_dm, new
+        channels[new_dm] = ch
+        old_dir = _dir(user) / old_dm
+        assert old_dir.exists(), f"dm channel {old_dm} has no directory"
+        old_dir.rename(_dir(user) / new_dm)
+    save_channels(user, channels)
+    readers = _load_readers(user)
+    # an agent that never called WIRE_READ has no cursors at all
+    cursors = readers.pop(old, None)
+    if cursors is not None:
+        if old_dm in cursors:
+            cursors[new_dm] = cursors.pop(old_dm)
+        readers[new] = cursors
+        _atomic_write(_dir(user) / "readers.json", readers)
+
+
+# the mirror of rename_agent: a deleted agent drops out of every shared channel it was in.
+# its DM channel is deliberately left whole — messages, files, membership. that history is
+# the user's, and an agent recreated under the same name picks the channel back up
+def delete_agent(user: str, name: str):
+    dm = f"dm-{name}"
+    channels = load_channels(user)
+    for cid, ch in channels.items():
+        if cid == dm:
+            continue
+        ch["members"] = [m for m in ch["members"] if m != name]
+        ch["readonly"] = [a for a in ch.get("readonly", []) if a != name]
+    save_channels(user, channels)
+    readers = _load_readers(user)
+    # the DM's own cursor stays with the channel, so a recreated agent resumes where it left off
+    cursors = readers.get(name, {})
+    kept = {c: ts for c, ts in cursors.items() if c == dm}
+    if cursors != kept:
+        readers[name] = kept
+        _atomic_write(_dir(user) / "readers.json", readers)
+
+
 def is_member(user: str, channel_id: str, name: str) -> bool:
     ch = channel_of(user, channel_id)
     return bool(ch) and name in ch["members"]
@@ -189,17 +236,48 @@ def read_messages(user: str, channel_id: str, limit: int = 50, since_ts: float =
 
 # ---- channel file tree ----
 
-def store_file(user: str, channel_id: str, remote_path: str, data: bytes) -> dict:
-    """Save file bytes into the channel store at the given relative path. Creates parent dirs.
-    Returns the message file ref. remote_path is relative to files/ (e.g. 'weights/model.pt')."""
-    if len(data) > MAX_FILE_BYTES:
-        raise ValueError(f"file too large: {len(data)} bytes (max {MAX_FILE_BYTES})")
+# the two ways bytes land in the store. NEITHER holds a whole file in memory: an upload
+# that arrives over the wire is counted as it streams to disk, and a file already on disk
+# is measured with stat() (no read at all) and copied in chunks. remote_path is relative
+# to files/ (e.g. 'weights/model.pt'); both return the message file ref.
+
+def _dest_for(user: str, channel_id: str, remote_path: str) -> tuple[Path, str]:
     safe = _safe_path(remote_path)
     dest = _dir(user) / channel_id / "files" / safe
     _validate_within(user, channel_id, dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_bytes(data)
-    return {"name": Path(remote_path).name, "size": len(data), "path": safe}
+    return dest, safe
+
+
+async def store_stream(user: str, channel_id: str, remote_path: str, chunks) -> dict:
+    """Write an incoming byte stream straight to disk, counting as it lands."""
+    dest, safe = _dest_for(user, channel_id, remote_path)
+    size = 0
+    try:
+        with open(dest, "wb") as f:
+            async for chunk in chunks:
+                size += len(chunk)
+                # the cap is enforced on what actually arrives, not on a header the client controls
+                if size > MAX_FILE_BYTES:
+                    raise ValueError(f"file too large: over {MAX_FILE_BYTES} bytes")
+                f.write(chunk)
+        if size == 0:
+            raise ValueError("empty file")
+    except Exception:
+        dest.unlink(missing_ok=True)  # a refused upload leaves no half file behind
+        raise
+    return {"name": Path(remote_path).name, "size": size, "path": safe}
+
+
+def store_copy(user: str, channel_id: str, remote_path: str, src: Path) -> dict:
+    """Copy a file that is already on disk (an agent's workspace) into the channel store."""
+    # stat() is the size without reading a byte; copy2 then streams it in chunks
+    size = src.stat().st_size
+    if size > MAX_FILE_BYTES:
+        raise ValueError(f"file too large: {size} bytes (max {MAX_FILE_BYTES})")
+    dest, safe = _dest_for(user, channel_id, remote_path)
+    shutil.copy2(src, dest)
+    return {"name": Path(remote_path).name, "size": size, "path": safe}
 
 
 def channel_file(user: str, channel_id: str, remote_path: str) -> Path:
@@ -226,7 +304,8 @@ def _safe_path(remote_path: str) -> str:
 
 def _validate_within(user: str, channel_id: str, dest: Path):
     base = (_dir(user) / channel_id / "files").resolve()
-    if not str(dest.resolve()).startswith(str(base)):
+    # is_relative_to, not startswith: as strings "/files-old" starts with "/files"
+    if not dest.resolve().is_relative_to(base):
         raise ValueError("path escapes channel files")
 
 

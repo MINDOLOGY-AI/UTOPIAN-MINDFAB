@@ -22,6 +22,7 @@ Usage:
     c.stop()
 """
 
+import shlex
 import shutil
 import subprocess
 import time
@@ -235,7 +236,9 @@ class Container:
 
     def write_file(self, path: str, content: str):
         """Write content to a file inside the container via stdin. No shell escaping needed."""
-        self.run(f"mkdir -p $(dirname '{path}')")
+        # shlex.quote: the path goes through bash here, and a filename with a quote or a
+        # space ("don't.py") would otherwise be reparsed as separate words or commands
+        self.run(f"mkdir -p $(dirname {shlex.quote(path)})")
         subprocess.run(
             # -i: keeps stdin interactive; tee: reads from stdin writes to a file
             ["docker", "exec", "-i", self.name, "tee", path],
@@ -311,7 +314,11 @@ class Container:
     def key(self, combo: str):
         """Press a key combo. e.g. 'Return', 'ctrl+c', 'alt+Tab'."""
         self._mark_term()
-        self.run(f"xdotool key {combo}")
+        # list command here to not go through bash
+        subprocess.run(
+            ["docker", "exec", self.name, "xdotool", "key", combo],
+            capture_output=True,
+        )
 
     def move(self, x: int, y: int):
         """Move mouse to x,y."""

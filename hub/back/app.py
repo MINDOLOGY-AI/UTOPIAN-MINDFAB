@@ -1,4 +1,5 @@
 import logging
+import logging.handlers
 import sys
 from pathlib import Path
 
@@ -9,29 +10,16 @@ project_root = Path.cwd()
 LOG_DIR = FAB_DIR / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-
-class LineLimitedFileHandler(logging.FileHandler):
-    """FileHandler that keeps only the last `max_lines` lines of the log file."""
-
-    def __init__(self, filename: Path, max_lines: int = 500):
-        self.max_lines = max_lines
-        super().__init__(filename)
-
-    def emit(self, record):
-        super().emit(record)
-        with open(self.baseFilename, "r", encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()
-        if len(lines) > self.max_lines:
-            with open(self.baseFilename, "w", encoding="utf-8") as f:
-                f.writelines(lines[-self.max_lines:])
-
+LOG_BYTES = 256 * 1024   # per file; one old file is kept, so the log never exceeds 2x this
 
 logging.basicConfig(
     # flip to DEBUG for library chatter (asyncio, httpx internals)
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     handlers=[
-        LineLimitedFileHandler(LOG_DIR / "app.log"),
+        # rotation checks a cached byte offset per record and only touches the file at the
+        # limit — a line-count cap means reading and rewriting the whole log on every line
+        logging.handlers.RotatingFileHandler(LOG_DIR / "app.log", maxBytes=LOG_BYTES, backupCount=1),
         logging.StreamHandler(sys.stdout),
     ],
 )

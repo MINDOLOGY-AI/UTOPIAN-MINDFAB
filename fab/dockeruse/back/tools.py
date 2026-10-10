@@ -10,11 +10,11 @@ xdotool or screenshot never stalls corechat's event loop for the other agents.''
 
 import asyncio
 import base64
-from pathlib import Path
+import shlex
 
-from fab.corechat.back.commands import register
+from fab.corechat.back.commands import register, schema
 from fab.dockeruse.back import containers
-from fab.dockeruse.back.config import EXEC_TIMEOUT
+from fab.dockeruse.back.config import EXEC_TIMEOUT, workspace_path
 
 # background EXEC tasks, per container name: id -> {command, log, status, exit, task}
 _bg_tasks: dict[str, dict[int, dict]] = {}
@@ -36,32 +36,18 @@ def _computer(user: str, agent_name: str) -> tuple:
 
 # ---- file tools (through docker exec as root, confined to the workspace) ----
 
-def _workspace_path(workspace: Path, file: str) -> Path:
-    # the agent sees its workspace as /home/agent inside the container — accept
-    # those absolute paths too instead of rejecting them as escapes
-    if file == "/home/agent":
-        file = "."
-    elif file.startswith("/home/agent/"):
-        file = file[len("/home/agent/"):]
-    path = (workspace / file).resolve()
-    # cybersec: confine file tools to the container's own workspace — without this the LLM (or a prompt injection) could read/write any file on the host, e.g. ../../.env
-    if not path.is_relative_to(workspace.resolve()):
-        raise ValueError(f"path escapes workspace: {file}")
-    return path
-
-
 def _container_file(c, file: str) -> str:
     # workspace host path -> the same file's path inside the container.
     # ALL file ops go through the container (docker exec as root): the container
     # is the single writer, so ownership is uniform and host-side permission
     # mismatches can't happen.
-    rel = _workspace_path(c.workspace, file).relative_to(c.workspace.resolve())
+    rel = workspace_path(c.workspace, file).relative_to(c.workspace.resolve())
     return f"/home/agent/{rel}"
 
 
 def _read_file(c, args: dict) -> str:
     cpath = _container_file(c, args["file"])
-    if c.run(f"test -e '{cpath}' && echo y").strip() != "y":
+    if c.run(f"test -e {shlex.quote(cpath)} && echo y").strip() != "y":
         return f"[READ {args['file']}] file not found"
     content = c.read_file(cpath)
     lines = content.split("\n")
@@ -74,7 +60,7 @@ def _read_file(c, args: dict) -> str:
 def _edit_file(c, args: dict) -> str:
     file, old, new, which = args["file"], args["old"], args["new"], args["which"]
     cpath = _container_file(c, file)
-    if c.run(f"test -e '{cpath}' && echo y").strip() != "y":
+    if c.run(f"test -e {shlex.quote(cpath)} && echo y").strip() != "y":
         return f"[EDIT {file}] file not found"
     content = c.read_file(cpath)
     count = content.count(old)
@@ -309,57 +295,51 @@ async def _docker_stop(args: dict, agent) -> str:
 
 # ---- schemas (wording copied from old adapter.py COMMANDS) ----
 
-def _schema(name, description, properties, required=None):
-    return {"type": "function", "function": {
-        "name": name, "description": description,
-        "parameters": {"type": "object", "properties": properties, "required": required or []}}}
-
-
 _X = {"type": "integer"}
 _S = {"type": "string"}
 
-register("MOVE", _schema("MOVE", "Move cursor to absolute screen position (pixels).",
+register("MOVE", schema("MOVE", "Move cursor to absolute screen position (pixels).",
     {"x": _X, "y": _X}, ["x", "y"]), _action(lambda c, x, y: c.move(x, y), lambda a: (int(a["x"]), int(a["y"]))))
-register("LCLICK", _schema("LCLICK", "Left click at current cursor position.", {}),
+register("LCLICK", schema("LCLICK", "Left click at current cursor position.", {}),
     _action(lambda c: c.click(1), lambda a: ()))
-register("RCLICK", _schema("RCLICK", "Right click at current cursor position.", {}),
+register("RCLICK", schema("RCLICK", "Right click at current cursor position.", {}),
     _action(lambda c: c.click(3), lambda a: ()))
-register("DCLICK", _schema("DCLICK", "Double-click left mouse at current cursor position.", {}),
+register("DCLICK", schema("DCLICK", "Double-click left mouse at current cursor position.", {}),
     _action(lambda c: c.double_click(), lambda a: ()))
-register("LDOWN", _schema("LDOWN", "Press and hold left mouse button.", {}),
+register("LDOWN", schema("LDOWN", "Press and hold left mouse button.", {}),
     _action(lambda c: c.mousedown(1), lambda a: ()))
-register("LUP", _schema("LUP", "Release left mouse button.", {}),
+register("LUP", schema("LUP", "Release left mouse button.", {}),
     _action(lambda c: c.mouseup(1), lambda a: ()))
-register("RDOWN", _schema("RDOWN", "Press and hold right mouse button.", {}),
+register("RDOWN", schema("RDOWN", "Press and hold right mouse button.", {}),
     _action(lambda c: c.mousedown(3), lambda a: ()))
-register("RUP", _schema("RUP", "Release right mouse button.", {}),
+register("RUP", schema("RUP", "Release right mouse button.", {}),
     _action(lambda c: c.mouseup(3), lambda a: ()))
-register("SCROLLUP", _schema("SCROLLUP", "Scroll up in the active window.", {}),
+register("SCROLLUP", schema("SCROLLUP", "Scroll up in the active window.", {}),
     _action(lambda c: c.scroll("up"), lambda a: ()))
-register("SCROLLDOWN", _schema("SCROLLDOWN", "Scroll down in the active window.", {}),
+register("SCROLLDOWN", schema("SCROLLDOWN", "Scroll down in the active window.", {}),
     _action(lambda c: c.scroll("down"), lambda a: ()))
 
-register("TYPE", _schema("TYPE", "Type literal text via keyboard. No escaping needed.",
+register("TYPE", schema("TYPE", "Type literal text via keyboard. No escaping needed.",
     {"text": _S}, ["text"]), _action(lambda c, t: c.type_text(t), lambda a: (a.get("text", ""),)))
-register("KEY", _schema("KEY", "Press a key combo. Each entry is one X11 keysym (Return, BackSpace, Tab, Escape, Delete, Up, Down, Left, Right, ctrl, shift, alt, etc.). All keys are pressed together.",
+register("KEY", schema("KEY", "Press a key combo. Each entry is one X11 keysym (Return, BackSpace, Tab, Escape, Delete, Up, Down, Left, Right, ctrl, shift, alt, etc.). All keys are pressed together.",
     {"keys": {"type": "array", "items": _S}}, ["keys"]),
     _action(lambda c, k: c.key(k), lambda a: ("+".join(a.get("keys", [])),)))
 
-register("LOOK", _schema("LOOK", "Take a screenshot and return it as the tool_result.", {}), _look)
-register("TERM", _schema("TERM", "Return the last 5000 chars of terminal output (full log, including history).", {}), _term)
-register("TERM_LAST_COMMAND", _schema("TERM_LAST_COMMAND", "Return only terminal output since your last keyboard command (TYPE/KEY). Use this to see what a command printed without getting old output mixed in.", {}), _term_last_command)
+register("LOOK", schema("LOOK", "Take a screenshot and return it as the tool_result.", {}), _look)
+register("TERM", schema("TERM", "Return the last 5000 chars of terminal output (full log, including history).", {}), _term)
+register("TERM_LAST_COMMAND", schema("TERM_LAST_COMMAND", "Return only terminal output since your last keyboard command (TYPE/KEY). Use this to see what a command printed without getting old output mixed in.", {}), _term_last_command)
 
-register("EXEC", _schema("EXEC", "Run a shell command directly inside your docker container. Returns stdout+stderr. Use this for ALL terminal work (ls, pip install, git, python, curl, etc.) — do NOT TYPE commands into the terminal. Foreground calls have a 30s limit: over that the command is NOT killed — it's moved to a background task (you get an id + log path) and you're notified when it finishes. For long jobs (training, downloads, big installs) pass background:true from the start. Output is also logged to term.log so the user can see it in the VNC terminal later.",
+register("EXEC", schema("EXEC", "Run a shell command directly inside your docker container. Returns stdout+stderr. Use this for ALL terminal work (ls, pip install, git, python, curl, etc.) — do NOT TYPE commands into the terminal. Foreground calls have a 30s limit: over that the command is NOT killed — it's moved to a background task (you get an id + log path) and you're notified when it finishes. For long jobs (training, downloads, big installs) pass background:true from the start. Output is also logged to term.log so the user can see it in the VNC terminal later.",
     {"command": _S, "background": {"type": "boolean"}}, ["command"]), _exec)
-register("TASKS", _schema("TASKS", "List your background EXEC tasks: id, status (running/done), exit code, command, log path.", {}), _tasks)
+register("TASKS", schema("TASKS", "List your background EXEC tasks: id, status (running/done), exit code, command, log path.", {}), _tasks)
 
-register("READ", _schema("READ", "Read file in workspace with line numbers. Optional 1-indexed start/end.",
+register("READ", schema("READ", "Read file in workspace with line numbers. Optional 1-indexed start/end.",
     {"file": _S, "start": _X, "end": _X}, ["file"]), _read)
-register("WRITE", _schema("WRITE", "Overwrite a file in workspace with content. No escaping needed.",
+register("WRITE", schema("WRITE", "Overwrite a file in workspace with content. No escaping needed.",
     {"file": _S, "content": _S}, ["file", "content"]), _write)
-register("EDIT", _schema("EDIT", "Replace text in a workspace file. 'which' is '0','1',... (0-indexed occurrence) or 'all'.",
+register("EDIT", schema("EDIT", "Replace text in a workspace file. 'which' is '0','1',... (0-indexed occurrence) or 'all'.",
     {"file": _S, "old": _S, "new": _S, "which": _S}, ["file", "old", "new", "which"]), _edit)
 
-register("DOCKER_STATUS", _schema("DOCKER_STATUS", "Show your assigned computer: its name and whether it is running or paused — or that you have no docker assigned.", {}), _docker_status)
-register("DOCKER_START", _schema("DOCKER_START", "Resume your assigned computer (it keeps all its state and installed packages). Only resumes — the user creates computers on the dockeruse page. Errors if you have no docker assigned or it was never created.", {}), _docker_start)
-register("DOCKER_STOP", _schema("DOCKER_STOP", "Pause your assigned computer when you no longer need it, to save resources. State is preserved — DOCKER_START resumes it in seconds.", {}), _docker_stop)
+register("DOCKER_STATUS", schema("DOCKER_STATUS", "Show your assigned computer: its name and whether it is running or paused — or that you have no docker assigned.", {}), _docker_status)
+register("DOCKER_START", schema("DOCKER_START", "Resume your assigned computer (it keeps all its state and installed packages). Only resumes — the user creates computers on the dockeruse page. Errors if you have no docker assigned or it was never created.", {}), _docker_start)
+register("DOCKER_STOP", schema("DOCKER_STOP", "Pause your assigned computer when you no longer need it, to save resources. State is preserved — DOCKER_START resumes it in seconds.", {}), _docker_stop)
