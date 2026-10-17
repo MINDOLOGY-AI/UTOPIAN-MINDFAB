@@ -57,10 +57,10 @@ def login_page():
     return FileResponse(hub_front / "login.html")
 
 
-# auth gate: everything needs a session except the login page, its assets, and the auth routes
+# auth gate: everything needs a session except the landing page, the login page, their assets, and the auth routes
 # (websockets are NOT covered here — the ws endpoints check the cookie themselves)
 def _public(path: str) -> bool:
-    return path == "/login" or path.startswith("/auth/") or path in ("/TechnoParadisal.css", "/hub.css", "/orbital.png")
+    return path == "/login" or path.startswith("/auth/") or path in ("/", "/index.html", "/TechnoParadisal.css", "/hub.css", "/orbital.png")
 
 @app.middleware("http")
 async def auth_gate(request: Request, call_next):

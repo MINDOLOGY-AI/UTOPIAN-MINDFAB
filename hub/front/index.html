@@ -24,17 +24,25 @@
       <a class="btn" href="/thoughtgraph/">thoughtgraph</a>
       <a class="btn" href="/wiresend/">wiresend</a>
     </div>
-    <p class="repo-note" id="who-line"><span id="who"></span> · <a href="#" id="logout">logout</a></p>
+    <!-- logged out: login link. logged in: who you are + logout -->
+    <p class="repo-note" id="who-line">
+      <a href="/login" id="login">login</a>
+      <span id="session" hidden><span id="who"></span> · <a href="#" id="logout">logout</a></span>
+    </p>
   </main>
 
   <style>
-    /* who you are + logout: bottom right, out of the way */
-    #who-line { position: fixed; bottom: 1rem; right: 1rem; margin: 0; }
+    /* account line: top right, where visitors look for login */
+    #who-line { position: fixed; top: 1rem; right: 1rem; margin: 0; }
   </style>
 
   <script>
-    fetch("/auth/me").then(r => r.ok ? r.json() : Promise.reject()).then(d => {
+    // the landing page is public — /auth/me 401s for visitors, who keep the login link
+    fetch("/auth/me").then(r => r.ok ? r.json() : null).then(d => {
+      if (!d) return;
       document.getElementById("who").textContent = d.user;
+      document.getElementById("login").hidden = true;
+      document.getElementById("session").hidden = false;
     });
     document.getElementById("logout").onclick = async (e) => {
       e.preventDefault();

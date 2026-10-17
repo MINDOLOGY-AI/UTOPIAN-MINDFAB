@@ -18,14 +18,14 @@ USER = "tester"
 # ---- the gate ----
 
 def test_pages_redirect_and_api_calls_401_without_a_session(client):
-    r = client.get("/", headers={"accept": "text/html"}, follow_redirects=False)
+    r = client.get("/corechat/", headers={"accept": "text/html"}, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/login"
     assert client.get("/thoughtgraph/boards").status_code == 401
     assert client.get("/auth/me").status_code == 401
 
 
-@pytest.mark.parametrize("path", ["/login", "/TechnoParadisal.css", "/hub.css", "/orbital.png"])
-def test_the_login_page_and_its_assets_are_public(client, path):
+@pytest.mark.parametrize("path", ["/", "/index.html", "/login", "/TechnoParadisal.css", "/hub.css", "/orbital.png"])
+def test_the_landing_and_login_pages_and_their_assets_are_public(client, path):
     assert client.get(path).status_code == 200
 
 
