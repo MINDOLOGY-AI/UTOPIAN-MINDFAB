@@ -1,123 +1,46 @@
 # UTOPIAN-MINDFAB
 
-the monorepo of MINDOLOGY AI.  
+the harness and website of MINDOLOGY AI, live at [mindologyai.com](https://mindologyai.com).
 
-by utopians, *for* utopians  
+by utopians, *for* utopians. our focus is understanding the mind, and fabbing (producing) the mind (primy, silicon agi) that will help steer the world towards utopia. mind is also what the Culture series calls its ASIs.
 
-get it? it's coded by utopians, for making utopians, which will then improve this to make the next generation of utopians  
+all code, weights, docs here should be sacred: correct, compressed, understood. vibecoding without understanding is not allowed — a good test is whether you could rewrite it from scratch yourself. the worst code is the unwritten one.
 
-the reason for this name, is our focus is on understanding the mind, and we want to fab (produce) the mind (primy, silicon agi) that will help steer the world towards utopia. mind is also a name used in the Culture series to describe their ASI.  
+the ML research (synapse, datasteps, evoke, interpviz, primy, SlabConeSAEs) lives in the separate mindology repo.
 
-the website is hosted on mindologyai.com. read about our utopian idealogy in the writing/propoganda section, theory and notes about mindology in the company public TH0UGHTGR4PH link. 
+# structure
 
-all code, weights, docs here should be sacred. meaningly correct, compressed, understood, written as well as possible. vibecoding without understanding is not allowed. a good test is whehter you would be able to rewrite it from scratch in a short time yourself. of course, the worst code is the unwritten one. be optimal!  
+```
+fab/              ai harness — computer use, graph memory, chat. see fab/README.md, fab/DOC.md
+  corechat/       agent loop, model adapters (kimi, deepseek), context compression
+  dockeruse/      agent sandboxes: docker + xvfb + noVNC desktop, bash/read/write/edit tools
+  thoughtgraph/   graph memory as a plain folder of markdown, canvas editor
+  wiresend/       chat channels + file sharing between users and agents
+  workflow/       (empty)
+hub/              the website: fastapi app that mounts every fab module, auth, landing page
+  back/           app.py (entry), auth.py (users, sessions, rate limits)
+  front/          html/css/js, TechnoParadisal.css, web components
+  test/           pytest per module + e2e
+writing/          essays (gitignored, WIP)
+```
 
-# file structure  
+all runtime data lives in `~/.fab/`: `auth/`, `logs/`, and `users/{user}/{module}/`.
 
-note: the mind side of the old tree (synapse, datasteps, evoke, interpviz, primy, MINDOLOGY) moved out to the mindology repo. this repo is the fab harness, the hub website, and writing.
+# run
 
-UTOPIAN-MINDFAB/  
-  PRIMY/  
-  pvvr/
+```bash
+# .env at repo root: MOONSHOT_API_KEY, DEEPSEEK_API_KEY, OPENROUTER_API_KEY
+python -m venv venv && venv/bin/pip install -r requirements.txt
+bash fab/dockeruse/build_docker.sh     # builds the fab_sandbox image, ~10 GB, run in tmux
+venv/bin/python -m hub.back.app        # http://localhost:2121
+venv/bin/pytest hub/test
+```
 
-  MINDOLOGY/  
-  synapse/  
-    curriculum-train/  
-  D4TA5TEPS/  
-  bvnch/  
+# deploy
 
-  INT3RF4CE/  
-  intvrpviz/  
-  
-  (second stage, not my field, just learn the basics)  
-  svmbolcore/  
-  phvsicsim/  
+AWS ap-northeast-1, m7i.xlarge, Ubuntu 26.04, repo at `~/UTOPIAN-MINDFAB`.
 
-  (second stage, not my field, just learn the basics)  
-  vectra/  
-  nanopara/  
-  robotics/
+- `fab.service` (systemd) runs uvicorn on `127.0.0.1:2121`, restarts on crash and boot
+- caddy (`/etc/caddy/Caddyfile`) serves mindologyai.com with auto HTTPS, redirects www
 
-  augment/  
-    tvdo/  
-    loc/
-    TH0UGHTGR4PH/
-    codeflow/
-
-  evoke/  
-    interp/  
-    capability/  
-    fun/  
-
-  workstation/
-    neovim-config/  
-    scripts/  
-    .bashrc  
-
-  foreign-models/  
-    qwen3_5-4b/  
-
-  hub/
-
-  README.md
-  thoughts/
-  writing/
-    UTOP/A.md  
-
-  venv/
-  requirements.txt  
-
-# original research 
-
-our original research and algorithms will be placed in synapse along existing research for convineance of use. therefore we will keep track of our list of original research here, in chronological order.  
-
-## algorithms and probes  
-- SlabConeSAEs  
-
-
-## theory
-
-original research should build off of interp journey for mech interp and synapse/algorithms for capability
-
-# original models  
-
-our original models and probes will be placed in evoke along foreign models for convineance of use. therefore we will keep track of our original models here.
-
-- PRIMY  
-- PVVR  
-
-# repo division  
-
-(the mind-side repos described below — synapse, D4TA5TEPS, evoke, intvrpviz, PRIMY — now live in the mindology repo, kept here as the map of what does what.)
-
-synapse contains all the algorithm, training, peripherals, probes, code. from original and from established research.  
-
-D4TA5TEPS downloads all the data and benchmarks, stored in data/D4TA5TEPS. this will form a step by step progression guide where if we train on the data and ace the benchmarks the model is good.  
-
-this training will be done in evoke. and weights and analysis from probes stored in weights/evoke/model_name. both capability and probe will be trained in evoke/model_name.    
-
-overall this creates a cycle of data(D4TA5TEPS) -> algo (synapse) -> training and interp (weights)   
-
-foreign_models stores weights from other models we can use for a starting point.  
-
-after models are trained, when we want to inference it or chat with it we can do so in INT3RF4CE. and it can use repos in augment to collobrate with us or each other.  
-
-intvrpviz will allow us to visually interpret it with trained probes.  
-
-symbolic computation will be in svmbolcore and TH0UGHTGR4PH which can simutaneously be training data, tool calls, and learning opportunities.  
-
-# publication and monetization  
-
-there shouhld be a version i can serve and sell on rented servers.  
-
-no dev branch. i will register as a user. maybe in late stages need like different user levels some models not allowed etc but lol not now.  
-
-
-# later stage things not included yet  
-
-large model training  
-alignment and post training  
-web security of containers  
-serious robotics  
-serious physics sims  
-
+update: `ssh -A ubuntu@<ip>`, then `cd ~/UTOPIAN-MINDFAB && git pull && sudo systemctl restart fab`.
